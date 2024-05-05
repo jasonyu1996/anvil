@@ -37,10 +37,25 @@ type message_def = {
 (* expressions *)
 
 type bit = Zero | One
+
+let string_of_bit (b : bit) : string =
+  match b with
+  | Zero -> "0"
+  | One -> "1"
+
 type literal = bit list
 
 type binop = Add | Sub | Xor | And | Or
-type unop  = Neg | Not
+type unop  = Neg | Not | AndAll | OrAll
+
+(* TODO: these are SV-specific; move elsewhere *)
+let string_of_binop (binop: binop) : string =
+  match binop with
+  | Add -> "+"
+  | Sub -> "-"
+  | Xor -> "^"
+  | And -> "&"
+  | Or -> "|"
 
 type expr =
   | Literal of literal

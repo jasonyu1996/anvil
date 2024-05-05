@@ -11,7 +11,7 @@ let () =
       regs = [
         { name = "counter"; dtype = Array (Logic, 10)}
       ];
-      body = EmptyProcBody
+      body = Seq (Identifier "counter", EmptyProcBody)
     } in
     let proc2 : proc_def = {
       name = "mod2";
