@@ -1,0 +1,4 @@
+(executable
+ (public_name anvil)
+ (name main)
+ (libraries anvil))
