@@ -9,6 +9,8 @@ type port_def = {
 type wire_id = int
 type cycle_id = int
 
+type expr_result = (wire_id * data_type) list
+
 type wire_def = {
   id: wire_id;
   dtype: data_type;
@@ -17,25 +19,32 @@ type wire_def = {
 type cycle_node = {
   id: cycle_id;
   out_wires: wire_id list; (* the output of the cycle *)
-  next_switch: (wire_id * cycle_id) list;
-  next_default: cycle_id;
+  next_switch: (wire_id * (cycle_id option)) list;
+  next_default: cycle_id option;
 }
+
+type assign = {
+  wire : wire_id;
+  expr_str : string;
+}
+
 
 type codegen_context = {
   mutable wires: wire_def list;
   mutable wires_n: int;
   mutable cycles: cycle_node list;
   mutable cycles_n: int;
+  mutable assigns: assign list;
+  mutable first_cycle: int;
   msgs: (identifier * (message_def list)) list;
 }
-
-type expr_result = (wire_id * data_type) list
 
 let codegen_context_proc_clear (ctx : codegen_context) =
   ctx.wires <- [];
   ctx.wires_n <- 0;
   ctx.cycles <- [];
-  ctx.cycles_n <- 0
+  ctx.cycles_n <- 0;
+  ctx.assigns <- []
 
 let codegen_context_new_wire (ctx: codegen_context) (dtype : data_type) : wire_id =
   let id = ctx.wires_n in
@@ -50,12 +59,17 @@ let codegen_context_new_cycle (ctx : codegen_context) (c : cycle_node) : cycle_i
   ctx.cycles <- c'::ctx.cycles;
   id
 
+let codegen_context_new_assign (ctx : codegen_context) (a : assign) =
+  ctx.assigns <- a::ctx.assigns
+
 let rec format_dtype_split dtype =
   match dtype with
   | Logic -> ("logic", "")
+  | Type typename -> (typename, "")
   | Array (dtype', n) ->
       let (base, arrs) = format_dtype_split dtype' in
-      (base, "[" ^ (string_of_int n) ^ "]" ^ arrs)
+      let idx = Printf.sprintf "[%d:0]" (n - 1) in
+      (base, idx ^ arrs)
 
 let format_dtype dtype =
   let (base, arrs) = format_dtype_split dtype
@@ -109,7 +123,8 @@ let codegen_state_transition (regs : reg_def list) =
     print_endline "  always_ff @(posedge clk_i or negedge rst_ni) begin: state_transition";
     print_endline "    if (~rst_ni) begin";
     let codegen_reg_reset = fun (r: reg_def) ->
-      Printf.printf "      %s <= '0;\n" (format_regname_current r.name)
+      let init_val_str = Option.value ~default:"'0" r.init in
+      Printf.printf "      %s <= %s;\n" (format_regname_current r.name) init_val_str
     in List.iter codegen_reg_reset regs;
     print_endline "    end else begin";
     let codegen_reg_next = fun (r: reg_def) ->
@@ -125,10 +140,11 @@ let codegen_regs_declare (regs : reg_def list) =
       (format_regname_current r.name) (format_regname_next r.name)
   in List.iter codegen_reg regs
 
-let format_wirename (id : wire_id) : string = "wire" ^ string_of_int(id)
+let format_wirename (id : wire_id) : string = "wire" ^ (string_of_int id)
+let format_statename (id : cycle_id) : string = "STATE" ^ (string_of_int id)
 
-let print_assign (wire_id : wire_id) (expr_str : string) =
-  Printf.printf "  assign %s = %s;\n" (format_wirename wire_id) expr_str
+let print_assign (a : assign) =
+  Printf.printf "  assign %s = %s;\n" (format_wirename a.wire) a.expr_str
 
 let string_of_literal (lit : literal) : string =
   let len = List.length lit in
@@ -145,13 +161,13 @@ let rec codegen_expr (ctx : codegen_context) (proc : proc_def) (e : expr) : expr
   | Literal lit ->
       let dtype = Array (Logic, List.length lit) in
       let id = codegen_context_new_wire ctx dtype in
-      print_assign id (string_of_literal lit);
+      codegen_context_new_assign ctx {wire = id; expr_str = string_of_literal lit};
       [(id, dtype)]
   | Identifier ident ->
       (* only supports registers for now *)
       let dtype = Option.get (get_identifier_dtype ctx proc ident) in
       let id = codegen_context_new_wire ctx dtype in
-      print_assign id (format_regname_current ident);
+      codegen_context_new_assign ctx {wire = id; expr_str = format_regname_current ident};
       [(id, dtype)]
   | Function _  -> []
   | Send _ -> []
@@ -165,8 +181,9 @@ let rec codegen_expr (ctx : codegen_context) (proc : proc_def) (e : expr) : expr
           if dtype1 = dtype2 then
             let id = codegen_context_new_wire ctx dtype1 in
             let expr_str = Printf.sprintf "%s %s %s"
-              (format_wirename id1) (string_of_binop binop) (format_wirename id2) in
-            print_assign id expr_str;
+              (format_wirename id1) (string_of_binop binop) (format_wirename
+              id2) in
+            codegen_context_new_assign ctx {wire = id; expr_str = expr_str};
             [(id, dtype1)]
           else []
       | _ -> [])
@@ -175,23 +192,82 @@ let rec codegen_expr (ctx : codegen_context) (proc : proc_def) (e : expr) : expr
   | LetIn _ -> []
   | IfExpr _ -> []
 
-let codegen_cycle (ctx : codegen_context) (proc : proc_def) (e : expr) =
-  let _id = ctx.cycles_n in (* cycle id *)
-  let _ = codegen_expr ctx proc e in ()
-  (* TODO *)
 
-let rec codegen_proc_body (ctx : codegen_context) (proc : proc_def) (proc_body : proc_body) =
+let rec codegen_proc_body (ctx : codegen_context) (proc : proc_def) (proc_body : proc_body) : cycle_id option =
   (* TODO *)
   match proc_body with
-  | EmptyProcBody -> ()
-  | Seq (e, next) -> codegen_cycle ctx proc e; codegen_proc_body ctx proc next
-  | _ -> ()
+  | EmptyProcBody -> None
+  | Seq (e, next) ->
+      let expr_res = codegen_expr ctx proc e in
+      let out_wires = List.map (fun (w, _) -> w) expr_res in
+      let cycles' = codegen_proc_body ctx proc next in
+      let new_cycle = {id = 0; out_wires = out_wires; next_switch = []; next_default = cycles'} in
+      let new_cycle_id = codegen_context_new_cycle ctx new_cycle in Some new_cycle_id
+  (* | If (e, cond, body) ->
+      let expr_res = codegen_expr ctx proc e in
+      let out_wires = List.map (fun (w, _) -> w) expr_res in
+      let cond_res = codegen_expr ctx proc cond in
+      let cycles' = codegen_proc_body ctx proc body in
+      let next_switch = List.map (fun (w, _) -> (w, cycles'))
+      let new_cycle = {id = 0; out_wires = out_wires; next_switch = None} *)
+  | _ -> None
 
 let codegen_post_declare (ctx : codegen_context) =
+  (* wire declarations *)
   let codegen_wire = fun (w: wire_def) ->
     Printf.printf "  %s %s;\n" (format_dtype w.dtype) (format_wirename w.id)
-  in
-    List.iter codegen_wire ctx.wires
+  in List.iter codegen_wire ctx.wires;
+  (* wire assignments *)
+  List.iter print_assign ctx.assigns
+
+let codegen_state_machine (ctx : codegen_context) (proc : proc_def) =
+  (* state definition *)
+  let state_cnt = List.length ctx.cycles in
+  let state_width = Utils.int_log2 (state_cnt - 1) in
+    begin
+      if state_width > 0 then begin
+        Printf.printf "  typedef enum logic[%d:0] {\n" (state_width - 1);
+        let codegen_state_def = fun id wire ->
+          if id = 0 then
+            Printf.printf "    %s" (format_statename wire.id)
+          else
+            Printf.printf ",\n    %s" (format_statename wire.id)
+        in List.iteri codegen_state_def ctx.cycles;
+        print_endline "\n  } _state_t;"
+      end else ();
+      print_endline "  always_comb begin : state_machine";
+      if state_width > 0 then
+        print_endline "    unique case (_st_q)"
+      else ();
+      let codegen_cycle = fun (cycle: cycle_node) ->
+        if state_width > 0 then
+          Printf.printf "      %s: begin\n" (format_statename cycle.id)
+        else ();
+
+        (* choose the state transition signals and output for this cycle *)
+        let assign_reg = fun (r: reg_def) (w: wire_id) ->
+          Printf.printf "        %s = %s;\n" (format_regname_next r.name) (format_wirename w)
+        in List.iter2 assign_reg proc.regs cycle.out_wires;
+
+        if state_width > 0 then
+          (* state transition *)
+          (* default next state *)
+          let def_next_state = Option.value ~default:ctx.first_cycle cycle.next_default in
+          Printf.printf "        _st_n = %s;\n" (format_statename def_next_state);
+          (* switch *)
+          let cond_next_state = fun (w_cond, c) ->
+            let next_c = Option.value ~default:ctx.first_cycle c in
+            Printf.printf "        if (%s) begin\n          _st_n = %s;\n        end\n"
+              (format_wirename w_cond) (format_statename next_c)
+          in List.iter cond_next_state cycle.next_switch;
+          print_endline "      end"
+        else ()
+      in List.iter codegen_cycle ctx.cycles;
+      if state_width > 0 then
+        print_endline "    endcase"
+      else ();
+      print_endline "  end"
+    end
 
 let codegen_proc ctx (proc : proc_def) =
   (* generate ports *)
@@ -199,10 +275,18 @@ let codegen_proc ctx (proc : proc_def) =
   codegen_ports proc.msgs;
   print_endline ");";
 
-  codegen_regs_declare proc.regs;
-  codegen_state_transition proc.regs;
-  codegen_proc_body ctx proc proc.body;
-  codegen_post_declare ctx;
+  (* implicit state *)
+  let first_cycle_op = codegen_proc_body ctx proc proc.body in
+  begin
+    Option.iter (fun c -> ctx.first_cycle <- c) first_cycle_op;
+    let regs = if List.length ctx.cycles > 1 then
+      ({name = "_st"; dtype = Type "_state_t"; init = Some (format_statename ctx.first_cycle)}::proc.regs)
+    else proc.regs in
+      (codegen_regs_declare regs;
+      codegen_state_transition regs);
+    codegen_state_machine ctx proc;
+    codegen_post_declare ctx
+  end;
 
   print_endline "endmodule"
 
@@ -221,6 +305,8 @@ let codegen (cunit : compilation_unit) =
     wires_n = 0;
     cycles = [];
     cycles_n = 0;
+    first_cycle = 0;
+    assigns = [];
     msgs = msgs;
   } in
   codegen_with_context ctx cunit

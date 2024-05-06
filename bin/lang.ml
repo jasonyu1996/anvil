@@ -6,11 +6,13 @@ type sig_lifetime = { b: future; e: future;}
 
 type data_type =
   | Logic
+  | Type of string
   | Array of data_type * int
 
 let rec data_type_size dtype =
   match dtype with
   | Logic -> 1
+  | Type _ -> 1 (* this is a hack *)
   | Array (dtype', n) -> (data_type_size dtype') * n
 
 type sig_type = {
@@ -21,6 +23,7 @@ type sig_type = {
 type reg_def = {
   name: string;
   dtype: data_type;
+  init: string option;
 }
 
 type reg_def_list = reg_def list
@@ -85,9 +88,9 @@ type cycle_proc = {
 type proc_body =
   | EmptyProcBody
   | Seq of expr * proc_body
-  | If of expr * proc_body
-  | IfElse of expr * proc_body * proc_body
-  | Until of expr * proc_body
+  | If of expr * expr * proc_body
+  | IfElse of expr * expr * proc_body * proc_body
+  | While of expr * expr * proc_body
 
 (* process definition *)
 type proc_def = {

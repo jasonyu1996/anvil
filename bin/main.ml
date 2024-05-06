@@ -9,9 +9,9 @@ let () =
         ] }
       ];
       regs = [
-        { name = "counter"; dtype = Array (Logic, 10)}
+        { name = "counter"; dtype = Array (Logic, 10); init = None}
       ];
-      body = Seq (Identifier "counter", EmptyProcBody)
+      body = Seq (Identifier "counter", Seq(Identifier "counter", EmptyProcBody))
     } in
     let proc2 : proc_def = {
       name = "mod2";
@@ -21,7 +21,7 @@ let () =
         ] }
       ];
       regs = [
-        { name = "counter"; dtype = Array (Logic, 10)}
+        { name = "counter"; dtype = Array (Logic, 10); init = None }
       ];
       body = EmptyProcBody
     } in
