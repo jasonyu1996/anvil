@@ -9,7 +9,10 @@ type port_def = {
 type wire_id = int
 type cycle_id = int
 
-type expr_result = (wire_id * data_type) list
+type expr_result = {
+  v: (wire_id * data_type) list;
+  assigns: (identifier * string) list;
+}
 
 type wire_def = {
   id: wire_id;
@@ -18,7 +21,7 @@ type wire_def = {
 
 type cycle_node = {
   id: cycle_id;
-  out_wires: wire_id list; (* the output of the cycle *)
+  assigns: (identifier * string) list;
   next_switch: (wire_id * (cycle_id option)) list;
   next_default: cycle_id option;
 }
@@ -163,63 +166,71 @@ let rec codegen_expr (ctx : codegen_context) (proc : proc_def) (e : expr) : expr
       let dtype = Array (Logic, List.length lit) in
       let id = codegen_context_new_wire ctx dtype in
       codegen_context_new_assign ctx {wire = id; expr_str = string_of_literal lit};
-      [(id, dtype)]
+      {v = [(id, dtype)]; assigns = []}
   | Identifier ident ->
       (* only supports registers for now *)
       let dtype = Option.get (get_identifier_dtype ctx proc ident) in
       let id = codegen_context_new_wire ctx dtype in
       codegen_context_new_assign ctx {wire = id; expr_str = format_regname_current ident};
-      [(id, dtype)]
-  | Function _  -> []
-  | Send _ -> []
-  | Recv _ -> []
-  | Apply _ -> []
+      {v = [(id, dtype)]; assigns = []}
+  | Function _  -> {v = []; assigns = []}
+  | Send _ -> {v = []; assigns = []}
+  | Recv _ -> {v = []; assigns = []}
+  | Apply _ -> {v = []; assigns = []}
   | Binop (binop, e1, e2) ->
       let e1_res = codegen_expr ctx proc e1 in
       let e2_res = codegen_expr ctx proc e2 in
       begin
-        match e1_res, e2_res with
+        match e1_res.v, e2_res.v with
         | [(id1, dtype1)], [(id2, dtype2)] ->
             if dtype1 = dtype2 then
               let id = codegen_context_new_wire ctx dtype1 in
               let expr_str = Printf.sprintf "%s %s %s"
-                (format_wirename id1) (string_of_binop binop) (format_wirename
-                id2) in
+                (format_wirename id1) (string_of_binop binop) (format_wirename id2) in
               codegen_context_new_assign ctx {wire = id; expr_str = expr_str};
-              [(id, dtype1)]
-            else []
-        | _ -> []
+              {v = [(id, dtype1)]; assigns = e1_res.assigns @ e2_res.assigns}
+            else {v = []; assigns = []}
+        | _ -> {v = []; assigns = []}
       end
-  | Unop _ -> []
-  | Tuple elist -> List.concat (List.map (codegen_expr ctx proc) elist)
-  | LetIn _ -> []
-  | IfExpr _ -> []
+  | Unop _ -> {v = []; assigns = []}
+  | Tuple elist ->
+      let expr_res = List.map (codegen_expr ctx proc) elist in
+      {
+        v = List.concat (List.map (fun (x: expr_result) -> x.v) expr_res);
+        assigns = List.concat (List.map (fun (x: expr_result) -> x.assigns) expr_res);
+      }
+  | LetIn _ -> {v = []; assigns = []}
+  | IfExpr _ -> {v = []; assigns = []}
+  | Assign (ident, e_val) ->
+      let expr_res = codegen_expr ctx proc e_val in
+      let codegen_assign = fun (w, _) -> (ident, format_wirename w) in
+      {v = []; assigns = (List.map codegen_assign expr_res.v) @ expr_res.assigns}
+      (* assign evaluates to unit val *)
 
 let rec codegen_proc_body (ctx :codegen_context) (proc : proc_def)
                   (pb : proc_body) (next_cycle : cycle_id option) : cycle_id option =
   let expr_res = codegen_expr ctx proc pb.cycle in
-  let out_wires = List.map (fun (w, _) -> w) expr_res in
   let new_cycle_id = codegen_context_new_cycle ctx in
   let (next_switch, next_default) = match pb.transition with
   | Seq -> ([], next_cycle)
   | If (cond, body) ->
       let next_cycle' = codegen_proc_body_list ctx proc body next_cycle in
       let cond_res = codegen_expr ctx proc cond in
-      let sw = List.map (fun (c, _) -> (c, next_cycle')) cond_res in
+      let sw = List.map (fun (c, _) -> (c, next_cycle')) cond_res.v in
       (sw, next_cycle)
   | IfElse (cond, body1, body2) ->
       let next_cycle1 = codegen_proc_body_list ctx proc body1 next_cycle in
       let next_cycle2 = codegen_proc_body_list ctx proc body2 next_cycle in
       let cond_res = codegen_expr ctx proc cond in
-      let sw = List.map (fun (c, _) -> (c, next_cycle1)) cond_res in
+      let sw = List.map (fun (c, _) -> (c, next_cycle1)) cond_res.v in
       (sw, next_cycle2)
   | While (cond, body) ->
       let next_cycle' = codegen_proc_body_list ctx proc body (Some new_cycle_id) in
       let cond_res = codegen_expr ctx proc cond in
-      let sw = List.map (fun (c, _) -> (c, next_cycle')) cond_res in
+      let sw = List.map (fun (c, _) -> (c, next_cycle')) cond_res.v in
       (sw, next_cycle)
   in
-  let new_cycle = {id = new_cycle_id; out_wires = out_wires; next_switch = next_switch; next_default = next_default} in
+  let new_cycle = {id = new_cycle_id; assigns = expr_res.assigns; next_switch = next_switch; next_default = next_default} in
   begin
     codegen_context_add_cycle ctx new_cycle;
     Some new_cycle_id
@@ -257,6 +268,12 @@ let codegen_state_machine (ctx : codegen_context) (proc : proc_def) =
         print_endline "\n  } _state_t;"
       end else ();
       print_endline "  always_comb begin : state_machine";
+
+      (* default next reg values *)
+      let assign_reg_default = fun (r: reg_def) ->
+        Printf.printf "    %s = %s;\n" (format_regname_next r.name) (format_regname_current r.name)
+      in List.iter assign_reg_default proc.regs;
+
       if state_width > 0 then
         print_endline "    unique case (_st_q)"
       else ();
@@ -266,9 +283,9 @@ let codegen_state_machine (ctx : codegen_context) (proc : proc_def) =
         else ();
 
         (* choose the state transition signals and output for this cycle *)
-        let assign_reg = fun (r: reg_def) (w: wire_id) ->
-          Printf.printf "        %s = %s;\n" (format_regname_next r.name) (format_wirename w)
-        in List.iter2 assign_reg proc.regs cycle.out_wires;
+        let assign_reg = fun (ident, expr_str) ->
+          Printf.printf "        %s = %s;\n" (format_regname_next ident) expr_str
+        in List.iter assign_reg cycle.assigns;
 
         if state_width > 0 then
           (* state transition *)

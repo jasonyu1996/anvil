@@ -67,6 +67,7 @@ type expr =
   (* send and recv *)
   | Send of identifier
   | Recv of identifier
+  | Assign of identifier * expr
   | Apply of expr * expr
   | Binop of binop * expr * expr
   | Unop of unop * expr

@@ -12,7 +12,8 @@ let () =
         { name = "counter"; dtype = Array (Logic, 10); init = None}
       ];
       body = [{cycle = Identifier "counter"; transition = Seq};
-        {cycle = Identifier "counter"; transition = Seq}]
+        {cycle = Identifier "counter"; transition = Seq};
+        {cycle = Assign ("counter", Literal [Zero; One]); transition = Seq}]
     } in
     let proc2 : proc_def = {
       name = "mod2";
