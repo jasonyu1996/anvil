@@ -19,8 +19,8 @@ type wire_def = {
 type cycle_node = {
   id: cycle_id;
   out_wires: wire_id list; (* the output of the cycle *)
-  next_switch: (wire_id * (cycle_id option)) list;
-  next_default: cycle_id option;
+  mutable next_switch: (wire_id * (cycle_id option)) list;
+  mutable next_default: cycle_id option;
 }
 
 type assign = {
@@ -176,41 +176,61 @@ let rec codegen_expr (ctx : codegen_context) (proc : proc_def) (e : expr) : expr
   | Binop (binop, e1, e2) ->
       let e1_res = codegen_expr ctx proc e1 in
       let e2_res = codegen_expr ctx proc e2 in
-      (match e1_res, e2_res with
-      | [(id1, dtype1)], [(id2, dtype2)] ->
-          if dtype1 = dtype2 then
-            let id = codegen_context_new_wire ctx dtype1 in
-            let expr_str = Printf.sprintf "%s %s %s"
-              (format_wirename id1) (string_of_binop binop) (format_wirename
-              id2) in
-            codegen_context_new_assign ctx {wire = id; expr_str = expr_str};
-            [(id, dtype1)]
-          else []
-      | _ -> [])
+      begin
+        match e1_res, e2_res with
+        | [(id1, dtype1)], [(id2, dtype2)] ->
+            if dtype1 = dtype2 then
+              let id = codegen_context_new_wire ctx dtype1 in
+              let expr_str = Printf.sprintf "%s %s %s"
+                (format_wirename id1) (string_of_binop binop) (format_wirename
+                id2) in
+              codegen_context_new_assign ctx {wire = id; expr_str = expr_str};
+              [(id, dtype1)]
+            else []
+        | _ -> []
+      end
   | Unop _ -> []
   | Tuple elist -> List.concat (List.map (codegen_expr ctx proc) elist)
   | LetIn _ -> []
   | IfExpr _ -> []
 
-
-let rec codegen_proc_body (ctx : codegen_context) (proc : proc_def) (proc_body : proc_body) : cycle_id option =
-  (* TODO *)
-  match proc_body with
-  | EmptyProcBody -> None
-  | Seq (e, next) ->
-      let expr_res = codegen_expr ctx proc e in
-      let out_wires = List.map (fun (w, _) -> w) expr_res in
-      let cycles' = codegen_proc_body ctx proc next in
-      let new_cycle = {id = 0; out_wires = out_wires; next_switch = []; next_default = cycles'} in
-      let new_cycle_id = codegen_context_new_cycle ctx new_cycle in Some new_cycle_id
-  (* | If (e, cond, body) ->
-      let expr_res = codegen_expr ctx proc e in
-      let out_wires = List.map (fun (w, _) -> w) expr_res in
+let rec codegen_proc_body (ctx :codegen_context) (proc : proc_def)
+                  (pb : proc_body) (next_cycle : cycle_id option) : cycle_id option =
+  let expr_res = codegen_expr ctx proc pb.cycle in
+  let out_wires = List.map (fun (w, _) -> w) expr_res in
+  let new_cycle = {id = 0; out_wires = out_wires; next_switch = []; next_default = None} in
+  let new_cycle_id = codegen_context_new_cycle ctx new_cycle in
+  let (next_switch, next_default) = match pb.transition with
+  | Seq -> ([], next_cycle)
+  | If (cond, body) ->
+      let next_cycle' = codegen_proc_body_list ctx proc body next_cycle in
       let cond_res = codegen_expr ctx proc cond in
-      let cycles' = codegen_proc_body ctx proc body in
-      let next_switch = List.map (fun (w, _) -> (w, cycles'))
-      let new_cycle = {id = 0; out_wires = out_wires; next_switch = None} *)
-  | _ -> None
+      let sw = List.map (fun (c, _) -> (c, next_cycle')) cond_res in
+      (sw, next_cycle)
+  | IfElse (cond, body1, body2) ->
+      let next_cycle1 = codegen_proc_body_list ctx proc body1 next_cycle in
+      let next_cycle2 = codegen_proc_body_list ctx proc body2 next_cycle in
+      let cond_res = codegen_expr ctx proc cond in
+      let sw = List.map (fun (c, _) -> (c, next_cycle1)) cond_res in
+      (sw, next_cycle2)
+  | While (cond, body) ->
+      let next_cycle' = codegen_proc_body_list ctx proc body (Some new_cycle_id) in
+      let cond_res = codegen_expr ctx proc cond in
+      let sw = List.map (fun (c, _) -> (c, next_cycle')) cond_res in
+      (sw, next_cycle)
+  in
+  begin
+    new_cycle.next_switch <- next_switch;
+    new_cycle.next_default <- next_default;
+    Some new_cycle_id
+  end
+and codegen_proc_body_list (ctx : codegen_context) (proc : proc_def)
+                  (body : proc_body_list) (next_cycle : cycle_id option): cycle_id option =
+  match body with
+  | [] -> next_cycle
+  | pb::body' ->
+      let next_cycle' = codegen_proc_body_list ctx proc body' next_cycle in
+      codegen_proc_body ctx proc pb next_cycle'
 
 let codegen_post_declare (ctx : codegen_context) =
   (* wire declarations *)
@@ -276,7 +296,7 @@ let codegen_proc ctx (proc : proc_def) =
   print_endline ");";
 
   (* implicit state *)
-  let first_cycle_op = codegen_proc_body ctx proc proc.body in
+  let first_cycle_op = codegen_proc_body_list ctx proc proc.body None in
   begin
     Option.iter (fun c -> ctx.first_cycle <- c) first_cycle_op;
     let regs = if List.length ctx.cycles > 1 then

@@ -11,7 +11,8 @@ let () =
       regs = [
         { name = "counter"; dtype = Array (Logic, 10); init = None}
       ];
-      body = Seq (Identifier "counter", Seq(Identifier "counter", EmptyProcBody))
+      body = [{cycle = Identifier "counter"; transition = Seq};
+        {cycle = Identifier "counter"; transition = Seq}]
     } in
     let proc2 : proc_def = {
       name = "mod2";
@@ -23,6 +24,6 @@ let () =
       regs = [
         { name = "counter"; dtype = Array (Logic, 10); init = None }
       ];
-      body = EmptyProcBody
+      body = []
     } in
     codegen [proc1; proc2]

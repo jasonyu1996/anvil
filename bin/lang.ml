@@ -84,20 +84,25 @@ type cycle_proc = {
   sigs: sig_def list;
 }
 
+
 (* process body*)
-type proc_body =
-  | EmptyProcBody
-  | Seq of expr * proc_body
-  | If of expr * expr * proc_body
-  | IfElse of expr * expr * proc_body * proc_body
-  | While of expr * expr * proc_body
+type proc_body = {
+  cycle : expr;
+  transition : proc_transition;
+}
+and proc_transition =
+  | Seq
+  | If of expr * proc_body_list
+  | IfElse of expr * proc_body_list * proc_body_list
+  | While of expr * proc_body_list
+and proc_body_list = proc_body list
 
 (* process definition *)
 type proc_def = {
   name: string;
   msgs: message_def list;
   regs: reg_def list;
-  body: proc_body;
+  body: proc_body_list;
 }
 
 type compilation_unit = proc_def list
