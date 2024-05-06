@@ -19,8 +19,8 @@ type wire_def = {
 type cycle_node = {
   id: cycle_id;
   out_wires: wire_id list; (* the output of the cycle *)
-  mutable next_switch: (wire_id * (cycle_id option)) list;
-  mutable next_default: cycle_id option;
+  next_switch: (wire_id * (cycle_id option)) list;
+  next_default: cycle_id option;
 }
 
 type assign = {
@@ -52,12 +52,13 @@ let codegen_context_new_wire (ctx: codegen_context) (dtype : data_type) : wire_i
   ctx.wires <- {id = id; dtype = dtype}::ctx.wires;
   id
 
-let codegen_context_new_cycle (ctx : codegen_context) (c : cycle_node) : cycle_id =
+let codegen_context_new_cycle (ctx : codegen_context) : cycle_id =
   let id = ctx.cycles_n in
-  let c' = {c with id = id} in
   ctx.cycles_n <- id + 1;
-  ctx.cycles <- c'::ctx.cycles;
   id
+
+let codegen_context_add_cycle (ctx : codegen_context) (cycle : cycle_node) =
+  ctx.cycles <- cycle::ctx.cycles
 
 let codegen_context_new_assign (ctx : codegen_context) (a : assign) =
   ctx.assigns <- a::ctx.assigns
@@ -198,8 +199,7 @@ let rec codegen_proc_body (ctx :codegen_context) (proc : proc_def)
                   (pb : proc_body) (next_cycle : cycle_id option) : cycle_id option =
   let expr_res = codegen_expr ctx proc pb.cycle in
   let out_wires = List.map (fun (w, _) -> w) expr_res in
-  let new_cycle = {id = 0; out_wires = out_wires; next_switch = []; next_default = None} in
-  let new_cycle_id = codegen_context_new_cycle ctx new_cycle in
+  let new_cycle_id = codegen_context_new_cycle ctx in
   let (next_switch, next_default) = match pb.transition with
   | Seq -> ([], next_cycle)
   | If (cond, body) ->
@@ -219,11 +219,12 @@ let rec codegen_proc_body (ctx :codegen_context) (proc : proc_def)
       let sw = List.map (fun (c, _) -> (c, next_cycle')) cond_res in
       (sw, next_cycle)
   in
+  let new_cycle = {id = new_cycle_id; out_wires = out_wires; next_switch = next_switch; next_default = next_default} in
   begin
-    new_cycle.next_switch <- next_switch;
-    new_cycle.next_default <- next_default;
+    codegen_context_add_cycle ctx new_cycle;
     Some new_cycle_id
   end
+
 and codegen_proc_body_list (ctx : codegen_context) (proc : proc_def)
                   (body : proc_body_list) (next_cycle : cycle_id option): cycle_id option =
   match body with
