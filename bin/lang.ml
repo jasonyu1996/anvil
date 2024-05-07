@@ -93,9 +93,9 @@ type proc_body = {
 }
 and proc_transition =
   | Seq
-  | If of expr * proc_body_list
-  | IfElse of expr * proc_body_list * proc_body_list
-  | While of expr * proc_body_list
+  | If of proc_body_list
+  | IfElse of proc_body_list * proc_body_list
+  | While of proc_body_list
 and proc_body_list = proc_body list
 
 (* process definition *)

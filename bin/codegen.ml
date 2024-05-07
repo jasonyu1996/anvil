@@ -261,22 +261,19 @@ let rec codegen_proc_body (ctx :codegen_context) (proc : proc_def)
   let new_cycle_id = codegen_context_new_cycle ctx in
   let (next_switch, next_default) = match pb.transition with
   | Seq -> ([], next_cycle)
-  | If (cond, body) ->
+  | If body ->
       let next_cycle' = codegen_proc_body_list ctx proc body next_cycle in
-      let cond_res = codegen_expr ctx proc [] StringMap.empty cond in
-      let sw = List.map (fun (c, _) -> (c, next_cycle')) cond_res.v in
-      (sw, next_cycle)
-  | IfElse (cond, body1, body2) ->
+      let cond_w = fst (List.hd expr_res.v) in
+      ([(cond_w, next_cycle')], next_cycle)
+  | IfElse (body1, body2) ->
       let next_cycle1 = codegen_proc_body_list ctx proc body1 next_cycle in
       let next_cycle2 = codegen_proc_body_list ctx proc body2 next_cycle in
-      let cond_res = codegen_expr ctx proc [] StringMap.empty cond in
-      let sw = List.map (fun (c, _) -> (c, next_cycle1)) cond_res.v in
-      (sw, next_cycle2)
-  | While (cond, body) ->
+      let cond_w = fst (List.hd expr_res.v) in
+      ([(cond_w, next_cycle1)], next_cycle2)
+  | While body ->
       let next_cycle' = codegen_proc_body_list ctx proc body (Some new_cycle_id) in
-      let cond_res = codegen_expr ctx proc [] StringMap.empty cond in
-      let sw = List.map (fun (c, _) -> (c, next_cycle')) cond_res.v in
-      (sw, next_cycle)
+      let cond_w = fst (List.hd expr_res.v) in
+      ([(cond_w, next_cycle')], next_cycle)
   in
   let new_cycle = {id = new_cycle_id; assigns = expr_res.assigns; next_switch = next_switch; next_default = next_default} in
   begin
