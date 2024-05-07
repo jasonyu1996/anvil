@@ -1,5 +1,8 @@
 open Lang
 
+module StringMap = Map.Make(String)
+type 'a string_map = 'a StringMap.t
+
 type port_def = {
   dir: message_direction;
   dtype: data_type;
@@ -9,9 +12,20 @@ type port_def = {
 type wire_id = int
 type cycle_id = int
 
+type condition = {
+  w: wire_id;
+  neg: bool; (* negate? *)
+}
+
+type reg_assign = {
+  conds: condition list;
+  ident: identifier;
+  expr_str: string;
+}
+
 type expr_result = {
   v: (wire_id * data_type) list;
-  assigns: (identifier * string) list;
+  assigns: reg_assign list; (* assignment to regs only *)
 }
 
 type wire_def = {
@@ -21,7 +35,7 @@ type wire_def = {
 
 type cycle_node = {
   id: cycle_id;
-  assigns: (identifier * string) list;
+  assigns: reg_assign list; (* assignment to regs only *)
   next_switch: (wire_id * (cycle_id option)) list;
   next_default: cycle_id option;
 }
@@ -147,6 +161,9 @@ let codegen_regs_declare (regs : reg_def list) =
 let format_wirename (id : wire_id) : string = "wire" ^ (string_of_int id)
 let format_statename (id : cycle_id) : string = "STATE" ^ (string_of_int id)
 
+let format_condition (c : condition) : string =
+  let prefix = if c.neg then "" else "!" in prefix ^ (format_wirename c.w)
+
 let print_assign (a : assign) =
   Printf.printf "  assign %s = %s;\n" (format_wirename a.wire) a.expr_str
 
@@ -159,8 +176,8 @@ let get_identifier_dtype (_ctx : codegen_context) (proc : proc_def) (ident : ide
   let m = fun (r: reg_def) -> if r.name = ident then Some r.dtype else None in
   List.find_map m proc.regs
 
-
-let rec codegen_expr (ctx : codegen_context) (proc : proc_def) (e : expr) : expr_result =
+let rec codegen_expr (ctx : codegen_context) (proc : proc_def)
+                     (conds : condition list) (env : wire_def string_map) (e : expr) : expr_result =
   match e with
   | Literal lit ->
       let dtype = Array (Logic, List.length lit) in
@@ -169,17 +186,22 @@ let rec codegen_expr (ctx : codegen_context) (proc : proc_def) (e : expr) : expr
       {v = [(id, dtype)]; assigns = []}
   | Identifier ident ->
       (* only supports registers for now *)
-      let dtype = Option.get (get_identifier_dtype ctx proc ident) in
-      let id = codegen_context_new_wire ctx dtype in
-      codegen_context_new_assign ctx {wire = id; expr_str = format_regname_current ident};
-      {v = [(id, dtype)]; assigns = []}
+      (
+        match StringMap.find_opt ident env with
+        | Some w -> {v = [(w.id, w.dtype)]; assigns = []}
+        | None ->
+            let dtype = Option.get (get_identifier_dtype ctx proc ident) in
+            let id = codegen_context_new_wire ctx dtype in
+            codegen_context_new_assign ctx {wire = id; expr_str = format_regname_current ident};
+            {v = [(id, dtype)]; assigns = []}
+      )
   | Function _  -> {v = []; assigns = []}
   | Send _ -> {v = []; assigns = []}
   | Recv _ -> {v = []; assigns = []}
   | Apply _ -> {v = []; assigns = []}
   | Binop (binop, e1, e2) ->
-      let e1_res = codegen_expr ctx proc e1 in
-      let e2_res = codegen_expr ctx proc e2 in
+      let e1_res = codegen_expr ctx proc conds env e1 in
+      let e2_res = codegen_expr ctx proc conds env e2 in
       begin
         match e1_res.v, e2_res.v with
         | [(id1, dtype1)], [(id2, dtype2)] ->
@@ -194,39 +216,65 @@ let rec codegen_expr (ctx : codegen_context) (proc : proc_def) (e : expr) : expr
       end
   | Unop _ -> {v = []; assigns = []}
   | Tuple elist ->
-      let expr_res = List.map (codegen_expr ctx proc) elist in
+      let expr_res = List.map (codegen_expr ctx proc conds env) elist in
       {
         v = List.concat (List.map (fun (x: expr_result) -> x.v) expr_res);
         assigns = List.concat (List.map (fun (x: expr_result) -> x.assigns) expr_res);
       }
-  | LetIn _ -> {v = []; assigns = []}
-  | IfExpr _ -> {v = []; assigns = []}
+  | LetIn (ident, v_expr, body_expr) ->
+      let v_res = codegen_expr ctx proc conds env v_expr in
+      let (v_w, v_dtype) = List.hd v_res.v in
+      let new_env = StringMap.add ident {id = v_w; dtype = v_dtype} env in
+      let expr_res = codegen_expr ctx proc conds new_env body_expr in
+      {
+        v = expr_res.v;
+        assigns = v_res.assigns @ expr_res.assigns
+      }
+  | IfExpr (cond_expr, e1, e2) ->
+      let cond_res = codegen_expr ctx proc conds env cond_expr in
+      let (cond_w, _) = List.hd cond_res.v in
+      let e1_res = codegen_expr ctx proc ({w = cond_w; neg = false}::conds) env e1 in
+      let e2_res = codegen_expr ctx proc ({w = cond_w; neg = true}::conds) env e2 in
+      (* get the results *)
+      let gen_result = fun (w1, dtype1) (w2, _) ->
+        let new_w = codegen_context_new_wire ctx dtype1 in
+        let expr_str = Printf.sprintf "(%s) ? %s : %s"
+          (format_wirename cond_w) (format_wirename w1) (format_wirename w2) in
+        let _ = codegen_context_new_assign ctx {wire = new_w; expr_str = expr_str} in
+        (new_w, dtype1)
+      in
+      let v = List.map2 gen_result e1_res.v e2_res.v in
+      {v = v; assigns = cond_res.assigns @ e1_res.assigns @ e2_res.assigns}
   | Assign (ident, e_val) ->
-      let expr_res = codegen_expr ctx proc e_val in
-      let codegen_assign = fun (w, _) -> (ident, format_wirename w) in
+      let expr_res = codegen_expr ctx proc conds env e_val in
+      let codegen_assign = fun (w, _) -> {
+        conds = conds;
+        ident = ident;
+        expr_str = format_wirename w
+       } in
       {v = []; assigns = (List.map codegen_assign expr_res.v) @ expr_res.assigns}
       (* assign evaluates to unit val *)
 
 let rec codegen_proc_body (ctx :codegen_context) (proc : proc_def)
                   (pb : proc_body) (next_cycle : cycle_id option) : cycle_id option =
-  let expr_res = codegen_expr ctx proc pb.cycle in
+  let expr_res = codegen_expr ctx proc [] StringMap.empty pb.cycle in
   let new_cycle_id = codegen_context_new_cycle ctx in
   let (next_switch, next_default) = match pb.transition with
   | Seq -> ([], next_cycle)
   | If (cond, body) ->
       let next_cycle' = codegen_proc_body_list ctx proc body next_cycle in
-      let cond_res = codegen_expr ctx proc cond in
+      let cond_res = codegen_expr ctx proc [] StringMap.empty cond in
       let sw = List.map (fun (c, _) -> (c, next_cycle')) cond_res.v in
       (sw, next_cycle)
   | IfElse (cond, body1, body2) ->
       let next_cycle1 = codegen_proc_body_list ctx proc body1 next_cycle in
       let next_cycle2 = codegen_proc_body_list ctx proc body2 next_cycle in
-      let cond_res = codegen_expr ctx proc cond in
+      let cond_res = codegen_expr ctx proc [] StringMap.empty cond in
       let sw = List.map (fun (c, _) -> (c, next_cycle1)) cond_res.v in
       (sw, next_cycle2)
   | While (cond, body) ->
       let next_cycle' = codegen_proc_body_list ctx proc body (Some new_cycle_id) in
-      let cond_res = codegen_expr ctx proc cond in
+      let cond_res = codegen_expr ctx proc [] StringMap.empty cond in
       let sw = List.map (fun (c, _) -> (c, next_cycle')) cond_res.v in
       (sw, next_cycle)
   in
@@ -283,8 +331,13 @@ let codegen_state_machine (ctx : codegen_context) (proc : proc_def) =
         else ();
 
         (* choose the state transition signals and output for this cycle *)
-        let assign_reg = fun (ident, expr_str) ->
-          Printf.printf "        %s = %s;\n" (format_regname_next ident) expr_str
+        let assign_reg = fun assign ->
+          let cond_str = if assign.conds = [] then "" else
+            let cond_str_list = List.map format_condition assign.conds in
+            let cond_a_str = String.concat " && " cond_str_list in
+            Printf.sprintf "if (%s) " cond_a_str
+          in
+          Printf.printf "        %s%s = %s;\n" cond_str (format_regname_next assign.ident) assign.expr_str
         in List.iter assign_reg cycle.assigns;
 
         if state_width > 0 then
