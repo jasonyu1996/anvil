@@ -1,7 +1,5 @@
 open Lang
-
-module StringMap = Map.Make(String)
-type 'a string_map = 'a StringMap.t
+open Utils
 
 type port_def = {
   dir: message_direction;
@@ -47,13 +45,17 @@ type assign = {
 
 
 type codegen_context = {
+  (* temp wires only *)
   mutable wires: wire_def list;
   mutable wires_n: int;
   mutable cycles: cycle_node list;
   mutable cycles_n: int;
   mutable assigns: assign list;
   mutable first_cycle: int;
-  msgs: (identifier * (message_def list)) list;
+  (* endpoints defined in a process *)
+  mutable endpoints: endpoint_def list;
+  cunit: compilation_unit;
+  (* msgs: (identifier * (message_def list)) list; *)
 }
 
 let codegen_context_proc_clear (ctx : codegen_context) =
@@ -108,31 +110,59 @@ let rec print_port_list port_list =
       let port_fmt = format_port port in print_endline ("  " ^ port_fmt ^ ",");
       print_port_list port_list'
 
-let gather_ports_from_msg (msg_def : message_def) =
-  let folder = fun (n, port_list) (stype : sig_type) ->
-    let new_port : port_def = {
-      name = msg_def.name ^ "_" ^ (string_of_int n);
-      dir = msg_def.dir;
-      dtype = stype.dtype;
-    } in (n + 1, new_port::port_list)
-  in let (_, res) = List.fold_left folder (0, []) msg_def.sig_types in res
 
-let gather_ports (msg_list : message_def list) =
-  List.fold_left (fun port_list msg_def -> (gather_ports_from_msg msg_def) @
-    port_list) [] msg_list
+let lookup_channel_class (ctx : codegen_context) (name : identifier) : channel_class_def option =
+  List.find_opt (fun (cc : channel_class_def) -> cc.name = name) ctx.cunit.channel_classes
 
-let codegen_ports (msg_list : message_def list) =
+let format_msg_data_signal_name (endpoint_name : identifier) (message_name : identifier) (data_idx : int) : string =
+  endpoint_name ^ "_" ^ message_name ^ "_" ^ (string_of_int data_idx)
+
+let format_msg_valid_signal_name (endpoint_name : identifier) (message_name : identifier) : string =
+  endpoint_name ^ "_" ^ message_name ^ "_valid"
+
+let format_msg_ack_signal_name (endpoint_name : identifier) (message_name : identifier) : string =
+  endpoint_name ^ "_" ^ message_name ^ "_ack"
+
+let gather_ports_from_endpoint (ctx : codegen_context) (endpoint : endpoint_def) =
+  let cc = Option.get (lookup_channel_class ctx endpoint.channel_class) in
+  let gen_endpoint_ports = fun (msg : message_def) ->
+    let msg_dir = get_message_direction msg.dir endpoint.dir in
+    let folder_inner = fun (n, port_list) (stype : sig_type) ->
+      let new_port : port_def = {
+        name = format_msg_data_signal_name endpoint.name msg.name n;
+        dir = msg_dir;
+        dtype = stype.dtype;
+      } in (n + 1, new_port::port_list)
+    in
+    let (_, res) = List.fold_left folder_inner (0, []) msg.sig_types in
+    let valid_port = { name = format_msg_valid_signal_name endpoint.name msg.name; dir = msg_dir; dtype = Logic} in
+    let ack_port = {name = format_msg_ack_signal_name endpoint.name msg.name; dir = reverse msg_dir; dtype = Logic} in
+    ack_port::valid_port::res
+  in List.concat_map gen_endpoint_ports cc.messages
+
+let gather_ports (ctx : codegen_context) (endpoints : endpoint_def list) =
+  List.concat_map (gather_ports_from_endpoint ctx) endpoints
+
+let codegen_ports (ctx : codegen_context) (endpoints : endpoint_def list) =
   let clk_port = {
     dir = In; dtype = Logic; name = "clk_i"
   } in
   let rst_port = {
     dir = In; dtype = Logic; name = "rst_ni"
   } in
-  let port_list = gather_ports msg_list in
+  let port_list = gather_ports ctx endpoints in
     print_port_list ([clk_port; rst_port] @ port_list)
 
 let format_regname_current (regname : identifier) = regname ^ "_q"
 let format_regname_next (regname : identifier) = regname ^ "_n"
+
+let endpoint_is_canonical (endpoint: endpoint_def) : bool =
+  (Option.is_none endpoint.opp) || (endpoint.dir = Left)
+
+let endpoint_canonical_name (endpoint: endpoint_def) : identifier =
+  match endpoint.dir with
+  | Left -> endpoint.name
+  | Right -> Option.value ~default:endpoint.name endpoint.opp
 
 let codegen_state_transition (regs : reg_def list) =
   match regs with
@@ -196,8 +226,8 @@ let rec codegen_expr (ctx : codegen_context) (proc : proc_def)
             {v = [(id, dtype)]; assigns = []}
       )
   | Function _  -> {v = []; assigns = []}
-  | Send _ -> {v = []; assigns = []}
-  | Recv _ -> {v = []; assigns = []}
+  | TrySend _ -> {v = []; assigns = []}
+  | TryRecv _ -> {v = []; assigns = []}
   | Apply _ -> {v = []; assigns = []}
   | Binop (binop, e1, e2) ->
       let e1_res = codegen_expr ctx proc conds env e1 in
@@ -218,8 +248,8 @@ let rec codegen_expr (ctx : codegen_context) (proc : proc_def)
   | Tuple elist ->
       let expr_res = List.map (codegen_expr ctx proc conds env) elist in
       {
-        v = List.concat (List.map (fun (x: expr_result) -> x.v) expr_res);
-        assigns = List.concat (List.map (fun (x: expr_result) -> x.assigns) expr_res);
+        v = List.concat_map (fun (x: expr_result) -> x.v) expr_res;
+        assigns = List.concat_map (fun (x: expr_result) -> x.assigns) expr_res
       }
   | LetIn (ident, v_expr, body_expr) ->
       let v_res = codegen_expr ctx proc conds env v_expr in
@@ -319,6 +349,8 @@ let codegen_state_machine (ctx : codegen_context) (proc : proc_def) =
         Printf.printf "    %s = %s;\n" (format_regname_next r.name) (format_regname_current r.name)
       in List.iter assign_reg_default proc.regs;
 
+      (* TODO: default output indicators *)
+
       if state_width > 0 then
         print_endline "    unique case (_st_q)"
       else ();
@@ -357,10 +389,35 @@ let codegen_state_machine (ctx : codegen_context) (proc : proc_def) =
       print_endline "  end"
     end
 
+(* get endpoints for extra channels *)
+let codegen_channels (ctx: codegen_context) (channels : channel_def list) =
+  let codegen_chan = fun (chan : channel_def) ->
+    let (left_foreign, right_foreign) =
+      match chan.visibility with
+      | BothForeign -> (true, true)
+      | LeftForeign -> (true, false)
+      | RightForeign -> (false, true)
+    in
+    let left_endpoint = { name = chan.endpoint_left; channel_class = chan.channel_class;
+                          dir = Left; foreign = left_foreign; opp = Some chan.endpoint_right } in
+    let right_endpoint = { name = chan.endpoint_right; channel_class = chan.channel_class;
+                          dir = Right; foreign = right_foreign; opp = Some chan.endpoint_left } in
+    [left_endpoint; right_endpoint]
+  in
+  ctx.endpoints <- List.concat_map codegen_chan channels
+
+let codegen_endpoints (ctx: codegen_context) =
+  let print_port_signal_decl = fun (port : port_def) ->
+    Printf.printf "  %s %s;\n" (format_dtype port.dtype) (port.name)
+  in
+  List.filter (fun (p : endpoint_def) -> p.dir = Left) ctx.endpoints |>
+  gather_ports ctx |>
+  List.iter print_port_signal_decl
+
 let codegen_proc ctx (proc : proc_def) =
   (* generate ports *)
   Printf.printf "module %s (\n" proc.name;
-  codegen_ports proc.msgs;
+  codegen_ports ctx proc.args;
   print_endline ");";
 
   (* implicit state *)
@@ -372,22 +429,24 @@ let codegen_proc ctx (proc : proc_def) =
     else proc.regs in
       (codegen_regs_declare regs;
       codegen_state_transition regs);
+    codegen_channels ctx proc.channels;
+    codegen_endpoints ctx;
     codegen_state_machine ctx proc;
     codegen_post_declare ctx
   end;
 
   print_endline "endmodule"
 
-let rec codegen_with_context (ctx : codegen_context) (cunit : compilation_unit) =
-  match cunit with
+let rec codegen_with_context (ctx : codegen_context) (procs: proc_def list) =
+  match procs with
   | [] -> ()
-  | proc :: cunit' ->
+  | proc :: procs' ->
       codegen_context_proc_clear ctx;
       codegen_proc ctx proc;
-      codegen_with_context ctx cunit'
+      codegen_with_context ctx procs'
 
 let codegen (cunit : compilation_unit) =
-  let msgs = List.map (fun (p: proc_def) -> (p.name, p.msgs)) cunit in
+  (* let msgs = List.map (fun (p: proc_def) -> (p.name, p.msgs)) cunit in *)
   let ctx : codegen_context = {
     wires = [];
     wires_n = 0;
@@ -395,6 +454,8 @@ let codegen (cunit : compilation_unit) =
     cycles_n = 0;
     first_cycle = 0;
     assigns = [];
-    msgs = msgs;
+    cunit = cunit;
+    endpoints = [];
+    (* msgs = msgs; *)
   } in
-  codegen_with_context ctx cunit
+  codegen_with_context ctx cunit.procs

@@ -1,3 +1,7 @@
+module StringMap = Map.Make(String)
+type 'a string_map = 'a StringMap.t
+
+
 let rec int_log2 (v : int) : int =
   if v < 1 then
     0

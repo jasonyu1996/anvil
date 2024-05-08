@@ -37,6 +37,20 @@ type message_def = {
   sig_types: sig_type list;
 }
 
+type channel_class_def = {
+  name: identifier;
+  messages: message_def list;
+}
+
+type channel_visibility = BothForeign | LeftForeign | RightForeign
+
+type channel_def = {
+  channel_class: identifier;
+  endpoint_left: identifier;
+  endpoint_right: identifier;
+  visibility: channel_visibility;
+}
+
 (* expressions *)
 
 type bit = Zero | One
@@ -65,8 +79,8 @@ type expr =
   | Identifier of identifier
   | Function of identifier * expr
   (* send and recv *)
-  | Send of identifier
-  | Recv of identifier
+  | TrySend of identifier
+  | TryRecv of identifier
   | Assign of identifier * expr
   | Apply of expr * expr
   | Binop of binop * expr * expr
@@ -74,6 +88,17 @@ type expr =
   | Tuple of expr list
   | LetIn of identifier * expr * expr
   | IfExpr of expr * expr * expr
+
+type message_specifier = {
+  endpoint : identifier;
+  msg : identifier;
+}
+
+(* the delay before a cycle *)
+type delay_def =
+  | WaitCycles of int
+  | Send of identifier * message_specifier * expr
+  | Recv of identifier * message_specifier
 
 type sig_def = {
   name: identifier;
@@ -85,9 +110,21 @@ type cycle_proc = {
   sigs: sig_def list;
 }
 
+type endpoint_direction = Left | Right
+
+type endpoint_def = {
+  name: identifier;
+  channel_class: identifier;
+  dir: endpoint_direction;
+  (* used by this process? *)
+  foreign: bool;
+  (* the other end, if available *)
+  opp: identifier option;
+}
 
 (* process body*)
 type proc_body = {
+  delays: delay_def list;
   cycle : expr;
   transition : proc_transition;
 }
@@ -101,9 +138,26 @@ and proc_body_list = proc_body list
 (* process definition *)
 type proc_def = {
   name: string;
-  msgs: message_def list;
+  (* arguments are endpoints passed from outside *)
+  args: endpoint_def list;
+  (* new channels available to this process *)
+  channels: channel_def list;
   regs: reg_def list;
   body: proc_body_list;
 }
 
-type compilation_unit = proc_def list
+type compilation_unit = {
+  channel_classes: channel_class_def list;
+  procs: proc_def list;
+}
+
+let reverse (msg_dir : message_direction) : message_direction =
+  match msg_dir with
+  | In -> Out
+  | Out -> In
+
+let get_message_direction (msg_dir : message_direction)
+            (endpoint_dir : endpoint_direction) : message_direction =
+  match endpoint_dir with
+  | Left -> msg_dir
+  | Right -> reverse msg_dir
