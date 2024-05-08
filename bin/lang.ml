@@ -140,6 +140,12 @@ and proc_transition =
   | While of proc_body_list
 and proc_body_list = proc_body list
 
+type spawn_def = {
+  proc: identifier;
+  (* channels to pass as args *)
+  params: identifier list;
+}
+
 (* process definition *)
 type proc_def = {
   name: string;
@@ -147,6 +153,8 @@ type proc_def = {
   args: endpoint_def list;
   (* new channels available to this process *)
   channels: channel_def list;
+  (* processes spawned by this process *)
+  spawns: spawn_def list;
   regs: reg_def list;
   body: proc_body_list;
 }

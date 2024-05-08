@@ -119,6 +119,13 @@ let rec print_port_list port_list =
       let port_fmt = format_port port in print_endline ("  " ^ port_fmt ^ ",");
       print_port_list port_list'
 
+let endpoint_is_canonical (endpoint: endpoint_def) : bool =
+  (Option.is_none endpoint.opp) || (endpoint.dir = Left)
+
+let endpoint_canonical_name (endpoint: endpoint_def) : identifier =
+  match endpoint.dir with
+  | Left -> endpoint.name
+  | Right -> Option.value ~default:endpoint.name endpoint.opp
 
 let lookup_channel_class (ctx : codegen_context) (name : identifier) : channel_class_def option =
   List.find_opt (fun (cc : channel_class_def) -> cc.name = name) ctx.cunit.channel_classes
@@ -143,6 +150,13 @@ let lookup_endpoint (ctx : codegen_context) (proc : proc_def) (endpoint_name : i
   else
     local_endpoint_opt
 
+let canonicalise (ctx : codegen_context) (proc : proc_def)
+    fmt (endpoint_name : identifier) =
+  let endpoint_name' =
+    let endpoint = Option.get (lookup_endpoint ctx proc endpoint_name) in
+    endpoint.name
+  in fmt endpoint_name'
+
 (* let lookup_channel_class_by_msg (ctx : codegen_context) (proc : proc_def)
             (msg_spec : message_specifier) : channel_class_def option =
   Option.bind (lookup_endpoint ctx proc msg_spec.endpoint)
@@ -152,9 +166,10 @@ let gather_ret_wires_from_msg (ctx : codegen_context) (proc : proc_def) (msg_spe
   let endpoint = Option.get (lookup_endpoint ctx proc msg_spec.endpoint) in
   let cc = Option.get (lookup_channel_class ctx endpoint.channel_class) in
   let msg = List.find (fun (m : message_def) -> m.name = msg_spec.msg) cc.messages in
+  let endpoint_name = endpoint_canonical_name endpoint in
   let mapper = fun (idx : int) (ty : sig_type) : wire_def ->
     {
-      wire = format_msg_ret_signal_name endpoint.name msg_spec.msg idx;
+      wire = format_msg_ret_signal_name endpoint_name msg_spec.msg idx;
       dtype = ty.dtype
     } in
   List.mapi mapper msg.ret_types
@@ -163,12 +178,18 @@ let gather_data_wires_from_msg (ctx : codegen_context) (proc : proc_def) (msg_sp
   let endpoint = Option.get (lookup_endpoint ctx proc msg_spec.endpoint) in
   let cc = Option.get (lookup_channel_class ctx endpoint.channel_class) in
   let msg = List.find (fun (m : message_def) -> m.name = msg_spec.msg) cc.messages in
+  let endpoint_name = endpoint_canonical_name endpoint in
   let mapper = fun (idx : int) (ty : sig_type) : wire_def ->
     {
-      wire = format_msg_data_signal_name endpoint.name msg_spec.msg idx;
+      wire = format_msg_data_signal_name endpoint_name msg_spec.msg idx;
       dtype = ty.dtype
     } in
   List.mapi mapper msg.sig_types
+
+let gather_all_wires_from_msg (ctx : codegen_context) (proc : proc_def) (msg_spec : message_specifier) : wire_def list =
+  {wire = canonicalise ctx proc format_msg_valid_signal_name msg_spec.endpoint msg_spec.msg; dtype = Logic}::
+  {wire = canonicalise ctx proc format_msg_ack_signal_name msg_spec.endpoint msg_spec.msg; dtype = Logic}::
+  (gather_data_wires_from_msg ctx proc msg_spec)@(gather_ret_wires_from_msg ctx proc msg_spec)
 
 let gather_ports_from_endpoint (ctx : codegen_context) (endpoint : endpoint_def) : port_def list =
   let cc = Option.get (lookup_channel_class ctx endpoint.channel_class) in
@@ -203,14 +224,6 @@ let codegen_ports (ctx : codegen_context) (endpoints : endpoint_def list) =
 
 let format_regname_current (regname : identifier) = regname ^ "_q"
 let format_regname_next (regname : identifier) = regname ^ "_n"
-
-let endpoint_is_canonical (endpoint: endpoint_def) : bool =
-  (Option.is_none endpoint.opp) || (endpoint.dir = Left)
-
-let endpoint_canonical_name (endpoint: endpoint_def) : identifier =
-  match endpoint.dir with
-  | Left -> endpoint.name
-  | Right -> Option.value ~default:endpoint.name endpoint.opp
 
 let codegen_state_transition (regs : reg_def list) =
   match regs with
@@ -353,7 +366,7 @@ let rec codegen_proc_body (ctx : codegen_context) (proc : proc_def)
           List.iter2 (fun (res_wire, _) (data_wire : wire_def) ->
             codegen_context_new_assign ctx {wire = data_wire.wire; expr_str = res_wire}) expr_res.v;
         let cond : condition list = [{
-          w = format_msg_ack_signal_name msg_specifier.endpoint msg_specifier.msg;
+          w = canonicalise ctx proc format_msg_ack_signal_name msg_specifier.endpoint msg_specifier.msg;
           neg = false;
         }] in
         (AtSend msg_specifier, cond, env)
@@ -361,7 +374,7 @@ let rec codegen_proc_body (ctx : codegen_context) (proc : proc_def)
         let env = gather_data_wires_from_msg ctx proc msg_specifier |>
           List.combine idents |> map_of_list in
         let cond : condition list = [{
-          w = format_msg_valid_signal_name msg_specifier.endpoint msg_specifier.msg;
+          w = canonicalise ctx proc format_msg_valid_signal_name msg_specifier.endpoint msg_specifier.msg;
           neg = false;
         }] in
         (AtRecv msg_specifier, cond, env)
@@ -457,13 +470,14 @@ let codegen_state_machine (ctx : codegen_context) (proc : proc_def) =
         let transition_cond = match cycle.delay with
         | Cycles _ -> None
         | AtSend msg_spec ->
-            Printf.printf "        %s = 1'b1;\n" (format_msg_valid_signal_name msg_spec.endpoint msg_spec.msg);
-            Some (format_msg_ack_signal_name msg_spec.endpoint msg_spec.msg)
+            Printf.printf "        %s = 1'b1;\n"
+              (canonicalise ctx proc format_msg_valid_signal_name msg_spec.endpoint msg_spec.msg);
+            Some (canonicalise ctx proc format_msg_ack_signal_name msg_spec.endpoint msg_spec.msg)
         | AtRecv msg_spec ->
             Printf.printf "        if (%s) %s = 1'b1;\n"
-              (format_msg_valid_signal_name msg_spec.endpoint msg_spec.msg)
-              (format_msg_ack_signal_name msg_spec.endpoint msg_spec.msg);
-            Some (format_msg_valid_signal_name msg_spec.endpoint msg_spec.msg)
+              (canonicalise ctx proc format_msg_valid_signal_name msg_spec.endpoint msg_spec.msg)
+              (canonicalise ctx proc format_msg_ack_signal_name msg_spec.endpoint msg_spec.msg);
+            Some (canonicalise ctx proc format_msg_valid_signal_name msg_spec.endpoint msg_spec.msg)
         in
         let (transition_begin, transition_end) =
           match transition_cond with
@@ -542,6 +556,38 @@ let gather_local_messages (ctx: codegen_context) (proc: proc_def): (endpoint_def
   List.filter (fun p -> not p.foreign) (proc.args @ ctx.endpoints) |>
   List.concat_map gather_from_endpoint
 
+let lookup_proc (ctx: codegen_context) (name: identifier) : proc_def option =
+  List.find_opt (fun (p : proc_def) -> p.name = name) ctx.cunit.procs
+
+let codegen_spawns (ctx: codegen_context) (proc: proc_def) =
+  let gen_connect = fun (dst : string) (src : string) ->
+    Printf.printf ",\n    .%s (%s)" dst src
+  in
+  let gen_spawn = fun (idx : int) (spawn : spawn_def) ->
+    Printf.printf "  %s _spawn_%d (\n    .clk_i,\n    .rst_ni" spawn.proc idx;
+    (* connect the wires *)
+    let proc_other = lookup_proc ctx spawn.proc |> Option.get in
+    let connect_endpoints = fun (arg_endpoint : endpoint_def) (param_ident : identifier) ->
+      let endpoint_local = lookup_endpoint ctx proc param_ident |> Option.get in
+      let endpoint_name_local = endpoint_canonical_name endpoint_local in
+      let cc = lookup_channel_class ctx endpoint_local.channel_class |> Option.get in
+      let print_msg_con = fun (msg : message_def) ->
+        gen_connect (format_msg_valid_signal_name arg_endpoint.name msg.name)
+          (format_msg_valid_signal_name endpoint_name_local msg.name);
+        gen_connect (format_msg_ack_signal_name arg_endpoint.name msg.name)
+          (format_msg_ack_signal_name endpoint_name_local msg.name);
+        let print_data_con = fun fmt idx _ ->
+          gen_connect (fmt arg_endpoint.name msg.name idx)
+            (fmt endpoint_name_local msg.name idx)
+        in begin
+          List.iteri (print_data_con format_msg_data_signal_name) msg.sig_types;
+          List.iteri (print_data_con format_msg_ret_signal_name) msg.ret_types
+        end
+      in List.iter print_msg_con cc.messages
+    in List.iter2 connect_endpoints proc_other.args spawn.params;
+    Printf.printf "\n  );\n"
+  in List.iteri gen_spawn proc.spawns
+
 let codegen_proc ctx (proc : proc_def) =
   (* generate ports *)
   Printf.printf "module %s (\n" proc.name;
@@ -561,6 +607,7 @@ let codegen_proc ctx (proc : proc_def) =
   codegen_channels ctx proc.channels;
   codegen_endpoints ctx;
   ctx.local_messages <- gather_local_messages ctx proc;
+  codegen_spawns ctx proc;
   codegen_state_machine ctx proc;
   codegen_post_declare ctx;
 
