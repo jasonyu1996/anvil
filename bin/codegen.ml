@@ -11,7 +11,7 @@ type wire_id = int
 type cycle_id = int
 
 type condition = {
-  w: wire_id;
+  w: string;
   neg: bool; (* negate? *)
 }
 
@@ -22,24 +22,25 @@ type reg_assign = {
 }
 
 type expr_result = {
-  v: (wire_id * data_type) list;
+  v: (string * data_type) list;
   assigns: reg_assign list; (* assignment to regs only *)
 }
 
 type wire_def = {
-  id: wire_id;
+  wire: string;
   dtype: data_type;
 }
 
 type cycle_node = {
   id: cycle_id;
+  delay: future;
   assigns: reg_assign list; (* assignment to regs only *)
-  next_switch: (wire_id * (cycle_id option)) list;
+  next_switch: (string * (cycle_id option)) list;
   next_default: cycle_id option;
 }
 
 type assign = {
-  wire : wire_id;
+  wire : string;
   expr_str : string;
 }
 
@@ -54,9 +55,17 @@ type codegen_context = {
   mutable first_cycle: int;
   (* endpoints defined in a process *)
   mutable endpoints: endpoint_def list;
+  (* messages that are sent by this process, through either ports or wires *)
+  mutable local_messages: (endpoint_def * message_def * message_direction) list;
   cunit: compilation_unit;
   (* msgs: (identifier * (message_def list)) list; *)
 }
+
+let format_wirename (id : wire_id) : string = "wire" ^ (string_of_int id)
+let format_statename (id : cycle_id) : string = "STATE" ^ (string_of_int id)
+
+let format_condition (c : condition) : string =
+  let prefix = if c.neg then "!" else "" in prefix ^ c.w
 
 let codegen_context_proc_clear (ctx : codegen_context) =
   ctx.wires <- [];
@@ -68,7 +77,7 @@ let codegen_context_proc_clear (ctx : codegen_context) =
 let codegen_context_new_wire (ctx: codegen_context) (dtype : data_type) : wire_id =
   let id = ctx.wires_n in
   ctx.wires_n <- id + 1;
-  ctx.wires <- {id = id; dtype = dtype}::ctx.wires;
+  ctx.wires <- {wire = format_wirename id; dtype = dtype}::ctx.wires;
   id
 
 let codegen_context_new_cycle (ctx : codegen_context) : cycle_id =
@@ -117,30 +126,69 @@ let lookup_channel_class (ctx : codegen_context) (name : identifier) : channel_c
 let format_msg_data_signal_name (endpoint_name : identifier) (message_name : identifier) (data_idx : int) : string =
   endpoint_name ^ "_" ^ message_name ^ "_" ^ (string_of_int data_idx)
 
+let format_msg_ret_signal_name (endpoint_name : identifier) (message_name : identifier) (ret_idx : int) : string =
+  endpoint_name ^ "_" ^ message_name ^ "_" ^ (string_of_int ret_idx) ^ "_ret"
+
 let format_msg_valid_signal_name (endpoint_name : identifier) (message_name : identifier) : string =
   endpoint_name ^ "_" ^ message_name ^ "_valid"
 
 let format_msg_ack_signal_name (endpoint_name : identifier) (message_name : identifier) : string =
   endpoint_name ^ "_" ^ message_name ^ "_ack"
 
-let gather_ports_from_endpoint (ctx : codegen_context) (endpoint : endpoint_def) =
+let lookup_endpoint (ctx : codegen_context) (proc : proc_def) (endpoint_name : identifier) : endpoint_def option =
+  let match_fun = fun (p : endpoint_def) -> p.name = endpoint_name in
+  let local_endpoint_opt = List.find_opt match_fun ctx.endpoints in
+  if Option.is_none local_endpoint_opt then
+    List.find_opt match_fun proc.args
+  else
+    local_endpoint_opt
+
+(* let lookup_channel_class_by_msg (ctx : codegen_context) (proc : proc_def)
+            (msg_spec : message_specifier) : channel_class_def option =
+  Option.bind (lookup_endpoint ctx proc msg_spec.endpoint)
+    (fun endpoint -> lookup_channel_class ctx endpoint.channel_class) *)
+
+let gather_ret_wires_from_msg (ctx : codegen_context) (proc : proc_def) (msg_spec : message_specifier) : wire_def list =
+  let endpoint = Option.get (lookup_endpoint ctx proc msg_spec.endpoint) in
+  let cc = Option.get (lookup_channel_class ctx endpoint.channel_class) in
+  let msg = List.find (fun (m : message_def) -> m.name = msg_spec.msg) cc.messages in
+  let mapper = fun (idx : int) (ty : sig_type) : wire_def ->
+    {
+      wire = format_msg_ret_signal_name endpoint.name msg_spec.msg idx;
+      dtype = ty.dtype
+    } in
+  List.mapi mapper msg.ret_types
+
+let gather_data_wires_from_msg (ctx : codegen_context) (proc : proc_def) (msg_spec : message_specifier) : wire_def list =
+  let endpoint = Option.get (lookup_endpoint ctx proc msg_spec.endpoint) in
+  let cc = Option.get (lookup_channel_class ctx endpoint.channel_class) in
+  let msg = List.find (fun (m : message_def) -> m.name = msg_spec.msg) cc.messages in
+  let mapper = fun (idx : int) (ty : sig_type) : wire_def ->
+    {
+      wire = format_msg_data_signal_name endpoint.name msg_spec.msg idx;
+      dtype = ty.dtype
+    } in
+  List.mapi mapper msg.sig_types
+
+let gather_ports_from_endpoint (ctx : codegen_context) (endpoint : endpoint_def) : port_def list =
   let cc = Option.get (lookup_channel_class ctx endpoint.channel_class) in
   let gen_endpoint_ports = fun (msg : message_def) ->
-    let msg_dir = get_message_direction msg.dir endpoint.dir in
-    let folder_inner = fun (n, port_list) (stype : sig_type) ->
+    let folder_inner = fun fmt msg_dir (n, port_list) (stype : sig_type) ->
       let new_port : port_def = {
-        name = format_msg_data_signal_name endpoint.name msg.name n;
+        name = fmt endpoint.name msg.name n;
         dir = msg_dir;
         dtype = stype.dtype;
       } in (n + 1, new_port::port_list)
     in
-    let (_, res) = List.fold_left folder_inner (0, []) msg.sig_types in
-    let valid_port = { name = format_msg_valid_signal_name endpoint.name msg.name; dir = msg_dir; dtype = Logic} in
-    let ack_port = {name = format_msg_ack_signal_name endpoint.name msg.name; dir = reverse msg_dir; dtype = Logic} in
+    let msg_data_dir = get_message_direction msg.dir endpoint.dir in
+    let (_, res0) = List.fold_left (folder_inner format_msg_data_signal_name msg_data_dir) (0, []) msg.sig_types in
+    let (_, res) = List.fold_left (folder_inner format_msg_ret_signal_name (reverse msg_data_dir)) (0, res0) msg.ret_types in
+    let valid_port = { name = format_msg_valid_signal_name endpoint.name msg.name; dir = msg_data_dir; dtype = Logic} in
+    let ack_port = {name = format_msg_ack_signal_name endpoint.name msg.name; dir = reverse msg_data_dir; dtype = Logic} in
     ack_port::valid_port::res
   in List.concat_map gen_endpoint_ports cc.messages
 
-let gather_ports (ctx : codegen_context) (endpoints : endpoint_def list) =
+let gather_ports (ctx : codegen_context) (endpoints : endpoint_def list) : port_def list =
   List.concat_map (gather_ports_from_endpoint ctx) endpoints
 
 let codegen_ports (ctx : codegen_context) (endpoints : endpoint_def list) =
@@ -188,14 +236,9 @@ let codegen_regs_declare (regs : reg_def list) =
       (format_regname_current r.name) (format_regname_next r.name)
   in List.iter codegen_reg regs
 
-let format_wirename (id : wire_id) : string = "wire" ^ (string_of_int id)
-let format_statename (id : cycle_id) : string = "STATE" ^ (string_of_int id)
-
-let format_condition (c : condition) : string =
-  let prefix = if c.neg then "" else "!" in prefix ^ (format_wirename c.w)
 
 let print_assign (a : assign) =
-  Printf.printf "  assign %s = %s;\n" (format_wirename a.wire) a.expr_str
+  Printf.printf "  assign %s = %s;\n" a.wire a.expr_str
 
 let string_of_literal (lit : literal) : string =
   let len = List.length lit in
@@ -212,18 +255,18 @@ let rec codegen_expr (ctx : codegen_context) (proc : proc_def)
   | Literal lit ->
       let dtype = Array (Logic, List.length lit) in
       let id = codegen_context_new_wire ctx dtype in
-      codegen_context_new_assign ctx {wire = id; expr_str = string_of_literal lit};
-      {v = [(id, dtype)]; assigns = []}
+      codegen_context_new_assign ctx {wire = format_wirename id; expr_str = string_of_literal lit};
+      {v = [(format_wirename id, dtype)]; assigns = []}
   | Identifier ident ->
       (* only supports registers for now *)
       (
         match StringMap.find_opt ident env with
-        | Some w -> {v = [(w.id, w.dtype)]; assigns = []}
+        | Some w -> {v = [(w.wire, w.dtype)]; assigns = []}
         | None ->
             let dtype = Option.get (get_identifier_dtype ctx proc ident) in
             let id = codegen_context_new_wire ctx dtype in
-            codegen_context_new_assign ctx {wire = id; expr_str = format_regname_current ident};
-            {v = [(id, dtype)]; assigns = []}
+            codegen_context_new_assign ctx {wire = format_wirename id; expr_str = format_regname_current ident};
+            {v = [(format_wirename id, dtype)]; assigns = []}
       )
   | Function _  -> {v = []; assigns = []}
   | TrySend _ -> {v = []; assigns = []}
@@ -234,13 +277,13 @@ let rec codegen_expr (ctx : codegen_context) (proc : proc_def)
       let e2_res = codegen_expr ctx proc conds env e2 in
       begin
         match e1_res.v, e2_res.v with
-        | [(id1, dtype1)], [(id2, dtype2)] ->
+        | [(w1, dtype1)], [(w2, dtype2)] ->
             if dtype1 = dtype2 then
               let id = codegen_context_new_wire ctx dtype1 in
               let expr_str = Printf.sprintf "%s %s %s"
-                (format_wirename id1) (string_of_binop binop) (format_wirename id2) in
-              codegen_context_new_assign ctx {wire = id; expr_str = expr_str};
-              {v = [(id, dtype1)]; assigns = e1_res.assigns @ e2_res.assigns}
+                w1 (string_of_binop binop) w2 in
+              codegen_context_new_assign ctx {wire = format_wirename id; expr_str = expr_str};
+              {v = [(format_wirename id, dtype1)]; assigns = e1_res.assigns @ e2_res.assigns}
             else {v = []; assigns = []}
         | _ -> {v = []; assigns = []}
       end
@@ -254,7 +297,7 @@ let rec codegen_expr (ctx : codegen_context) (proc : proc_def)
   | LetIn (ident, v_expr, body_expr) ->
       let v_res = codegen_expr ctx proc conds env v_expr in
       let (v_w, v_dtype) = List.hd v_res.v in
-      let new_env = StringMap.add ident {id = v_w; dtype = v_dtype} env in
+      let new_env = StringMap.add ident {wire = v_w; dtype = v_dtype} env in
       let expr_res = codegen_expr ctx proc conds new_env body_expr in
       {
         v = expr_res.v;
@@ -268,10 +311,9 @@ let rec codegen_expr (ctx : codegen_context) (proc : proc_def)
       (* get the results *)
       let gen_result = fun (w1, dtype1) (w2, _) ->
         let new_w = codegen_context_new_wire ctx dtype1 in
-        let expr_str = Printf.sprintf "(%s) ? %s : %s"
-          (format_wirename cond_w) (format_wirename w1) (format_wirename w2) in
-        let _ = codegen_context_new_assign ctx {wire = new_w; expr_str = expr_str} in
-        (new_w, dtype1)
+        let expr_str = Printf.sprintf "(%s) ? %s : %s" cond_w w1 w2 in
+        let _ = codegen_context_new_assign ctx {wire = format_wirename new_w; expr_str = expr_str} in
+        (format_wirename new_w, dtype1)
       in
       let v = List.map2 gen_result e1_res.v e2_res.v in
       {v = v; assigns = cond_res.assigns @ e1_res.assigns @ e2_res.assigns}
@@ -280,14 +322,51 @@ let rec codegen_expr (ctx : codegen_context) (proc : proc_def)
       let codegen_assign = fun (w, _) -> {
         conds = conds;
         ident = ident;
-        expr_str = format_wirename w
+        expr_str = w
        } in
       {v = []; assigns = (List.map codegen_assign expr_res.v) @ expr_res.assigns}
       (* assign evaluates to unit val *)
+  | Return (endpoint_ident, msg_ident, e_val) ->
+      let msg_spec = {endpoint = endpoint_ident; msg = msg_ident} in
+      let expr_res = codegen_expr ctx proc conds env e_val in
+      let assign_ret = fun (w, _) (ret_wire : wire_def) ->
+        (* we have to add to assign because the signals might be used for multiple cycles *)
+        codegen_context_new_assign ctx {wire = ret_wire.wire; expr_str = w}
+      in
+      begin
+        List.iter2 assign_ret expr_res.v (gather_ret_wires_from_msg ctx proc msg_spec);
+        {v = []; assigns = expr_res.assigns}
+      end
 
-let rec codegen_proc_body (ctx :codegen_context) (proc : proc_def)
+let rec codegen_proc_body (ctx : codegen_context) (proc : proc_def)
                   (pb : proc_body) (next_cycle : cycle_id option) : cycle_id option =
-  let expr_res = codegen_expr ctx proc [] StringMap.empty pb.cycle in
+  let (delay, init_cond, init_env) =
+    (* we only look at the first delay for now *)
+    match List.nth_opt pb.delays 0 with
+    | Some (Send (idents, msg_specifier, expr)) ->
+        (* bind return results *)
+        let env = gather_ret_wires_from_msg ctx proc msg_specifier |>
+          List.combine idents |> map_of_list in
+        (* gather the data to send *)
+        let expr_res = codegen_expr ctx proc [] StringMap.empty expr in
+        gather_data_wires_from_msg ctx proc msg_specifier |>
+          List.iter2 (fun (res_wire, _) (data_wire : wire_def) ->
+            codegen_context_new_assign ctx {wire = data_wire.wire; expr_str = res_wire}) expr_res.v;
+        let cond : condition list = [{
+          w = format_msg_ack_signal_name msg_specifier.endpoint msg_specifier.msg;
+          neg = false;
+        }] in
+        (AtSend msg_specifier, cond, env)
+    | Some (Recv (idents, msg_specifier)) ->
+        let env = gather_data_wires_from_msg ctx proc msg_specifier |>
+          List.combine idents |> map_of_list in
+        let cond : condition list = [{
+          w = format_msg_valid_signal_name msg_specifier.endpoint msg_specifier.msg;
+          neg = false;
+        }] in
+        (AtRecv msg_specifier, cond, env)
+    | _ -> (Cycles 0, [], StringMap.empty) in
+  let expr_res = codegen_expr ctx proc init_cond init_env pb.cycle in
   let new_cycle_id = codegen_context_new_cycle ctx in
   let (next_switch, next_default) = match pb.transition with
   | Seq -> ([], next_cycle)
@@ -305,7 +384,13 @@ let rec codegen_proc_body (ctx :codegen_context) (proc : proc_def)
       let cond_w = fst (List.hd expr_res.v) in
       ([(cond_w, next_cycle')], next_cycle)
   in
-  let new_cycle = {id = new_cycle_id; assigns = expr_res.assigns; next_switch = next_switch; next_default = next_default} in
+  let new_cycle = {
+    id = new_cycle_id;
+    assigns = expr_res.assigns;
+    delay = delay;
+    next_switch = next_switch;
+    next_default = next_default
+  } in
   begin
     codegen_context_add_cycle ctx new_cycle;
     Some new_cycle_id
@@ -322,10 +407,18 @@ and codegen_proc_body_list (ctx : codegen_context) (proc : proc_def)
 let codegen_post_declare (ctx : codegen_context) =
   (* wire declarations *)
   let codegen_wire = fun (w: wire_def) ->
-    Printf.printf "  %s %s;\n" (format_dtype w.dtype) (format_wirename w.id)
+    Printf.printf "  %s %s;\n" (format_dtype w.dtype) w.wire
   in List.iter codegen_wire ctx.wires;
   (* wire assignments *)
   List.iter print_assign ctx.assigns
+
+let gather_out_indicators (ctx : codegen_context) : identifier list =
+  let msg_map = fun ((endpoint, msg, msg_dir) : endpoint_def * message_def * message_direction) ->
+    let indicator_formatter = match msg_dir with
+    | In -> format_msg_ack_signal_name
+    | Out -> format_msg_valid_signal_name
+    in indicator_formatter (endpoint_canonical_name endpoint) msg.name
+  in List.map msg_map ctx.local_messages
 
 let codegen_state_machine (ctx : codegen_context) (proc : proc_def) =
   (* state definition *)
@@ -349,7 +442,8 @@ let codegen_state_machine (ctx : codegen_context) (proc : proc_def) =
         Printf.printf "    %s = %s;\n" (format_regname_next r.name) (format_regname_current r.name)
       in List.iter assign_reg_default proc.regs;
 
-      (* TODO: default output indicators *)
+      (* default output indicators, we need to know which messages are local-sent/received *)
+      List.iter (Printf.printf "    %s = '0;\n") (gather_out_indicators ctx);
 
       if state_width > 0 then
         print_endline "    unique case (_st_q)"
@@ -359,6 +453,24 @@ let codegen_state_machine (ctx : codegen_context) (proc : proc_def) =
           Printf.printf "      %s: begin\n" (format_statename cycle.id)
         else ();
 
+        (* if has blocking send, set the valid indicator *)
+        let transition_cond = match cycle.delay with
+        | Cycles _ -> None
+        | AtSend msg_spec ->
+            Printf.printf "        %s = 1'b1;\n" (format_msg_valid_signal_name msg_spec.endpoint msg_spec.msg);
+            Some (format_msg_ack_signal_name msg_spec.endpoint msg_spec.msg)
+        | AtRecv msg_spec ->
+            Printf.printf "        if (%s) %s = 1'b1;\n"
+              (format_msg_valid_signal_name msg_spec.endpoint msg_spec.msg)
+              (format_msg_ack_signal_name msg_spec.endpoint msg_spec.msg);
+            Some (format_msg_valid_signal_name msg_spec.endpoint msg_spec.msg)
+        in
+        let (transition_begin, transition_end) =
+          match transition_cond with
+          | Some cond -> (Printf.sprintf "        if (%s) begin\n" cond, "        end\n")
+          | None -> ("", "")
+        in
+
         (* choose the state transition signals and output for this cycle *)
         let assign_reg = fun assign ->
           let cond_str = if assign.conds = [] then "" else
@@ -367,21 +479,26 @@ let codegen_state_machine (ctx : codegen_context) (proc : proc_def) =
             Printf.sprintf "if (%s) " cond_a_str
           in
           Printf.printf "        %s%s = %s;\n" cond_str (format_regname_next assign.ident) assign.expr_str
-        in List.iter assign_reg cycle.assigns;
+        in
+        begin
+          List.iter assign_reg cycle.assigns;
 
-        if state_width > 0 then
-          (* state transition *)
-          (* default next state *)
-          let def_next_state = Option.value ~default:ctx.first_cycle cycle.next_default in
-          Printf.printf "        _st_n = %s;\n" (format_statename def_next_state);
-          (* switch *)
-          let cond_next_state = fun (w_cond, c) ->
-            let next_c = Option.value ~default:ctx.first_cycle c in
-            Printf.printf "        if (%s) begin\n          _st_n = %s;\n        end\n"
-              (format_wirename w_cond) (format_statename next_c)
-          in List.iter cond_next_state cycle.next_switch;
-          print_endline "      end"
-        else ()
+          if state_width > 0 then
+          begin
+            (* state transition *)
+            print_string transition_begin;
+            (* default next state *)
+            let def_next_state = Option.value ~default:ctx.first_cycle cycle.next_default in
+            Printf.printf "          _st_n = %s;\n" (format_statename def_next_state);
+            let cond_next_state = fun (w_cond, c) ->
+              let next_c = Option.value ~default:ctx.first_cycle c in
+              Printf.printf "          if (%s) _st_n = %s;\n"
+                w_cond (format_statename next_c)
+            in List.iter cond_next_state cycle.next_switch;
+            print_string transition_end;
+            print_endline "      end"
+          end else ()
+        end
       in List.iter codegen_cycle ctx.cycles;
       if state_width > 0 then
         print_endline "    endcase"
@@ -414,6 +531,17 @@ let codegen_endpoints (ctx: codegen_context) =
   gather_ports ctx |>
   List.iter print_port_signal_decl
 
+let gather_local_messages (ctx: codegen_context) (proc: proc_def): (endpoint_def * message_def * message_direction) list =
+  let gather_from_endpoint = fun (endpoint: endpoint_def) ->
+    let cc = Option.get (lookup_channel_class ctx endpoint.channel_class) in
+    let msg_map = fun (msg: message_def) ->
+      let msg_dir = get_message_direction msg.dir endpoint.dir in
+      (endpoint, msg, msg_dir)
+    in List.map msg_map cc.messages
+  in
+  List.filter (fun p -> not p.foreign) (proc.args @ ctx.endpoints) |>
+  List.concat_map gather_from_endpoint
+
 let codegen_proc ctx (proc : proc_def) =
   (* generate ports *)
   Printf.printf "module %s (\n" proc.name;
@@ -422,18 +550,19 @@ let codegen_proc ctx (proc : proc_def) =
 
   (* implicit state *)
   let first_cycle_op = codegen_proc_body_list ctx proc proc.body None in
+  Option.iter (fun c -> ctx.first_cycle <- c) first_cycle_op;
+  let regs = if List.length ctx.cycles > 1 then
+    ({name = "_st"; dtype = Type "_state_t"; init = Some (format_statename ctx.first_cycle)}::proc.regs)
+  else proc.regs in
   begin
-    Option.iter (fun c -> ctx.first_cycle <- c) first_cycle_op;
-    let regs = if List.length ctx.cycles > 1 then
-      ({name = "_st"; dtype = Type "_state_t"; init = Some (format_statename ctx.first_cycle)}::proc.regs)
-    else proc.regs in
-      (codegen_regs_declare regs;
-      codegen_state_transition regs);
-    codegen_channels ctx proc.channels;
-    codegen_endpoints ctx;
-    codegen_state_machine ctx proc;
-    codegen_post_declare ctx
+    codegen_regs_declare regs;
+    codegen_state_transition regs
   end;
+  codegen_channels ctx proc.channels;
+  codegen_endpoints ctx;
+  ctx.local_messages <- gather_local_messages ctx proc;
+  codegen_state_machine ctx proc;
+  codegen_post_declare ctx;
 
   print_endline "endmodule"
 
@@ -456,6 +585,7 @@ let codegen (cunit : compilation_unit) =
     assigns = [];
     cunit = cunit;
     endpoints = [];
+    local_messages = [];
     (* msgs = msgs; *)
   } in
   codegen_with_context ctx cunit.procs

@@ -1,6 +1,14 @@
 type identifier = string
 
-type future = Cycles of int | Signal of string
+type message_specifier = {
+  endpoint : identifier;
+  msg : identifier;
+}
+
+type future =
+| Cycles of int
+| AtSend of message_specifier
+| AtRecv of message_specifier
 
 type sig_lifetime = { b: future; e: future;}
 
@@ -35,6 +43,7 @@ type message_def = {
   name: identifier;
   dir: message_direction;
   sig_types: sig_type list;
+  ret_types: sig_type list;
 }
 
 type channel_class_def = {
@@ -88,17 +97,13 @@ type expr =
   | Tuple of expr list
   | LetIn of identifier * expr * expr
   | IfExpr of expr * expr * expr
-
-type message_specifier = {
-  endpoint : identifier;
-  msg : identifier;
-}
+  | Return of identifier * identifier * expr
 
 (* the delay before a cycle *)
 type delay_def =
   | WaitCycles of int
-  | Send of identifier * message_specifier * expr
-  | Recv of identifier * message_specifier
+  | Send of (identifier list) * message_specifier * expr
+  | Recv of (identifier list) * message_specifier
 
 type sig_def = {
   name: identifier;
