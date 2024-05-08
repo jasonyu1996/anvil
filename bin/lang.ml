@@ -164,6 +164,17 @@ type compilation_unit = {
   procs: proc_def list;
 }
 
+let cunit_empty : compilation_unit =
+  { channel_classes = []; procs = [] }
+
+let cunit_add_channel_class
+  (c : compilation_unit) (cc : channel_class_def) : compilation_unit =
+  {c with channel_classes = cc::c.channel_classes}
+
+let cunit_add_proc
+  (c : compilation_unit) (p : proc_def) : compilation_unit =
+  {c with procs = p::c.procs}
+
 let reverse (msg_dir : message_direction) : message_direction =
   match msg_dir with
   | In -> Out

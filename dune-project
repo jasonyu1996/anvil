@@ -5,22 +5,24 @@
 (generate_opam_files true)
 
 (source
- (github username/reponame))
+ (github jasonyu1996/anvil))
 
-(authors "Author Name")
+(authors "Jason Yu")
 
-(maintainers "Maintainer Name")
+(maintainers "Jason Yu")
 
 (license LICENSE)
 
-(documentation https://url/to/documentation)
+; (documentation https://url/to/documentation)
 
 (package
  (name anvil)
- (synopsis "A short synopsis")
- (description "A longer description")
+ (synopsis "An HDL that helps avoid mistakes")
+ (description "Anvil is a hardware description language with a type system designed to help the user avoid mistakes.")
  (depends ocaml dune)
  (tags
-  (topics "to describe" your project)))
+  (hdl safety fpga)))
+
+(using menhir 2.1)
 
 ; See the complete stanza docs at https://dune.readthedocs.io/en/stable/dune-files.html#dune-project

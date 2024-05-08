@@ -255,7 +255,8 @@ let print_assign (a : assign) =
 
 let string_of_literal (lit : literal) : string =
   let len = List.length lit in
-  let bit_str = String.concat "" (List.map string_of_bit lit) in
+  let bit_str = (List.rev_map string_of_bit lit) |>
+    String.concat "" in
   (string_of_int len) ^ "'b" ^ bit_str
 
 let get_identifier_dtype (_ctx : codegen_context) (proc : proc_def) (ident : identifier) : data_type option =

@@ -1,0 +1,48 @@
+/* Example program for testing */
+
+chan pack {
+    out ping : (logic[10]) -> (logic[10])
+}
+
+proc slave(p : right pack)
+/* channel defs */
+{}
+/* spawns */
+{}
+/* regs */
+{}
+/* body */
+{
+    d = recv p::ping => return p::ping d + 10'b1
+}
+
+proc master(p : left pack)
+/* channel defs */
+{}
+/* spawns */
+{}
+/* regs */
+{
+    counter: logic[10]
+}
+/* body */
+{
+    => let a = 10'b1 in
+        counter <- counter + a;
+    d = send p::ping(counter) => counter <- counter + d
+}
+
+proc top()
+/* channel defs */
+{
+    foreign master_p -> foreign slave_p : pack
+}
+/* spawns */
+{
+    master(master_p),
+    slave(slave_p)
+}
+/* regs */
+{}
+/* body */
+{}
