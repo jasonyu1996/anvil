@@ -459,7 +459,7 @@ let codegen_state_machine (ctx : codegen_context) (proc : proc_def) =
       List.iter (Printf.printf "    %s = '0;\n") (gather_out_indicators ctx);
 
       if state_width > 0 then
-        print_endline "    unique case (_st_q)"
+        print_endline "    _st_n = _st_q;\n    unique case (_st_q)"
       else ();
       let codegen_cycle = fun (cycle: cycle_node) ->
         if state_width > 0 then
