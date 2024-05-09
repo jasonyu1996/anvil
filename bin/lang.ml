@@ -28,6 +28,11 @@ type sig_type = {
   lifetime: sig_lifetime;
 }
 
+type ref_def = {
+  name: string;
+  ty: sig_type;
+}
+
 type reg_def = {
   name: string;
   dtype: data_type;
@@ -98,6 +103,7 @@ type expr =
   | LetIn of identifier * expr * expr
   | IfExpr of expr * expr * expr
   | Return of identifier * identifier * expr
+  | Ref of identifier * expr
 
 (* the delay before a cycle *)
 type delay_def =
@@ -156,6 +162,7 @@ type proc_def = {
   (* processes spawned by this process *)
   spawns: spawn_def list;
   regs: reg_def list;
+  refs: ref_def list;
   body: proc_body_list;
 }
 
@@ -163,6 +170,17 @@ type compilation_unit = {
   channel_classes: channel_class_def list;
   procs: proc_def list;
 }
+
+let cunit_empty : compilation_unit =
+  { channel_classes = []; procs = [] }
+
+let cunit_add_channel_class
+  (c : compilation_unit) (cc : channel_class_def) : compilation_unit =
+  {c with channel_classes = cc::c.channel_classes}
+
+let cunit_add_proc
+  (c : compilation_unit) (p : proc_def) : compilation_unit =
+  {c with procs = p::c.procs}
 
 let reverse (msg_dir : message_direction) : message_direction =
   match msg_dir with
