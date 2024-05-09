@@ -38,6 +38,7 @@
 %token KEYWORD_RECV         (* recv *)
 %token KEYWORD_RETURN       (* return *)
 %token KEYWORD_REF          (* ref *)
+%token KEYWORD_ETERNAL      (* eternal *)
 %token <int>INT             (* int literal *)
 %token <string>IDENT        (* identifier *)
 %token <string>LITERAL      (* bit literal *)
@@ -310,7 +311,7 @@ sig_type_list:
 sig_type:
   dtype = data_type; AT; lifetime_opt = lifetime_spec?
   {
-    let lifetime = Option.value ~default:{ Lang.b = Lang.Cycles 0; Lang.e = Lang.Cycles 0 } lifetime_opt in
+    let lifetime = Option.value ~default:Lang.sig_lifetime_this_cycle lifetime_opt in
     {
       dtype = dtype;
       lifetime = lifetime;
@@ -342,6 +343,8 @@ timestamp:
   { Lang.AtSend msg_spec }
 | KEYWORD_RECV; msg_spec = message_specifier
   { Lang.AtRecv msg_spec }
+| KEYWORD_ETERNAL
+  { Lang.Eternal }
 ;
 
 message_specifier:

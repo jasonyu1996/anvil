@@ -53,6 +53,7 @@ rule read =
   | "recv"    { KEYWORD_RECV }
   | "return"  { KEYWORD_RETURN }
   | "ref"     { KEYWORD_REF }
+  | "eternal" { KEYWORD_ETERNAL }
   | int       { let n = Lexing.lexeme lexbuf |> int_of_string in INT n }
   | ident     { IDENT (Lexing.lexeme lexbuf) }
   | bit_literal { LITERAL (Lexing.lexeme lexbuf) }

@@ -9,8 +9,15 @@ type future =
 | Cycles of int
 | AtSend of message_specifier
 | AtRecv of message_specifier
+| Eternal
 
 type sig_lifetime = { b: future; e: future;}
+
+let sig_lifetime_this_cycle : sig_lifetime =
+  { b = Cycles 0; e = Cycles 1 }
+
+let sig_lifetime_const : sig_lifetime =
+  { b = Cycles 0; e = Eternal }
 
 type data_type =
   | Logic
