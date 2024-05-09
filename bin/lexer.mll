@@ -31,6 +31,7 @@ rule read =
   | '^'       { XOR }
   | '&'       { AND }
   | '|'       { OR }
+  | '@'       { AT }
   | "->"      { POINT_TO }
   | "=>"      { D_POINT_TO }
   | "<-"      { POINT_BACK }
@@ -51,6 +52,7 @@ rule read =
   | "send"    { KEYWORD_SEND }
   | "recv"    { KEYWORD_RECV }
   | "return"  { KEYWORD_RETURN }
+  | "ref"     { KEYWORD_REF }
   | int       { let n = Lexing.lexeme lexbuf |> int_of_string in INT n }
   | ident     { IDENT (Lexing.lexeme lexbuf) }
   | bit_literal { LITERAL (Lexing.lexeme lexbuf) }

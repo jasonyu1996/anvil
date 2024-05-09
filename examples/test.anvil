@@ -1,7 +1,7 @@
 /* Example program for testing */
 
 chan pack {
-    out ping : (logic[10]) -> (logic[10])
+    out ping : (logic[10]@) -> (logic[10]@)
 }
 
 proc slave(p : right pack)
@@ -11,6 +11,8 @@ proc slave(p : right pack)
 {}
 /* regs */
 {}
+/* refs */
+{ tmp: logic @ #3 - #3 }
 /* body */
 {
     d = recv p::ping => return p::ping d + 10'b1
@@ -25,11 +27,23 @@ proc master(p : left pack)
 {
     counter: logic[10]
 }
+/* refs */
+{
+    d_val : logic[10] @ #3 - #3
+}
 /* body */
 {
     => let a = 10'b1 in
         counter <- counter + a;
-    d = send p::ping(counter) => counter <- counter + d
+    if d = send p::ping(counter) =>
+        let _ = counter <- counter + d in
+        let _ = ref d_val = d in
+        d
+    {
+        => counter <- counter + 2'b01
+    } else {
+        => counter <- counter + 2'b10
+    }
 }
 
 proc top()
@@ -43,6 +57,8 @@ proc top()
     slave(slave_p)
 }
 /* regs */
+{}
+/* refs */
 {}
 /* body */
 {}

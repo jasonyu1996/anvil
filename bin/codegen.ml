@@ -104,6 +104,15 @@ let format_dtype dtype =
   let (base, arrs) = format_dtype_split dtype
   in base ^ arrs
 
+let format_refname name : string = "_ref_" ^ name
+
+let wire_of_ref (r: ref_def) : wire_def =
+  {
+    wire = format_refname r.name;
+    dtype = r.ty.dtype;
+  }
+
+
 let format_port port =
   let inout = match port.dir with
     | In -> "input"
@@ -310,8 +319,12 @@ let rec codegen_expr (ctx : codegen_context) (proc : proc_def)
       }
   | LetIn (ident, v_expr, body_expr) ->
       let v_res = codegen_expr ctx proc conds env v_expr in
-      let (v_w, v_dtype) = List.hd v_res.v in
-      let new_env = StringMap.add ident {wire = v_w; dtype = v_dtype} env in
+      let new_env =
+        if ident = "_" then env
+        else
+          let (v_w, v_dtype) = List.hd v_res.v in
+          StringMap.add ident {wire = v_w; dtype = v_dtype} env
+      in
       let expr_res = codegen_expr ctx proc conds new_env body_expr in
       {
         v = expr_res.v;
@@ -351,9 +364,19 @@ let rec codegen_expr (ctx : codegen_context) (proc : proc_def)
         List.iter2 assign_ret expr_res.v (gather_ret_wires_from_msg ctx proc msg_spec);
         {v = []; assigns = expr_res.assigns}
       end
+  | Ref (ident, e_val) ->
+      let expr_res = codegen_expr ctx proc conds env e_val in
+      let w_res = List.hd expr_res.v |> fst in
+      let _ = codegen_context_new_assign ctx {wire = format_refname ident; expr_str = w_res} in
+      {v = []; assigns = expr_res.assigns}
 
 let rec codegen_proc_body (ctx : codegen_context) (proc : proc_def)
                   (pb : proc_body) (next_cycle : cycle_id option) : cycle_id option =
+  (* env for refs; TODO: refs always available for now but should be limited by lifetime *)
+  let ref_env =
+    let gen_ref_map = fun (r : ref_def) -> (r.name, wire_of_ref r) in
+    List.map gen_ref_map proc.refs |> map_of_list
+  in
   let (delay, init_cond, init_env) =
     (* we only look at the first delay for now *)
     match List.nth_opt pb.delays 0 with
@@ -362,7 +385,7 @@ let rec codegen_proc_body (ctx : codegen_context) (proc : proc_def)
         let env = gather_ret_wires_from_msg ctx proc msg_specifier |>
           List.combine idents |> map_of_list in
         (* gather the data to send *)
-        let expr_res = codegen_expr ctx proc [] StringMap.empty expr in
+        let expr_res = codegen_expr ctx proc [] ref_env expr in
         gather_data_wires_from_msg ctx proc msg_specifier |>
           List.iter2 (fun (res_wire, _) (data_wire : wire_def) ->
             codegen_context_new_assign ctx {wire = data_wire.wire; expr_str = res_wire}) expr_res.v;
@@ -380,7 +403,9 @@ let rec codegen_proc_body (ctx : codegen_context) (proc : proc_def)
         }] in
         (AtRecv msg_specifier, cond, env)
     | _ -> (Cycles 0, [], StringMap.empty) in
-  let expr_res = codegen_expr ctx proc init_cond init_env pb.cycle in
+  let expr_res =
+    let merger = fun _ a b -> if Option.is_none a then b else a in
+    codegen_expr ctx proc init_cond (StringMap.merge merger ref_env init_env) pb.cycle in
   let new_cycle_id = codegen_context_new_cycle ctx in
   let (next_switch, next_default) = match pb.transition with
   | Seq -> ([], next_cycle)
@@ -418,11 +443,12 @@ and codegen_proc_body_list (ctx : codegen_context) (proc : proc_def)
       let next_cycle' = codegen_proc_body_list ctx proc body' next_cycle in
       codegen_proc_body ctx proc pb next_cycle'
 
-let codegen_post_declare (ctx : codegen_context) =
+let codegen_post_declare (ctx : codegen_context) (proc : proc_def)=
   (* wire declarations *)
+  let ref_wires = List.map wire_of_ref proc.refs in
   let codegen_wire = fun (w: wire_def) ->
     Printf.printf "  %s %s;\n" (format_dtype w.dtype) w.wire
-  in List.iter codegen_wire ctx.wires;
+  in List.iter codegen_wire (ctx.wires @ ref_wires);
   (* wire assignments *)
   List.iter print_assign ctx.assigns
 
@@ -610,7 +636,7 @@ let codegen_proc ctx (proc : proc_def) =
   ctx.local_messages <- gather_local_messages ctx proc;
   codegen_spawns ctx proc;
   codegen_state_machine ctx proc;
-  codegen_post_declare ctx;
+  codegen_post_declare ctx proc;
 
   print_endline "endmodule"
 

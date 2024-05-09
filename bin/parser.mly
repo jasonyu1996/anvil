@@ -20,6 +20,7 @@
 %token XOR                  (* ^ *)
 %token AND                  (* & *)
 %token OR                   (* | *)
+%token AT                   (* @ *)
 %token KEYWORD_PROC         (* proc *)
 %token KEYWORD_CHAN         (* chan *)
 %token KEYWORD_IN           (* in *)
@@ -36,6 +37,7 @@
 %token KEYWORD_SEND         (* send *)
 %token KEYWORD_RECV         (* recv *)
 %token KEYWORD_RETURN       (* return *)
+%token KEYWORD_REF          (* ref *)
 %token <int>INT             (* int literal *)
 %token <string>IDENT        (* identifier *)
 %token <string>LITERAL      (* bit literal *)
@@ -56,6 +58,7 @@ proc_def:
   LEFT_BRACE; channel_def_list = channel_def_list; RIGHT_BRACE;
   LEFT_BRACE; spawns = spawn_list; RIGHT_BRACE;
   LEFT_BRACE; reg_def_list = reg_def_list; RIGHT_BRACE;
+  LEFT_BRACE; ref_def_list = separated_list(COMMA, ref_def); RIGHT_BRACE;
   LEFT_BRACE; body = proc_body_list; RIGHT_BRACE
   {
     {
@@ -64,6 +67,7 @@ proc_def:
       channels = channel_def_list;
       spawns = spawns;
       regs = reg_def_list;
+      refs = ref_def_list;
       body = body;
     } : Lang.proc_def
   }
@@ -76,6 +80,16 @@ channel_class_def:
       name = ident;
       messages = messages;
     } : Lang.channel_class_def
+  }
+;
+
+ref_def:
+  ident = IDENT; COLON; ty = sig_type
+  {
+    {
+      name = ident;
+      ty = ty;
+    } : Lang.ref_def
   }
 ;
 
@@ -186,6 +200,8 @@ expr:
   { Lang.IfExpr (cond, then_v, else_v) } (* FIXME: conflicts *)
 | KEYWORD_RETURN; endpoint = IDENT; DOUBLE_COLON; msg = IDENT; v = expr
   { Lang.Return (endpoint, msg, v) }
+| KEYWORD_REF; ref_name = IDENT; EQUAL; v = expr
+  { Lang.Ref (ref_name, v) }
 ;
 
 binop:
@@ -291,13 +307,13 @@ sig_type_list:
   { l }
 ;
 
-(* TODO: lifetime *)
 sig_type:
-  dtype = data_type
+  dtype = data_type; AT; lifetime_opt = lifetime_spec?
   {
+    let lifetime = Option.value ~default:{ Lang.b = Lang.Cycles 0; Lang.e = Lang.Cycles 0 } lifetime_opt in
     {
       dtype = dtype;
-      lifetime = { b = Lang.Cycles 0; e = Lang.Cycles 0 };
+      lifetime = lifetime;
     } : Lang.sig_type
   }
 ;
@@ -307,4 +323,33 @@ data_type:
   { Lang.Logic }
 | dtype = data_type; LEFT_BRACKET; n = INT; RIGHT_BRACKET
   { Lang.Array (dtype, n) }
+;
+
+lifetime_spec:
+  b_time = timestamp; MINUS; e_time = timestamp
+  {
+    {
+      b = b_time;
+      e = e_time;
+    } : Lang.sig_lifetime
+  }
+;
+
+timestamp:
+| SHARP; n = INT
+  { Lang.Cycles n }
+| KEYWORD_SEND; msg_spec = message_specifier
+  { Lang.AtSend msg_spec }
+| KEYWORD_RECV; msg_spec = message_specifier
+  { Lang.AtRecv msg_spec }
+;
+
+message_specifier:
+  endpoint = IDENT; DOUBLE_COLON; msg = IDENT
+  {
+    {
+      endpoint = endpoint;
+      msg = msg;
+    } : Lang.message_specifier
+  }
 ;
