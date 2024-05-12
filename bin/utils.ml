@@ -1,6 +1,8 @@
 module StringMap = Map.Make(String)
 type 'a string_map = 'a StringMap.t
 
+module StringSet = Set.Make(String)
+type string_set = StringSet.t
 
 let rec int_log2 (v : int) : int =
   if v < 1 then

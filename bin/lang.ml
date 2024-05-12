@@ -5,16 +5,32 @@ type message_specifier = {
   msg : identifier;
 }
 
+let string_of_msg_spec (msg_spec : message_specifier) : string =
+  msg_spec.endpoint ^ "::" ^ msg_spec.msg
+
 type future =
 | Cycles of int
 | AtSend of message_specifier
 | AtRecv of message_specifier
 | Eternal
 
+let string_of_future (t : future) : string =
+  match t with
+  | Cycles n -> Printf.sprintf "#%d" n
+  | AtSend msg_spec -> Printf.sprintf "S(%s)" (string_of_msg_spec msg_spec)
+  | AtRecv msg_spec -> Printf.sprintf "R(%s)" (string_of_msg_spec msg_spec)
+  | Eternal -> "E"
+
 type sig_lifetime = { b: future; e: future;}
+
+let string_of_lifetime (lt : sig_lifetime) : string =
+  Printf.sprintf "(%s, %s)" (string_of_future lt.b) (string_of_future lt.e)
 
 let sig_lifetime_this_cycle : sig_lifetime =
   { b = Cycles 0; e = Cycles 1 }
+
+let sig_lifetime_null : sig_lifetime =
+  { b = Eternal; e = Cycles 0 }
 
 let sig_lifetime_const : sig_lifetime =
   { b = Cycles 0; e = Eternal }
