@@ -24,7 +24,7 @@ let string_of_future (t : future) : string =
 type sig_lifetime = { b: future; e: future;}
 
 let string_of_lifetime (lt : sig_lifetime) : string =
-  Printf.sprintf "(%s, %s)" (string_of_future lt.b) (string_of_future lt.e)
+  Printf.sprintf "%s-%s" (string_of_future lt.b) (string_of_future lt.e)
 
 let sig_lifetime_this_cycle : sig_lifetime =
   { b = Cycles 0; e = Cycles 1 }

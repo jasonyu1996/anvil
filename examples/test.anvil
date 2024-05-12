@@ -1,7 +1,7 @@
 /* Example program for testing */
 
 chan pack {
-    out ping : (logic[10]@) -> (logic[10]@)
+    out ping : (logic[10]@#1-#2) -> (logic[10]@#1-#2)
 }
 
 proc slave(p : right pack)
@@ -29,16 +29,16 @@ proc master(p : left pack)
 }
 /* refs */
 {
-    d_val : logic[10] @ #0 - #1
+    d_val : logic[10] @ #1 - #2
 }
 /* body */
 {
     => let a = 10'b1 in
         counter <- counter + a;
     if d = send p::ping(counter) =>
-        let _ = counter <- counter + d in
+        /*let _ = counter <- counter + d in */
         let _ = ref d_val = d in
-        d
+        1'b0
     {
         => counter <- counter + 2'b01
     } else {

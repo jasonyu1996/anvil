@@ -14,21 +14,21 @@ module BorrowDestination : sig
   type t =
   | ToRef of identifier (* bind to reference*)
   | ToReg of identifier (* set register *)
-  | ToMsg (* pass as data or ret in msg; no need to record which it is *)
+  | ToOthers (* pass as data or ret in msg; no need to record which it is *)
 
   val compare : t -> t -> int
 end = struct
   type t =
   | ToRef of identifier (* bind to reference*)
   | ToReg of identifier (* set register *)
-  | ToMsg (* pass as data or ret in msg; no need to record which it is *)
+  | ToOthers (* pass as data or ret in msg; no need to record which it is *)
 
   let compare (a : t) (b : t) : int =
     match a, b with
-    | ToRef _, ToReg _ | ToRef _, ToMsg | ToReg _, ToMsg -> -1
+    | ToRef _, ToReg _ | ToRef _, ToOthers | ToReg _, ToOthers -> -1
     | ToRef a_ident, ToRef b_ident -> String.compare a_ident b_ident
     | ToReg a_ident, ToReg b_ident -> String.compare a_ident b_ident
-    | ToMsg, ToMsg -> 0
+    | ToOthers, ToOthers -> 0
     | _ -> 1
 end
 
@@ -421,7 +421,7 @@ let rec codegen_expr (ctx : codegen_context) (proc : proc_def)
       let expr_res = codegen_expr ctx proc conds env borrows e_val in
       let codegen_assign = fun (w : wire_def) ->
         (* assign borrows for one cycle *)
-        borrows := {src = w.borrow_src; lifetime = sig_lifetime_this_cycle; dst = BorrowDestination.ToReg ident}::!borrows;
+        borrows := {src = w.borrow_src; lifetime = sig_lifetime_this_cycle; dst = ToReg ident}::!borrows;
         {
           conds = conds;
           ident = ident;
@@ -434,7 +434,7 @@ let rec codegen_expr (ctx : codegen_context) (proc : proc_def)
       let expr_res = codegen_expr ctx proc conds env borrows e_val in
       let assign_ret = fun (w : wire_def) (ret_wire : wire_def) ->
         (* we have to add to assign because the signals might be used for multiple cycles *)
-        borrows := {src = w.borrow_src; lifetime = ret_wire.ty.lifetime; dst = ToMsg}::!borrows;
+        borrows := {src = w.borrow_src; lifetime = ret_wire.ty.lifetime; dst = ToOthers}::!borrows;
         codegen_context_new_assign ctx {wire = ret_wire.name; expr_str = w.name}
       in
       begin
@@ -468,6 +468,7 @@ let rec codegen_proc_body (ctx : codegen_context) (proc : proc_def)
         let expr_res = codegen_expr ctx proc [] ref_env borrows expr in
         gather_data_wires_from_msg ctx proc msg_specifier |>
           List.iter2 (fun (res_wire : wire_def) (data_wire : wire_def) ->
+            borrows := {src = res_wire.borrow_src; lifetime = data_wire.ty.lifetime; dst = ToOthers}::!borrows;
             codegen_context_new_assign ctx {wire = data_wire.name; expr_str = res_wire.name}) expr_res.v;
         let cond : condition list = [{
           w = canonicalise ctx proc format_msg_ack_signal_name msg_specifier.endpoint msg_specifier.msg;
@@ -492,15 +493,18 @@ let rec codegen_proc_body (ctx : codegen_context) (proc : proc_def)
   | If body ->
       let next_cycle' = codegen_proc_body_list ctx proc body next_cycle in
       let cond_w = List.hd expr_res.v in
+      borrows := { src = cond_w.borrow_src; lifetime = sig_lifetime_this_cycle; dst = ToOthers }::!borrows;
       ([(cond_w.name, next_cycle')], next_cycle)
   | IfElse (body1, body2) ->
       let next_cycle1 = codegen_proc_body_list ctx proc body1 next_cycle in
       let next_cycle2 = codegen_proc_body_list ctx proc body2 next_cycle in
       let cond_w = List.hd expr_res.v in
+      borrows := { src = cond_w.borrow_src; lifetime = sig_lifetime_this_cycle; dst = ToOthers }::!borrows;
       ([(cond_w.name, next_cycle1)], next_cycle2)
   | While body ->
       let next_cycle' = codegen_proc_body_list ctx proc body (Some new_cycle_id) in
       let cond_w = List.hd expr_res.v in
+      borrows := { src = cond_w.borrow_src; lifetime = sig_lifetime_this_cycle; dst = ToOthers }::!borrows;
       ([(cond_w.name, next_cycle')], next_cycle)
   in
   let new_cycle = {
@@ -755,7 +759,7 @@ let borrow_check_inspect (state : borrow_check_state)
             raise
           else ()
         | FromRef ref_ident ->
-          let lt = borrow_check_get_lifetime_tight cycle_state (BorrowDestination.ToRef ref_ident) in
+          let lt = borrow_check_get_lifetime_tight cycle_state (ToRef ref_ident) in
           if not (Lifetime.lifetime_covered_by bi.lifetime lt) then
             raise (BorrowCheckError "Insufficient lifetime of reference!")
           else ()
