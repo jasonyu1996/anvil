@@ -15,7 +15,7 @@ proc slave(p : right pack)
 { tmp: logic @ #3 - #3 }
 /* body */
 {
-    d = recv p::ping => return p::ping d + 10'b1
+    d = recv p::ping => return p::ping d + 10'b1 done
 }
 
 proc master(p : left pack)
@@ -37,7 +37,7 @@ proc master(p : left pack)
         counter := counter + a;
     if d = send p::ping(counter) =>
         /*let _ = counter := counter + d in */
-        let _ = ref d_val = d in
+        let _ = ref d_val = d done in
         1'b0
     {
         => counter := counter + (2'd1 << 2'd3)

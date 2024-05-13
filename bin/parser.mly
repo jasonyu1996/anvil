@@ -48,12 +48,20 @@
 %token KEYWORD_RETURN       (* return *)
 %token KEYWORD_REF          (* ref *)
 %token KEYWORD_ETERNAL      (* eternal *)
+%token KEYWORD_DONE         (* done *)
 %token <int>INT             (* int literal *)
 %token <string>IDENT        (* identifier *)
 %token <string>BIT_LITERAL  (* bit literal *)
 %token <string>DEC_LITERAL  (* decimal literal *)
 %token <string>HEX_LITERAL  (* hexadecimal literal *)
 %token <string>NO_LEN_LITERAL (* no-length literal *)
+%right COLON_EQ
+%right KEYWORD_IN KEYWORD_ELSE
+%right EXCL_EQ DOUBLE_EQ
+%right DOUBLE_LEFT_ABRACK DOUBLE_RIGHT_ABRACK
+%right LEFT_ABRACK RIGHT_ABRACK LEFT_ABRACK_EQ RIGHT_ABRACK_EQ
+%right TILDE
+%left XOR AND OR PLUS MINUS
 %start <Lang.compilation_unit> cunit
 %%
 
@@ -207,99 +215,69 @@ term:
   { Lang.Literal (Lang.NoLength (int_of_string literal_str))}
 | ident = IDENT
   { Lang.Identifier ident }
-| LEFT_PAREN; e = expr; RIGHT_PAREN
-  { e }
-;
-
-l3_expr:
-| v1 = l3_expr; binop = l4_binop; v2 = l3_expr
-  { Lang.Binop (binop, v1, v2) }
-| e = term
-  { e }
-| unop = unop; e = term
-  { Lang.Unop (unop, e) }
-;
-
-l2_expr:
-| v1 = l2_expr; binop = l3_binop; v2 = l3_expr
-  { Lang.Binop (binop, v1, v2) }
-| e = l3_expr
-  { e }
-;
-
-l1_expr:
-| v1 = l1_expr; binop = l2_binop; v2 = l2_expr
-  { Lang.Binop (binop, v1, v2) }
-| e = l2_expr
-  { e }
 ;
 
 expr:
 | ident = IDENT; COLON_EQ; v = expr
   { Lang.Assign (ident, v) }
-| v1 = expr; binop = l1_binop; v2 = l1_expr (* FIXME: shift/reduce conflicts *)
-  { Lang.Binop (binop, v1, v2) }
-| e = l1_expr
+| e = term
   { e }
-| LEFT_PAREN; tuple = separated_list(COMMA, expr); RIGHT_PAREN
-  { Lang.Tuple tuple }
+| e = un_expr
+  { e }
+| e = bin_expr
+  { e }
+// | LEFT_PAREN; tuple = separated_list(COMMA, expr); RIGHT_PAREN
+//   { Lang.Tuple tuple }
+| LEFT_PAREN; e = expr; RIGHT_PAREN
+  { e }
 | KEYWORD_LET; binding = IDENT; EQUAL; v = expr; KEYWORD_IN; body = expr
   { Lang.LetIn (binding, v, body) } (* FIXME: conflicts *)
 | KEYWORD_IF; cond = expr; KEYWORD_THEN; then_v = expr; KEYWORD_ELSE; else_v = expr
   { Lang.IfExpr (cond, then_v, else_v) } (* FIXME: conflicts *)
-| KEYWORD_RETURN; endpoint = IDENT; DOUBLE_COLON; msg = IDENT; v = expr
+| KEYWORD_RETURN; endpoint = IDENT; DOUBLE_COLON; msg = IDENT; v = expr; KEYWORD_DONE
   { Lang.Return (endpoint, msg, v) }
-| KEYWORD_REF; ref_name = IDENT; EQUAL; v = expr
+| KEYWORD_REF; ref_name = IDENT; EQUAL; v = expr; KEYWORD_DONE
   { Lang.Ref (ref_name, v) }
 ;
 
-l1_binop:
-| DOUBLE_EQ
-  { Lang.Eq }
-| EXCL_EQ
-  { Lang.Neq }
+bin_expr:
+| v1 = expr; DOUBLE_EQ; v2 = expr
+  { Lang.Binop (Lang.Eq, v1, v2) }
+| v1 = expr; EXCL_EQ; v2 = expr
+  { Lang.Binop (Lang.Neq, v1, v2) }
+| v1 = expr; DOUBLE_LEFT_ABRACK; v2 = expr
+  { Lang.Binop (Lang.Shl, v1, v2) }
+| v1 = expr; DOUBLE_RIGHT_ABRACK; v2 = expr
+  { Lang.Binop (Lang.Shr, v1, v2) }
+| v1 = expr; LEFT_ABRACK; v2 = expr
+  { Lang.Binop (Lang.Lt, v1, v2) }
+| v1 = expr; RIGHT_ABRACK; v2 = expr
+  { Lang.Binop (Lang.Gt, v1, v2) }
+| v1 = expr; LEFT_ABRACK_EQ; v2 = expr
+  { Lang.Binop (Lang.Lte, v1, v2) }
+| v1 = expr; RIGHT_ABRACK_EQ; v2 = expr
+  { Lang.Binop (Lang.Gte, v1, v2) }
+| v1 = expr; PLUS; v2 = expr
+  { Lang.Binop (Lang.Add, v1, v2) }
+| v1 = expr; MINUS; v2 = expr
+  { Lang.Binop (Lang.Sub, v1, v2) }
+| v1 = expr; XOR; v2 = expr
+  { Lang.Binop (Lang.Xor, v1, v2) }
+| v1 = expr; AND; v2 = expr
+  { Lang.Binop (Lang.And, v1, v2) }
+| v1 = expr; OR; v2 = expr
+  { Lang.Binop (Lang.Or, v1, v2) }
 ;
 
-l2_binop:
-| DOUBLE_LEFT_ABRACK
-  { Lang.Shl }
-| DOUBLE_RIGHT_ABRACK
-  { Lang.Shr }
-;
-
-l3_binop:
-| LEFT_ABRACK
-  { Lang.Lt }
-| RIGHT_ABRACK
-  { Lang.Gt }
-| LEFT_ABRACK_EQ
-  { Lang.Lte }
-| RIGHT_ABRACK_EQ
-  { Lang.Gte }
-;
-
-l4_binop:
-| PLUS
-  { Lang.Add }
-| MINUS
-  { Lang.Sub }
-| XOR
-  { Lang.Xor }
-| AND
-  { Lang.And }
-| OR
-  { Lang.Or }
-;
-
-unop:
-| MINUS
-  { Lang.Neg }
-| TILDE
-  { Lang.Not }
-| AND
-  { Lang.AndAll }
-| OR
-  { Lang.OrAll }
+un_expr:
+| MINUS; e = expr
+  { Lang.Unop (Lang.Neg, e) }
+| TILDE; e = expr
+  { Lang.Unop (Lang.Not, e) }
+| AND; e = expr
+  { Lang.Unop (Lang.AndAll, e) }
+| OR; e = expr
+  { Lang.Unop (Lang.OrAll, e) }
 ;
 
 proc_body_list:
