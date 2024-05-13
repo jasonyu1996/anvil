@@ -34,15 +34,15 @@ proc master(p : left pack)
 /* body */
 {
     => let a = 10'b1 in
-        counter <- counter + a;
+        counter := counter + a;
     if d = send p::ping(counter) =>
-        /*let _ = counter <- counter + d in */
+        /*let _ = counter := counter + d in */
         let _ = ref d_val = d in
         1'b0
     {
-        => counter <- counter + 2'b01
+        => counter := counter + (2'd1 << 2'd3)
     } else {
-        => counter <- counter + 2'b10
+        => counter := ~(counter + 2'b10)
     }
 }
 

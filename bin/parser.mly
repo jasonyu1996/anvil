@@ -14,13 +14,22 @@
 %token EQUAL                (* = *)
 %token POINT_TO             (* -> *)
 %token D_POINT_TO           (* => *)
-%token POINT_BACK           (* <- *)
+%token COLON_EQ             (* := *)
+%token LEFT_ABRACK          (* < *)
+%token RIGHT_ABRACK         (* > *)
+%token LEFT_ABRACK_EQ       (* <= *)
+%token RIGHT_ABRACK_EQ      (* >= *)
+%token DOUBLE_LEFT_ABRACK   (* << *)
+%token DOUBLE_RIGHT_ABRACK  (* << *)
+%token DOUBLE_EQ            (* == *)
+%token EXCL_EQ              (* != *)
 %token PLUS                 (* + *)
 %token MINUS                (* - *)
 %token XOR                  (* ^ *)
 %token AND                  (* & *)
 %token OR                   (* | *)
 %token AT                   (* @ *)
+%token TILDE                (* ~ *)
 %token KEYWORD_PROC         (* proc *)
 %token KEYWORD_CHAN         (* chan *)
 %token KEYWORD_IN           (* in *)
@@ -187,7 +196,7 @@ reg_def:
   }
 ;
 
-expr:
+term:
 | literal_str = BIT_LITERAL
   { Lang.Literal (ParserHelper.bit_literal_of_string literal_str) }
 | literal_str = DEC_LITERAL
@@ -196,10 +205,40 @@ expr:
   { Lang.Literal (ParserHelper.hex_literal_of_string literal_str) }
 | ident = IDENT
   { Lang.Identifier ident }
-| ident = IDENT; POINT_BACK; v = expr
-  { Lang.Assign (ident, v) }
-| v1 = expr; binop = binop; v2 = expr (* FIXME: shift/reduce conflicts *)
+| LEFT_PAREN; e = expr; RIGHT_PAREN
+  { e }
+;
+
+l3_expr:
+| v1 = l3_expr; binop = l4_binop; v2 = l3_expr
   { Lang.Binop (binop, v1, v2) }
+| e = term
+  { e }
+| unop = unop; e = term
+  { Lang.Unop (unop, e) }
+;
+
+l2_expr:
+| v1 = l2_expr; binop = l3_binop; v2 = l3_expr
+  { Lang.Binop (binop, v1, v2) }
+| e = l3_expr
+  { e }
+;
+
+l1_expr:
+| v1 = l1_expr; binop = l2_binop; v2 = l2_expr
+  { Lang.Binop (binop, v1, v2) }
+| e = l2_expr
+  { e }
+;
+
+expr:
+| ident = IDENT; COLON_EQ; v = expr
+  { Lang.Assign (ident, v) }
+| v1 = expr; binop = l1_binop; v2 = l1_expr (* FIXME: shift/reduce conflicts *)
+  { Lang.Binop (binop, v1, v2) }
+| e = l1_expr
+  { e }
 | LEFT_PAREN; tuple = separated_list(COMMA, expr); RIGHT_PAREN
   { Lang.Tuple tuple }
 | KEYWORD_LET; binding = IDENT; EQUAL; v = expr; KEYWORD_IN; body = expr
@@ -212,7 +251,32 @@ expr:
   { Lang.Ref (ref_name, v) }
 ;
 
-binop:
+l1_binop:
+| DOUBLE_EQ
+  { Lang.Eq }
+| EXCL_EQ
+  { Lang.Neq }
+;
+
+l2_binop:
+| DOUBLE_LEFT_ABRACK
+  { Lang.Shl }
+| DOUBLE_RIGHT_ABRACK
+  { Lang.Shr }
+;
+
+l3_binop:
+| LEFT_ABRACK
+  { Lang.Lt }
+| RIGHT_ABRACK
+  { Lang.Gt }
+| LEFT_ABRACK_EQ
+  { Lang.Lte }
+| RIGHT_ABRACK_EQ
+  { Lang.Gte }
+;
+
+l4_binop:
 | PLUS
   { Lang.Add }
 | MINUS
@@ -223,6 +287,17 @@ binop:
   { Lang.And }
 | OR
   { Lang.Or }
+;
+
+unop:
+| MINUS
+  { Lang.Neg }
+| TILDE
+  { Lang.Not }
+| AND
+  { Lang.AndAll }
+| OR
+  { Lang.OrAll }
 ;
 
 proc_body_list:

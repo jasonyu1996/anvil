@@ -126,7 +126,8 @@ let literal_bit_len (lit : literal) : int option =
   | Binary (n, _) | Decimal (n, _) | Hexadecimal (n, _) -> Some n
   | _ -> None
 
-type binop = Add | Sub | Xor | And | Or
+type binop = Add | Sub | Xor | And | Or | Lt | Gt | Lte | Gte |
+             Shl | Shr | Eq | Neq
 type unop  = Neg | Not | AndAll | OrAll
 
 (* TODO: these are SV-specific; move elsewhere *)
@@ -137,6 +138,21 @@ let string_of_binop (binop: binop) : string =
   | Xor -> "^"
   | And -> "&"
   | Or -> "|"
+  | Lt -> "<"
+  | Gt -> ">"
+  | Lte -> "<="
+  | Gte -> ">="
+  | Shl -> "<<"
+  | Shr -> ">>"
+  | Eq -> "=="
+  | Neq -> "!="
+
+let string_of_unop (unop: unop) : string =
+  match unop with
+  | Neg -> "-"
+  | Not -> "~"
+  | AndAll -> "&"
+  | OrAll -> "|"
 
 type expr =
   | Literal of literal

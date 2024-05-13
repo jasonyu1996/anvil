@@ -374,17 +374,28 @@ let rec codegen_expr (ctx : codegen_context) (proc : proc_def)
       begin
         match e1_res.v, e2_res.v with
         | [w1], [w2] ->
-            if w1.ty.dtype = w2.ty.dtype then
-              (* TODO: compute the new lifetime *)
-              let w = codegen_context_new_wire ctx w1.ty (w1.borrow_src @ w2.borrow_src) in
-              let expr_str = Printf.sprintf "%s %s %s"
-                w1.name (string_of_binop binop) w2.name in
-              codegen_context_new_assign ctx {wire = w.name; expr_str = expr_str};
-              {v = [w]; assigns = e1_res.assigns @ e2_res.assigns}
-            else {v = []; assigns = []}
+            (* if w1.ty.dtype = w2.ty.dtype then *)
+            (* TODO: compute the new lifetime; type checking *)
+            let w = codegen_context_new_wire ctx w1.ty (w1.borrow_src @ w2.borrow_src) in
+            let expr_str = Printf.sprintf "%s %s %s"
+              w1.name (string_of_binop binop) w2.name in
+            codegen_context_new_assign ctx {wire = w.name; expr_str = expr_str};
+            {v = [w]; assigns = e1_res.assigns @ e2_res.assigns}
+            (* else {v = []; assigns = []} *)
         | _ -> {v = []; assigns = []}
       end
-  | Unop _ -> {v = []; assigns = []}
+  | Unop (unop, e') ->
+    let e_res = codegen_expr ctx proc conds env borrows e' in
+    let w = List.hd e_res.v in
+    let new_dtype =
+      match unop with
+      | Neg | Not -> w.ty.dtype
+      | AndAll | OrAll -> Logic
+    in
+    let w' = codegen_context_new_wire ctx {w.ty with dtype = new_dtype} w.borrow_src in
+    let expr_str = Printf.sprintf "%s%s" (string_of_unop unop) w.name in
+    codegen_context_new_assign ctx {wire = w'.name; expr_str = expr_str};
+    {v = [w']; assigns = e_res.assigns}
   | Tuple elist ->
       let expr_res = List.map (codegen_expr ctx proc conds env borrows) elist in
       {

@@ -35,10 +35,19 @@ rule read =
   | '&'       { AND }
   | '|'       { OR }
   | '@'       { AT }
+  | '~'       { TILDE }
   | "->"      { POINT_TO }
   | "=>"      { D_POINT_TO }
-  | "<-"      { POINT_BACK }
+  | ":="      { COLON_EQ }
   | "::"      { DOUBLE_COLON }
+  | "<"       { LEFT_ABRACK }
+  | ">"       { RIGHT_ABRACK }
+  | "<="      { LEFT_ABRACK_EQ }
+  | ">="      { RIGHT_ABRACK_EQ }
+  | "<<"      { DOUBLE_LEFT_ABRACK }
+  | ">>"      { DOUBLE_RIGHT_ABRACK }
+  | "=="      { DOUBLE_EQ }
+  | "!="      { EXCL_EQ }
   | "proc"    { KEYWORD_PROC }
   | "chan"    { KEYWORD_CHAN }
   | "in"      { KEYWORD_IN }
