@@ -10,7 +10,6 @@
 %token COLON                (* : *)
 %token DOUBLE_COLON         (* :: *)
 %token SHARP                (* # *)
-%token PERIOD               (* . *)
 %token EQUAL                (* = *)
 %token POINT_TO             (* -> *)
 %token D_POINT_TO           (* => *)
