@@ -203,6 +203,8 @@ term:
   { Lang.Literal (ParserHelper.dec_literal_of_string literal_str) }
 | literal_str = HEX_LITERAL
   { Lang.Literal (ParserHelper.hex_literal_of_string literal_str) }
+| literal_str = NO_LEN_LITERAL
+  { Lang.Literal (Lang.NoLength (int_of_string literal_str))}
 | ident = IDENT
   { Lang.Identifier ident }
 | LEFT_PAREN; e = expr; RIGHT_PAREN
