@@ -330,11 +330,12 @@ let codegen_regs_declare (regs : reg_def list) =
 let print_assign (a : assign) =
   Printf.printf "  assign %s = %s;\n" a.wire a.expr_str
 
-let string_of_literal (lit : literal) : string =
-  let len = List.length lit in
-  let bit_str = (List.rev_map string_of_bit lit) |>
-    String.concat "" in
-  (string_of_int len) ^ "'b" ^ bit_str
+let string_of_literal (lit : literal) =
+  match lit with
+  | Binary (len, b) -> Printf.sprintf "%d'b%s" len (List.map string_of_digit b |> String.concat "")
+  | Decimal (len, d) -> Printf.sprintf "%d'd%s" len (List.map string_of_digit d |> String.concat "")
+  | Hexadecimal (len, h) -> Printf.sprintf "%d'h%s" len (List.map string_of_digit h |> String.concat "")
+  | NoLength n -> string_of_int n
 
 let get_identifier_dtype (_ctx : codegen_context) (proc : proc_def) (ident : identifier) : data_type option =
   let m = fun (r: reg_def) -> if r.name = ident then Some r.dtype else None in
@@ -345,7 +346,8 @@ let rec codegen_expr (ctx : codegen_context) (proc : proc_def)
                      (borrows : (borrow_info list) ref) (e : expr) : expr_result =
   match e with
   | Literal lit ->
-      let dtype = Array (Logic, List.length lit) in
+      (* TODO: no-length literal not supported here *)
+      let dtype = Array (Logic, literal_bit_len lit |> Option.get) in
       let ty = { dtype = dtype; lifetime = sig_lifetime_const } in
       let w = codegen_context_new_wire ctx ty [] in (* literal does not depend on anything *)
       codegen_context_new_assign ctx {wire = w.name; expr_str = string_of_literal lit};

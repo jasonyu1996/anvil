@@ -41,7 +41,10 @@
 %token KEYWORD_ETERNAL      (* eternal *)
 %token <int>INT             (* int literal *)
 %token <string>IDENT        (* identifier *)
-%token <string>LITERAL      (* bit literal *)
+%token <string>BIT_LITERAL  (* bit literal *)
+%token <string>DEC_LITERAL  (* decimal literal *)
+%token <string>HEX_LITERAL  (* hexadecimal literal *)
+%token <string>NO_LEN_LITERAL (* no-length literal *)
 %start <Lang.compilation_unit> cunit
 %%
 
@@ -185,8 +188,12 @@ reg_def:
 ;
 
 expr:
-| literal_str = LITERAL
+| literal_str = BIT_LITERAL
   { Lang.Literal (ParserHelper.bit_literal_of_string literal_str) }
+| literal_str = DEC_LITERAL
+  { Lang.Literal (ParserHelper.dec_literal_of_string literal_str) }
+| literal_str = HEX_LITERAL
+  { Lang.Literal (ParserHelper.hex_literal_of_string literal_str) }
 | ident = IDENT
   { Lang.Identifier ident }
 | ident = IDENT; POINT_BACK; v = expr

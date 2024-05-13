@@ -9,6 +9,9 @@ let ident = ['a'-'z' 'A'-'Z' '_'] ['a'-'z' 'A'-'Z' '0'-'9' '_']*
 (* only non-negatives *)
 let int = ['0'-'9']+
 let bit_literal = int "\'b" ['0'-'1']+
+let dec_literal = int "\'d" ['0'-'9']+
+let hex_literal = int "\'h" ['0'-'9' 'a'-'f']+
+let no_length_literal = int
 
 rule read =
   parse
@@ -56,7 +59,10 @@ rule read =
   | "eternal" { KEYWORD_ETERNAL }
   | int       { let n = Lexing.lexeme lexbuf |> int_of_string in INT n }
   | ident     { IDENT (Lexing.lexeme lexbuf) }
-  | bit_literal { LITERAL (Lexing.lexeme lexbuf) }
+  | bit_literal { BIT_LITERAL (Lexing.lexeme lexbuf) }
+  | dec_literal { DEC_LITERAL (Lexing.lexeme lexbuf) }
+  | hex_literal { HEX_LITERAL (Lexing.lexeme lexbuf) }
+  | no_length_literal { NO_LEN_LITERAL (Lexing.lexeme lexbuf) }
   | eof       { EOF }
   | "/*"      { skip_comments lexbuf }
 and skip_comments =

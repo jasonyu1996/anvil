@@ -90,14 +90,41 @@ type channel_def = {
 
 (* expressions *)
 
-type bit = Zero | One
+type bit = [`Z0 | `Z1]
+type digit = [`Z0 | `Z1 | `Z2 | `Z3 | `Z4 | `Z5 | `Z6 | `Z7 | `Z8 | `Z9]
+type hexit = [`Z0 | `Z1 | `Z2 | `Z3 | `Z4 | `Z5 | `Z6 | `Z7 | `Z8 | `Z9 |
+            `Za | `Zb | `Zc | `Zd | `Ze | `Zf]
+type all_digit = hexit
 
-let string_of_bit (b : bit) : string =
-  match b with
-  | Zero -> "0"
-  | One -> "1"
+let string_of_digit d : string =
+  match d with
+  | `Z0 -> "0"
+  | `Z1 -> "1"
+  | `Z2 -> "2"
+  | `Z3 -> "3"
+  | `Z4 -> "4"
+  | `Z5 -> "5"
+  | `Z6 -> "6"
+  | `Z7 -> "7"
+  | `Z8 -> "8"
+  | `Z9 -> "9"
+  | `Za -> "a"
+  | `Zb -> "b"
+  | `Zc -> "c"
+  | `Zd -> "d"
+  | `Ze -> "e"
+  | `Zf -> "f"
 
-type literal = bit list
+type literal =
+| Binary of int * bit list
+| Decimal of int * digit list
+| Hexadecimal of int * hexit list
+| NoLength of int
+
+let literal_bit_len (lit : literal) : int option =
+  match lit with
+  | Binary (n, _) | Decimal (n, _) | Hexadecimal (n, _) -> Some n
+  | _ -> None
 
 type binop = Add | Sub | Xor | And | Or
 type unop  = Neg | Not | AndAll | OrAll
