@@ -370,8 +370,8 @@ message_def_list:
 ;
 
 message_def:
-  dir = message_direction; ident = IDENT; COLON; LEFT_PAREN; data = sig_type_list; RIGHT_PAREN;
-  POINT_TO; LEFT_PAREN; rets = sig_type_list; RIGHT_PAREN
+  dir = message_direction; ident = IDENT; COLON; LEFT_PAREN; data = separated_list(COMMA, sig_type_chan_local); RIGHT_PAREN;
+  POINT_TO; LEFT_PAREN; rets = separated_list(COMMA, sig_type_chan_local); RIGHT_PAREN
   {
     {
       name = ident;
@@ -405,6 +405,17 @@ sig_type:
   }
 ;
 
+sig_type_chan_local:
+  dtype = data_type; AT; lifetime_opt = lifetime_spec_chan_local?
+  {
+    let lifetime = Option.value ~default:Lang.sig_lifetime_this_cycle_chan_local lifetime_opt in
+    {
+      dtype = dtype;
+      lifetime = lifetime;
+    } : Lang.sig_type_chan_local
+  }
+;
+
 data_type:
 | KEYWORD_LOGIC
   { Lang.Logic }
@@ -422,15 +433,36 @@ lifetime_spec:
   }
 ;
 
+lifetime_spec_chan_local:
+  b_time = timestamp_chan_local; MINUS; e_time = timestamp_chan_local
+  {
+    {
+      b = b_time;
+      e = e_time;
+    } : Lang.sig_lifetime_chan_local
+  }
+
+
 timestamp:
 | SHARP; n = INT
-  { Lang.Cycles n }
+  { `Cycles n }
 | KEYWORD_SEND; msg_spec = message_specifier
-  { Lang.AtSend msg_spec }
+  { `AtSend msg_spec }
 | KEYWORD_RECV; msg_spec = message_specifier
-  { Lang.AtRecv msg_spec }
+  { `AtRecv msg_spec }
 | KEYWORD_ETERNAL
-  { Lang.Eternal }
+  { `Eternal }
+;
+
+timestamp_chan_local:
+| SHARP; n = INT
+  { `Cycles n }
+| KEYWORD_SEND; msg = IDENT
+  { `AtSend msg }
+| KEYWORD_RECV; msg = IDENT
+  { `AtRecv msg }
+| KEYWORD_ETERNAL
+  { `Eternal }
 ;
 
 message_specifier:

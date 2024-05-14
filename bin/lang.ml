@@ -8,32 +8,43 @@ type message_specifier = {
 let string_of_msg_spec (msg_spec : message_specifier) : string =
   msg_spec.endpoint ^ "::" ^ msg_spec.msg
 
-type future =
-| Cycles of int
-| AtSend of message_specifier
-| AtRecv of message_specifier
-| Eternal
+type future = [ `Cycles of int | `AtSend of message_specifier | `AtRecv of message_specifier | `Eternal ]
+
+(* future definition that is local to a specific channel *)
+type future_chan_local = [ `Cycles of int | `AtSend of identifier | `AtRecv of identifier | `Eternal ]
 
 let string_of_future (t : future) : string =
   match t with
-  | Cycles n -> Printf.sprintf "#%d" n
-  | AtSend msg_spec -> Printf.sprintf "S(%s)" (string_of_msg_spec msg_spec)
-  | AtRecv msg_spec -> Printf.sprintf "R(%s)" (string_of_msg_spec msg_spec)
-  | Eternal -> "E"
+  | `Cycles n -> Printf.sprintf "#%d" n
+  | `AtSend msg_spec -> Printf.sprintf "S(%s)" (string_of_msg_spec msg_spec)
+  | `AtRecv msg_spec -> Printf.sprintf "R(%s)" (string_of_msg_spec msg_spec)
+  | `Eternal -> "E"
 
 type sig_lifetime = { b: future; e: future;}
+type sig_lifetime_chan_local = { b: future_chan_local; e: future_chan_local; }
 
 let string_of_lifetime (lt : sig_lifetime) : string =
   Printf.sprintf "%s-%s" (string_of_future lt.b) (string_of_future lt.e)
 
+let sig_lifetime_this_cycle_chan_local : sig_lifetime_chan_local =
+  { b = `Cycles 0; e = `Cycles 1 }
+
+let sig_lifetime_null_chan_local : sig_lifetime_chan_local =
+  { b = `Eternal; e = `Cycles 0 }
+
+let sig_lifetime_const_chan_local : sig_lifetime_chan_local =
+  { b = `Cycles 0; e = `Eternal }
+
+
 let sig_lifetime_this_cycle : sig_lifetime =
-  { b = Cycles 0; e = Cycles 1 }
+  { b = `Cycles 0; e = `Cycles 1 }
 
 let sig_lifetime_null : sig_lifetime =
-  { b = Eternal; e = Cycles 0 }
+  { b = `Eternal; e = `Cycles 0 }
 
 let sig_lifetime_const : sig_lifetime =
-  { b = Cycles 0; e = Eternal }
+  { b = `Cycles 0; e = `Eternal }
+
 
 type data_type =
   | Logic
@@ -46,10 +57,29 @@ let rec data_type_size dtype =
   | Type _ -> 1 (* this is a hack *)
   | Array (dtype', n) -> (data_type_size dtype') * n
 
-type sig_type = {
+type 'a sig_type_general = {
   dtype: data_type;
-  lifetime: sig_lifetime;
+  lifetime: 'a;
 }
+
+type sig_type = sig_lifetime sig_type_general
+type sig_type_chan_local = sig_lifetime_chan_local sig_type_general
+
+let future_globalise (endpoint : identifier) (t : future_chan_local) : future =
+  match t with
+  | `AtSend msg -> `AtSend {endpoint = endpoint; msg = msg}
+  | `AtRecv msg -> `AtRecv {endpoint = endpoint; msg = msg}
+  | `Cycles n -> `Cycles n
+  | `Eternal -> `Eternal
+
+let lifetime_globalise (endpoint : identifier) (lt : sig_lifetime_chan_local) : sig_lifetime =
+  { b = future_globalise endpoint lt.b; e = future_globalise endpoint lt.e }
+
+let sig_type_globalise (endpoint : identifier) (s : sig_type_chan_local) : sig_type =
+  {
+    dtype = s.dtype;
+    lifetime = lifetime_globalise endpoint s.lifetime
+  }
 
 type ref_def = {
   name: string;
@@ -70,8 +100,8 @@ type message_direction = In | Out
 type message_def = {
   name: identifier;
   dir: message_direction;
-  sig_types: sig_type list;
-  ret_types: sig_type list;
+  sig_types: sig_type_chan_local list;
+  ret_types: sig_type_chan_local list;
 }
 
 type channel_class_def = {

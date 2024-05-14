@@ -6,22 +6,22 @@ type event = future
 (* the timestamp specifies a point in time that is no later than when the timestamp becomes 0 *)
 let consume_lowerbound (t : future) (e : event) : future =
   match t, e with
-  | Cycles n, Cycles m ->
+  | `Cycles n, `Cycles m ->
     let n' = if n > m then n - m else 0 in
-    Cycles n'
-  | Cycles _, _ -> Cycles 0 (* we can make the timestamp earlier but no later *)
-  | AtSend msg1, AtSend msg2 -> if msg1 = msg2 then Cycles 0 else t
-  | AtRecv msg1, AtRecv msg2 -> if msg1 = msg2 then Cycles 0 else t
+    `Cycles n'
+  | `Cycles _, _ -> `Cycles 0 (* we can make the timestamp earlier but no later *)
+  | `AtSend msg1, `AtSend msg2 -> if msg1 = msg2 then `Cycles 0 else t
+  | `AtRecv msg1, `AtRecv msg2 -> if msg1 = msg2 then `Cycles 0 else t
   | _ -> t
 
 (* this is for timestamps that specify the upperbound of a point in time *)
 let consume_upperbound (t : future) (e : event) : future =
   match t, e with
-  | Cycles n, Cycles m ->
+  | `Cycles n, `Cycles m ->
     let n' = if n > m then n - m else 0 in
-    Cycles n'
-  | AtSend msg1, AtSend msg2 -> if msg1 = msg2 then Cycles 0 else t
-  | AtRecv msg1, AtRecv msg2 -> if msg1 = msg2 then Cycles 0 else t
+    `Cycles n'
+  | `AtSend msg1, `AtSend msg2 -> if msg1 = msg2 then `Cycles 0 else t
+  | `AtRecv msg1, `AtRecv msg2 -> if msg1 = msg2 then `Cycles 0 else t
   | _ -> t
 
 (* can only shrink giving a lifetime that guarantees the reference is alive *)
@@ -41,8 +41,8 @@ let consume_lifetime_might_live (lt : lifetime) (e : event) : lifetime =
 (* future relation *)
 let future_no_later_than (t1 : future) (t2 : future) : bool =
   match t1, t2 with
-  | Cycles n, Cycles m -> n <= m
-  | Cycles 0, _ | Cycles 1, _ -> true
+  | `Cycles n, `Cycles m -> n <= m
+  | `Cycles 0, _ | `Cycles 1, _ -> true
   | _ -> t1 = t2
 
 (* lifetime relation *)
@@ -53,16 +53,16 @@ let lifetime_covered_by (lt1 : lifetime) (lt2 : lifetime) : bool =
 (** The earlier of the two futures. *)
 let future_earlier_of (t1 : future) (t2 : future) : future =
   match t1, t2 with
-  | Cycles n, Cycles m -> Cycles (min n m)
+  | `Cycles n, `Cycles m -> `Cycles (min n m)
   | _ when t1 = t2 -> t1
-  | _ -> Cycles 0
+  | _ -> `Cycles 0
 
 (** The later of the two futures. *)
 let future_later_of (t1 : future) (t2 : future) : future =
   match t1, t2 with
-  | Cycles n, Cycles m -> Cycles (max n m)
+  | `Cycles n, `Cycles m -> `Cycles (max n m)
   | _ when t1 = t2 -> t1
-  | _ -> Eternal
+  | _ -> `Eternal
 
 let lifetime_merge_tight (lt1 : lifetime) (lt2 : lifetime) : lifetime =
   let b' = future_later_of lt1.b lt2.b
@@ -78,7 +78,7 @@ let lifetime_merge_relaxed (lt1 : lifetime) (lt2 : lifetime) : lifetime =
     In other words, a mutation will change the borrowed value. *)
 let lifetime_overlaps_current_mutation (lt : lifetime) : bool =
   (* only if the lifetime covers both this cycle and the next *)
-  (lt.b = Cycles 0) &&
+  (lt.b = `Cycles 0) &&
     match lt.e with
-    | Cycles 0 | Cycles 1 -> false
+    | `Cycles 0 | `Cycles 1 -> false
     | _ -> true
