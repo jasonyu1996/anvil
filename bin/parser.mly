@@ -48,6 +48,8 @@
 %token KEYWORD_REF          (* ref *)
 %token KEYWORD_ETERNAL      (* eternal *)
 %token KEYWORD_DONE         (* done *)
+%token KEYWORD_TRYSEND      (* try_send *)
+%token KEYWORD_TRYRECV      (* try_recv *)
 %token <int>INT             (* int literal *)
 %token <string>IDENT        (* identifier *)
 %token <string>BIT_LITERAL  (* bit literal *)
@@ -59,7 +61,7 @@
 %right EXCL_EQ DOUBLE_EQ
 %right DOUBLE_LEFT_ABRACK DOUBLE_RIGHT_ABRACK
 %right LEFT_ABRACK RIGHT_ABRACK LEFT_ABRACK_EQ RIGHT_ABRACK_EQ
-%right TILDE
+%nonassoc TILDE UMINUS UAND UOR
 %left XOR AND OR PLUS MINUS
 %start <Lang.compilation_unit> cunit
 %%
@@ -237,6 +239,22 @@ expr:
   { Lang.Return (endpoint, msg, v) }
 | KEYWORD_REF; ref_name = IDENT; EQUAL; v = expr; KEYWORD_DONE
   { Lang.Ref (ref_name, v) }
+| KEYWORD_TRYSEND; bindings = separated_list(COMMA, IDENT); EQUAL;
+  endpoint = IDENT; DOUBLE_COLON; msg = IDENT;
+  LEFT_PAREN; data = expr; RIGHT_PAREN; KEYWORD_THEN;
+  succ_expr = expr; KEYWORD_ELSE; fail_expr = expr
+  { Lang.TrySend ({Lang.send_binds = bindings;
+                   Lang.send_msg_spec = {Lang.endpoint = endpoint; Lang.msg = msg};
+                   Lang.send_data = data}, succ_expr, fail_expr) }
+| KEYWORD_TRYRECV; bindings = separated_list(COMMA, IDENT); EQUAL;
+  endpoint = IDENT; DOUBLE_COLON; msg = IDENT; KEYWORD_THEN;
+  succ_expr = expr; KEYWORD_ELSE; fail_expr = expr
+  {
+    Lang.TryRecv ({
+      Lang.recv_binds = bindings;
+      Lang.recv_msg_spec = {Lang.endpoint = endpoint; Lang.msg = msg};
+    }, succ_expr, fail_expr)
+  }
 ;
 
 bin_expr:
@@ -269,13 +287,13 @@ bin_expr:
 ;
 
 un_expr:
-| MINUS; e = expr
+| MINUS; e = expr %prec UMINUS
   { Lang.Unop (Lang.Neg, e) }
 | TILDE; e = expr
   { Lang.Unop (Lang.Not, e) }
-| AND; e = expr
+| AND; e = expr %prec UAND
   { Lang.Unop (Lang.AndAll, e) }
-| OR; e = expr
+| OR; e = expr %prec UOR
   { Lang.Unop (Lang.OrAll, e) }
 ;
 
@@ -326,16 +344,23 @@ proc_else_clause:
 delay:
 | SHARP; n = INT
   { Lang.WaitCycles n }
-| bindings = separated_list(COMMA, IDENT);
-  EQUAL; KEYWORD_SEND; endpoint_ident = IDENT; DOUBLE_COLON; message_name = IDENT;
+| KEYWORD_SEND; bindings = separated_list(COMMA, IDENT);
+  EQUAL; endpoint_ident = IDENT; DOUBLE_COLON; message_name = IDENT;
   LEFT_PAREN; e = expr; RIGHT_PAREN
   {
-    Lang.Send (bindings, { endpoint = endpoint_ident; msg = message_name }, e)
+    Lang.Send ({
+      send_binds = bindings;
+      send_msg_spec = { endpoint = endpoint_ident; msg = message_name };
+      send_data = e
+    })
   }
-| bindings = separated_list(COMMA, IDENT);
-  EQUAL; KEYWORD_RECV; endpoint_ident = IDENT; DOUBLE_COLON; message_name = IDENT
+| KEYWORD_RECV;  bindings = separated_list(COMMA, IDENT);
+  EQUAL; endpoint_ident = IDENT; DOUBLE_COLON; message_name = IDENT
   {
-    Lang.Recv (bindings, { endpoint = endpoint_ident; msg = message_name })
+    Lang.Recv ({
+      recv_binds = bindings;
+      recv_msg_spec = { endpoint = endpoint_ident; msg = message_name }
+    })
   }
 ;
 

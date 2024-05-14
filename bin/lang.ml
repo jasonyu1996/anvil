@@ -154,13 +154,22 @@ let string_of_unop (unop: unop) : string =
   | AndAll -> "&"
   | OrAll -> "|"
 
-type expr =
+type send_pack = {
+  send_binds: identifier list;
+  send_msg_spec: message_specifier;
+  send_data: expr;
+}
+and recv_pack = {
+  recv_binds: identifier list;
+  recv_msg_spec: message_specifier;
+}
+and expr =
   | Literal of literal
   | Identifier of identifier
   | Function of identifier * expr
   (* send and recv *)
-  | TrySend of identifier
-  | TryRecv of identifier
+  | TrySend of send_pack * expr * expr
+  | TryRecv of recv_pack * expr * expr
   | Assign of identifier * expr
   | Apply of expr * expr
   | Binop of binop * expr * expr
@@ -174,8 +183,8 @@ type expr =
 (* the delay before a cycle *)
 type delay_def =
   | WaitCycles of int
-  | Send of (identifier list) * message_specifier * expr
-  | Recv of (identifier list) * message_specifier
+  | Send of send_pack
+  | Recv of recv_pack
 
 type sig_def = {
   name: identifier;

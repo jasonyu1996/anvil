@@ -341,6 +341,20 @@ let get_identifier_dtype (_ctx : codegen_context) (proc : proc_def) (ident : ide
   let m = fun (r: reg_def) -> if r.name = ident then Some r.dtype else None in
   List.find_map m proc.regs
 
+(* TODO: here we should use mux instead direct assigns *)
+let assign_message_data (ctx : codegen_context) (proc : proc_def) (borrows : borrow_info list ref)
+                        (msg_spec : message_specifier) (data_ws : wire_def list)=
+  gather_data_wires_from_msg ctx proc msg_spec |>
+    List.iter2 (fun (res_wire : wire_def) (data_wire : wire_def) ->
+        borrows := {src = res_wire.borrow_src; lifetime = data_wire.ty.lifetime; dst = ToOthers}::!borrows;
+        codegen_context_new_assign ctx {wire = data_wire.name; expr_str = res_wire.name}) data_ws
+
+let message_ack_wirename (ctx : codegen_context) (proc : proc_def) (msg_spec : message_specifier) : string =
+  canonicalise ctx proc format_msg_ack_signal_name msg_spec.endpoint msg_spec.msg
+
+let message_valid_wirename (ctx : codegen_context) (proc : proc_def) (msg_spec : message_specifier) : string =
+  canonicalise ctx proc format_msg_valid_signal_name msg_spec.endpoint msg_spec.msg
+
 let rec codegen_expr (ctx : codegen_context) (proc : proc_def)
                      (conds : condition list) (env : wire_def string_map)
                      (borrows : (borrow_info list) ref) (e : expr) : expr_result =
@@ -365,8 +379,32 @@ let rec codegen_expr (ctx : codegen_context) (proc : proc_def)
             {v = [w]; assigns = []}
       )
   | Function _  -> {v = []; assigns = []}
-  | TrySend _ -> {v = []; assigns = []}
-  | TryRecv _ -> {v = []; assigns = []}
+  | TrySend (send_pack, e_succ, e_fail) ->
+      let data_res = codegen_expr ctx proc conds env borrows send_pack.send_data in
+      assign_message_data ctx proc borrows send_pack.send_msg_spec data_res.v;
+      let ack_w = message_ack_wirename ctx proc send_pack.send_msg_spec in
+      let succ_env = gather_ret_wires_from_msg ctx proc send_pack.send_msg_spec |>
+        List.combine send_pack.send_binds |> map_of_list |>
+        StringMap.merge (fun _ op1 op2 -> if Option.is_some op2 then op2 else op1) env in
+      let succ_res = codegen_expr ctx proc ({w = ack_w; neg = false}::conds) succ_env borrows e_succ
+      and fail_res = codegen_expr ctx proc ({w = ack_w; neg = true}::conds) env borrows e_fail in
+      let succ_w = List.hd succ_res.v and fail_w = List.hd fail_res.v in
+      let w = codegen_context_new_wire ctx succ_w.ty (succ_w.borrow_src @ fail_w.borrow_src) in
+      let expr_str = Printf.sprintf "(%s) ? %s : %s" ack_w succ_w.name fail_w.name in
+      codegen_context_new_assign ctx {wire = w.name; expr_str = expr_str};
+      {v = [w]; assigns = data_res.assigns @ succ_res.assigns @ fail_res.assigns}
+  | TryRecv (recv_pack, e_succ, e_fail) ->
+      let valid_w = message_valid_wirename ctx proc recv_pack.recv_msg_spec in
+      let succ_env = gather_data_wires_from_msg ctx proc recv_pack.recv_msg_spec |>
+        List.combine recv_pack.recv_binds |> map_of_list |>
+        StringMap.merge (fun _ op1 op2 -> if Option.is_some op2 then op2 else op1) env in
+      let succ_res = codegen_expr ctx proc ({w = valid_w; neg = false}::conds) succ_env borrows e_succ
+      and fail_res = codegen_expr ctx proc ({w = valid_w; neg = true}::conds) succ_env borrows e_fail in
+      let succ_w = List.hd succ_res.v and fail_w = List.hd fail_res.v in
+      let w = codegen_context_new_wire ctx succ_w.ty (succ_w.borrow_src @ fail_w.borrow_src) in
+      let expr_str = Printf.sprintf "(%s) ? %s : %s" valid_w succ_w.name fail_w.name in
+      codegen_context_new_assign ctx {wire = w.name; expr_str = expr_str};
+      {v = [w]; assigns = succ_res.assigns @ fail_res.assigns}
   | Apply _ -> {v = []; assigns = []}
   | Binop (binop, e1, e2) ->
       let e1_res = codegen_expr ctx proc conds env borrows e1 in
@@ -473,22 +511,19 @@ let rec codegen_proc_body (ctx : codegen_context) (proc : proc_def)
   let (delay, init_cond, init_env) =
     (* we only look at the first delay for now *)
     match List.nth_opt pb.delays 0 with
-    | Some (Send (idents, msg_specifier, expr)) ->
+    | Some (Send {send_binds = idents; send_msg_spec = msg_specifier; send_data = expr}) ->
         (* bind return results *)
         let env = gather_ret_wires_from_msg ctx proc msg_specifier |>
           List.combine idents |> map_of_list in
         (* gather the data to send *)
         let expr_res = codegen_expr ctx proc [] ref_env borrows expr in
-        gather_data_wires_from_msg ctx proc msg_specifier |>
-          List.iter2 (fun (res_wire : wire_def) (data_wire : wire_def) ->
-            borrows := {src = res_wire.borrow_src; lifetime = data_wire.ty.lifetime; dst = ToOthers}::!borrows;
-            codegen_context_new_assign ctx {wire = data_wire.name; expr_str = res_wire.name}) expr_res.v;
+        assign_message_data ctx proc borrows msg_specifier expr_res.v;
         let cond : condition list = [{
-          w = canonicalise ctx proc format_msg_ack_signal_name msg_specifier.endpoint msg_specifier.msg;
+          w = message_ack_wirename ctx proc msg_specifier;
           neg = false;
         }] in
         (AtSend msg_specifier, cond, env)
-    | Some (Recv (idents, msg_specifier)) ->
+    | Some (Recv {recv_binds = idents; recv_msg_spec = msg_specifier}) ->
         let env = gather_data_wires_from_msg ctx proc msg_specifier |>
           List.combine idents |> map_of_list in
         let cond : condition list = [{

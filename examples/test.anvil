@@ -10,12 +10,13 @@ proc slave(p : right pack)
 /* spawns */
 {}
 /* regs */
-{}
+{ st: logic }
 /* refs */
 { tmp: logic @ #3 - #3 }
 /* body */
 {
-    d = recv p::ping => return p::ping d + 10'b1 done
+    /*recv d = p::ping => return p::ping d + 10'b1 done*/
+    => st := try_recv d = p::ping then 1'b1 else 1'b0
 }
 
 proc master(p : left pack)
@@ -35,7 +36,7 @@ proc master(p : left pack)
 {
     => let a = 10'b1 in
         counter := counter + a;
-    if d = send p::ping(counter) =>
+    if send d = p::ping(counter) =>
         /*let _ = counter := counter + d in */
         let _ = ref d_val = d done in
         1'b0
