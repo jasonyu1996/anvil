@@ -76,8 +76,14 @@ rule read =
   | no_length_literal { NO_LEN_LITERAL (Lexing.lexeme lexbuf) }
   | eof       { EOF }
   | "/*"      { skip_comments lexbuf }
+  | "//"      { skip_inline_comments lexbuf }
 and skip_comments =
   parse
   | "*/"      { read lexbuf }
   | _         { skip_comments lexbuf }
   | eof       { raise (SyntaxError "Missing */") }
+and skip_inline_comments =
+  parse
+  | newline  { Lexing.new_line lexbuf; read lexbuf }
+  | _         { skip_inline_comments lexbuf }
+  | eof       { EOF }

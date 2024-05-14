@@ -16,7 +16,8 @@ proc slave(p : right pack)
 /* body */
 {
     /*recv d = p::ping => return p::ping d + 10'b1 done*/
-    => st := try_recv d = p::ping then 1'b1 else 1'b0
+    => st := let v = try_recv d = p::ping then 1'b1 else 1'b0 in
+        if v >= 1'b0 then 1'b1 else 1'b0 // testing if-then-else
 }
 
 proc master(p : left pack)
