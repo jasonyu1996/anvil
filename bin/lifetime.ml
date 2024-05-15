@@ -1,41 +1,41 @@
 open Lang
 type lifetime = sig_lifetime
-type event = future
+type event = [ delay_def | `IndefCycles ] (* event can include indefinite number of cycles *)
 
 (* compute the new timestamp after event *)
 (* the timestamp specifies a point in time that is no later than when the timestamp becomes 0 *)
-let consume_lowerbound (t : future) (e : event) : future =
+let consume_lowerbound (e : [< delay_def | event]) (t : future) : future =
   match t, e with
   | `Cycles n, `Cycles m ->
     let n' = if n > m then n - m else 0 in
     `Cycles n'
   | `Cycles _, _ -> `Cycles 0 (* we can make the timestamp earlier but no later *)
-  | `AtSend msg1, `AtSend msg2 -> if msg1 = msg2 then `Cycles 0 else t
-  | `AtRecv msg1, `AtRecv msg2 -> if msg1 = msg2 then `Cycles 0 else t
+  | `Send msg1, `Send { send_msg_spec = msg2; _ } -> if msg1 = msg2 then `Cycles 0 else t
+  | `Recv msg1, `Recv { recv_msg_spec = msg2; _ } -> if msg1 = msg2 then `Cycles 0 else t
   | _ -> t
 
 (* this is for timestamps that specify the upperbound of a point in time *)
-let consume_upperbound (t : future) (e : event) : future =
+let consume_upperbound (e : [< delay_def | event]) (t : future) : future =
   match t, e with
   | `Cycles n, `Cycles m ->
     let n' = if n > m then n - m else 0 in
     `Cycles n'
-  | `AtSend msg1, `AtSend msg2 -> if msg1 = msg2 then `Cycles 0 else t
-  | `AtRecv msg1, `AtRecv msg2 -> if msg1 = msg2 then `Cycles 0 else t
+  | `Send msg1, `Send { send_msg_spec = msg2; _ } -> if msg1 = msg2 then `Cycles 0 else t
+  | `Recv msg1, `Recv { recv_msg_spec = msg2; _ } -> if msg1 = msg2 then `Cycles 0 else t
   | _ -> t
 
 (* can only shrink giving a lifetime that guarantees the reference is alive *)
-let consume_lifetime_must_live (lt : lifetime) (e : event) : lifetime =
+let consume_lifetime_must_live (e : [< delay_def | event]) (lt : lifetime) : lifetime =
   (* so this lifetime.b is basically an upperbound of when the reference becomes alive *)
   (* and lifetime.e is a lowerbound of when the references becomes dead *)
-  let b' = consume_upperbound lt.b e in
-  let e' = consume_lowerbound lt.e e in
+  let b' = consume_upperbound e lt.b in
+  let e' = consume_lowerbound e lt.e in
   { b = b'; e = e' }
 
 (* can only expand giving a lifetime that contains all possible points in time when the reference might be alive *)
-let consume_lifetime_might_live (lt : lifetime) (e : event) : lifetime =
-  let b' = consume_lowerbound lt.b e in
-  let e' = consume_upperbound lt.e e in
+let consume_lifetime_might_live (e : [< delay_def | event]) (lt : lifetime) : lifetime =
+  let b' = consume_lowerbound e lt.b in
+  let e' = consume_upperbound e lt.e in
   { b = b'; e = e' }
 
 (* future relation *)

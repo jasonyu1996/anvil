@@ -343,12 +343,12 @@ proc_else_clause:
 
 delay:
 | SHARP; n = INT
-  { Lang.WaitCycles n }
+  { `Cycles n }
 | KEYWORD_SEND; bindings = separated_list(COMMA, IDENT);
   EQUAL; endpoint_ident = IDENT; DOUBLE_COLON; message_name = IDENT;
   LEFT_PAREN; e = expr; RIGHT_PAREN
   {
-    Lang.Send ({
+    `Send ({
       send_binds = bindings;
       send_msg_spec = { endpoint = endpoint_ident; msg = message_name };
       send_data = e
@@ -357,7 +357,7 @@ delay:
 | KEYWORD_RECV;  bindings = separated_list(COMMA, IDENT);
   EQUAL; endpoint_ident = IDENT; DOUBLE_COLON; message_name = IDENT
   {
-    Lang.Recv ({
+    `Recv ({
       recv_binds = bindings;
       recv_msg_spec = { endpoint = endpoint_ident; msg = message_name }
     })
@@ -441,15 +441,16 @@ lifetime_spec_chan_local:
       e = e_time;
     } : Lang.sig_lifetime_chan_local
   }
+;
 
 
 timestamp:
 | SHARP; n = INT
   { `Cycles n }
 | KEYWORD_SEND; msg_spec = message_specifier
-  { `AtSend msg_spec }
+  { `Send msg_spec }
 | KEYWORD_RECV; msg_spec = message_specifier
-  { `AtRecv msg_spec }
+  { `Recv msg_spec }
 | KEYWORD_ETERNAL
   { `Eternal }
 ;
@@ -458,9 +459,9 @@ timestamp_chan_local:
 | SHARP; n = INT
   { `Cycles n }
 | KEYWORD_SEND; msg = IDENT
-  { `AtSend msg }
+  { `Send msg }
 | KEYWORD_RECV; msg = IDENT
-  { `AtRecv msg }
+  { `Recv msg }
 | KEYWORD_ETERNAL
   { `Eternal }
 ;

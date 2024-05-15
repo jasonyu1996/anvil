@@ -8,16 +8,16 @@ type message_specifier = {
 let string_of_msg_spec (msg_spec : message_specifier) : string =
   msg_spec.endpoint ^ "::" ^ msg_spec.msg
 
-type future = [ `Cycles of int | `AtSend of message_specifier | `AtRecv of message_specifier | `Eternal ]
+type future = [ `Cycles of int | `Send of message_specifier | `Recv of message_specifier | `Eternal ]
 
 (* future definition that is local to a specific channel *)
-type future_chan_local = [ `Cycles of int | `AtSend of identifier | `AtRecv of identifier | `Eternal ]
+type future_chan_local = [ `Cycles of int | `Send of identifier | `Recv of identifier | `Eternal ]
 
 let string_of_future (t : future) : string =
   match t with
   | `Cycles n -> Printf.sprintf "#%d" n
-  | `AtSend msg_spec -> Printf.sprintf "S(%s)" (string_of_msg_spec msg_spec)
-  | `AtRecv msg_spec -> Printf.sprintf "R(%s)" (string_of_msg_spec msg_spec)
+  | `Send msg_spec -> Printf.sprintf "S(%s)" (string_of_msg_spec msg_spec)
+  | `Recv msg_spec -> Printf.sprintf "R(%s)" (string_of_msg_spec msg_spec)
   | `Eternal -> "E"
 
 type sig_lifetime = { b: future; e: future;}
@@ -67,8 +67,8 @@ type sig_type_chan_local = sig_lifetime_chan_local sig_type_general
 
 let future_globalise (endpoint : identifier) (t : future_chan_local) : future =
   match t with
-  | `AtSend msg -> `AtSend {endpoint = endpoint; msg = msg}
-  | `AtRecv msg -> `AtRecv {endpoint = endpoint; msg = msg}
+  | `Send msg -> `Send {endpoint = endpoint; msg = msg}
+  | `Recv msg -> `Recv {endpoint = endpoint; msg = msg}
   | `Cycles n -> `Cycles n
   | `Eternal -> `Eternal
 
@@ -211,10 +211,9 @@ and expr =
   | Ref of identifier * expr
 
 (* the delay before a cycle *)
-type delay_def =
-  | WaitCycles of int
-  | Send of send_pack
-  | Recv of recv_pack
+type delay_def = [ `Cycles of int | `Send of send_pack | `Recv of recv_pack ]
+let delay_immediate = `Cycles 0
+let delay_single_cycle = `Cycles 1
 
 type sig_def = {
   name: identifier;

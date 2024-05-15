@@ -39,6 +39,8 @@ module BorrowDestinationMap = Map.Make(BorrowDestination)
 type borrow_info = {
   (* where does the borrow comes from *)
   src: borrow_source list;
+  (* is this in the delay area of the block? *)
+  in_delay: bool;
   (* how long is this borrow *)
   lifetime: sig_lifetime;
   (* where does this borrow go *)
@@ -79,7 +81,7 @@ type expr_result = {
 
 type cycle_node = {
   id: cycle_id;
-  delay: future;
+  delay: delay_def;
   assigns: reg_assign list; (* assignment to regs only *)
   borrows: borrow_info list;
   next_switch: (string * (cycle_id option)) list;
@@ -343,10 +345,10 @@ let get_identifier_dtype (_ctx : codegen_context) (proc : proc_def) (ident : ide
 
 (* TODO: here we should use mux instead direct assigns *)
 let assign_message_data (ctx : codegen_context) (proc : proc_def) (borrows : borrow_info list ref)
-                        (msg_spec : message_specifier) (data_ws : wire_def list)=
+                        (in_delay : bool) (msg_spec : message_specifier) (data_ws : wire_def list) =
   gather_data_wires_from_msg ctx proc msg_spec |>
     List.iter2 (fun (res_wire : wire_def) (data_wire : wire_def) ->
-        borrows := {src = res_wire.borrow_src; lifetime = data_wire.ty.lifetime; dst = ToOthers}::!borrows;
+        borrows := {src = res_wire.borrow_src; in_delay = in_delay; lifetime = data_wire.ty.lifetime; dst = ToOthers}::!borrows;
         codegen_context_new_assign ctx {wire = data_wire.name; expr_str = res_wire.name}) data_ws
 
 let message_ack_wirename (ctx : codegen_context) (proc : proc_def) (msg_spec : message_specifier) : string =
@@ -357,7 +359,7 @@ let message_valid_wirename (ctx : codegen_context) (proc : proc_def) (msg_spec :
 
 let rec codegen_expr (ctx : codegen_context) (proc : proc_def)
                      (conds : condition list) (env : wire_def string_map)
-                     (borrows : (borrow_info list) ref) (e : expr) : expr_result =
+                     (borrows : (borrow_info list) ref) (in_delay : bool) (e : expr) : expr_result =
   match e with
   | Literal lit ->
       (* TODO: no-length literal not supported here *)
@@ -380,14 +382,14 @@ let rec codegen_expr (ctx : codegen_context) (proc : proc_def)
       )
   | Function _  -> {v = []; assigns = []}
   | TrySend (send_pack, e_succ, e_fail) ->
-      let data_res = codegen_expr ctx proc conds env borrows send_pack.send_data in
-      assign_message_data ctx proc borrows send_pack.send_msg_spec data_res.v;
+      let data_res = codegen_expr ctx proc conds env borrows in_delay send_pack.send_data in
+      assign_message_data ctx proc borrows in_delay send_pack.send_msg_spec data_res.v;
       let ack_w = message_ack_wirename ctx proc send_pack.send_msg_spec in
       let succ_env = gather_ret_wires_from_msg ctx proc send_pack.send_msg_spec |>
         List.combine send_pack.send_binds |> map_of_list |>
         StringMap.merge (fun _ op1 op2 -> if Option.is_some op2 then op2 else op1) env in
-      let succ_res = codegen_expr ctx proc ({w = ack_w; neg = false}::conds) succ_env borrows e_succ
-      and fail_res = codegen_expr ctx proc ({w = ack_w; neg = true}::conds) env borrows e_fail in
+      let succ_res = codegen_expr ctx proc ({w = ack_w; neg = false}::conds) succ_env borrows in_delay e_succ
+      and fail_res = codegen_expr ctx proc ({w = ack_w; neg = true}::conds) env borrows in_delay e_fail in
       let succ_w = List.hd succ_res.v and fail_w = List.hd fail_res.v in
       let w = codegen_context_new_wire ctx succ_w.ty (succ_w.borrow_src @ fail_w.borrow_src) in
       let expr_str = Printf.sprintf "(%s) ? %s : %s" ack_w succ_w.name fail_w.name in
@@ -398,8 +400,8 @@ let rec codegen_expr (ctx : codegen_context) (proc : proc_def)
       let succ_env = gather_data_wires_from_msg ctx proc recv_pack.recv_msg_spec |>
         List.combine recv_pack.recv_binds |> map_of_list |>
         StringMap.merge (fun _ op1 op2 -> if Option.is_some op2 then op2 else op1) env in
-      let succ_res = codegen_expr ctx proc ({w = valid_w; neg = false}::conds) succ_env borrows e_succ
-      and fail_res = codegen_expr ctx proc ({w = valid_w; neg = true}::conds) succ_env borrows e_fail in
+      let succ_res = codegen_expr ctx proc ({w = valid_w; neg = false}::conds) succ_env borrows in_delay e_succ
+      and fail_res = codegen_expr ctx proc ({w = valid_w; neg = true}::conds) succ_env borrows in_delay e_fail in
       let succ_w = List.hd succ_res.v and fail_w = List.hd fail_res.v in
       let w = codegen_context_new_wire ctx succ_w.ty (succ_w.borrow_src @ fail_w.borrow_src) in
       let expr_str = Printf.sprintf "(%s) ? %s : %s" valid_w succ_w.name fail_w.name in
@@ -407,8 +409,8 @@ let rec codegen_expr (ctx : codegen_context) (proc : proc_def)
       {v = [w]; assigns = succ_res.assigns @ fail_res.assigns}
   | Apply _ -> {v = []; assigns = []}
   | Binop (binop, e1, e2) ->
-      let e1_res = codegen_expr ctx proc conds env borrows e1 in
-      let e2_res = codegen_expr ctx proc conds env borrows e2 in
+      let e1_res = codegen_expr ctx proc conds env borrows in_delay e1 in
+      let e2_res = codegen_expr ctx proc conds env borrows in_delay e2 in
       begin
         match e1_res.v, e2_res.v with
         | [w1], [w2] ->
@@ -423,7 +425,7 @@ let rec codegen_expr (ctx : codegen_context) (proc : proc_def)
         | _ -> {v = []; assigns = []}
       end
   | Unop (unop, e') ->
-    let e_res = codegen_expr ctx proc conds env borrows e' in
+    let e_res = codegen_expr ctx proc conds env borrows in_delay e' in
     let w = List.hd e_res.v in
     let new_dtype =
       match unop with
@@ -435,29 +437,29 @@ let rec codegen_expr (ctx : codegen_context) (proc : proc_def)
     codegen_context_new_assign ctx {wire = w'.name; expr_str = expr_str};
     {v = [w']; assigns = e_res.assigns}
   | Tuple elist ->
-      let expr_res = List.map (codegen_expr ctx proc conds env borrows) elist in
+      let expr_res = List.map (codegen_expr ctx proc conds env borrows in_delay) elist in
       {
         v = List.concat_map (fun (x: expr_result) -> x.v) expr_res;
         assigns = List.concat_map (fun (x: expr_result) -> x.assigns) expr_res
       }
   | LetIn (ident, v_expr, body_expr) ->
-      let v_res = codegen_expr ctx proc conds env borrows v_expr in
+      let v_res = codegen_expr ctx proc conds env borrows in_delay v_expr in
       let new_env =
         if ident = "_" then env
         else
           let w = List.hd v_res.v in
           StringMap.add ident w env
       in
-      let expr_res = codegen_expr ctx proc conds new_env borrows body_expr in
+      let expr_res = codegen_expr ctx proc conds new_env borrows in_delay body_expr in
       {
         v = expr_res.v;
         assigns = v_res.assigns @ expr_res.assigns
       }
   | IfExpr (cond_expr, e1, e2) ->
-      let cond_res = codegen_expr ctx proc conds env borrows cond_expr in
+      let cond_res = codegen_expr ctx proc conds env borrows in_delay cond_expr in
       let cond_w = List.hd cond_res.v in
-      let e1_res = codegen_expr ctx proc ({w = cond_w.name; neg = false}::conds) env borrows e1 in
-      let e2_res = codegen_expr ctx proc ({w = cond_w.name; neg = true}::conds) env borrows e2 in
+      let e1_res = codegen_expr ctx proc ({w = cond_w.name; neg = false}::conds) env borrows in_delay e1 in
+      let e2_res = codegen_expr ctx proc ({w = cond_w.name; neg = true}::conds) env borrows in_delay e2 in
       (* get the results *)
       let gen_result = fun (w1 : wire_def) (w2 : wire_def) ->
         (* compute new lifetime *)
@@ -469,10 +471,10 @@ let rec codegen_expr (ctx : codegen_context) (proc : proc_def)
       let v = List.map2 gen_result e1_res.v e2_res.v in
       {v = v; assigns = cond_res.assigns @ e1_res.assigns @ e2_res.assigns}
   | Assign (ident, e_val) ->
-      let expr_res = codegen_expr ctx proc conds env borrows e_val in
+      let expr_res = codegen_expr ctx proc conds env borrows in_delay e_val in
       let codegen_assign = fun (w : wire_def) ->
         (* assign borrows for one cycle *)
-        borrows := {src = w.borrow_src; lifetime = sig_lifetime_this_cycle; dst = ToReg ident}::!borrows;
+        borrows := {src = w.borrow_src; in_delay; lifetime = sig_lifetime_this_cycle; dst = ToReg ident}::!borrows;
         {
           conds = conds;
           ident = ident;
@@ -482,10 +484,10 @@ let rec codegen_expr (ctx : codegen_context) (proc : proc_def)
       (* assign evaluates to unit val *)
   | Return (endpoint_ident, msg_ident, e_val) ->
       let msg_spec = {endpoint = endpoint_ident; msg = msg_ident} in
-      let expr_res = codegen_expr ctx proc conds env borrows e_val in
+      let expr_res = codegen_expr ctx proc conds env borrows in_delay e_val in
       let assign_ret = fun (w : wire_def) (ret_wire : wire_def) ->
         (* we have to add to assign because the signals might be used for multiple cycles *)
-        borrows := {src = w.borrow_src; lifetime = ret_wire.ty.lifetime; dst = ToOthers}::!borrows;
+        borrows := {src = w.borrow_src; in_delay; lifetime = ret_wire.ty.lifetime; dst = ToOthers}::!borrows;
         codegen_context_new_assign ctx {wire = ret_wire.name; expr_str = w.name}
       in
       begin
@@ -493,11 +495,11 @@ let rec codegen_expr (ctx : codegen_context) (proc : proc_def)
         {v = []; assigns = expr_res.assigns}
       end
   | Ref (ident, e_val) ->
-      let expr_res = codegen_expr ctx proc conds env borrows e_val in
+      let expr_res = codegen_expr ctx proc conds env borrows in_delay e_val in
       let w_res = List.hd expr_res.v in
       let r = lookup_ref proc ident |> Option.get in
       let _ = codegen_context_new_assign ctx {wire = format_refname ident; expr_str = w_res.name } in
-      borrows := {src = w_res.borrow_src; lifetime = r.ty.lifetime; dst = ToRef ident}::!borrows;
+      borrows := {src = w_res.borrow_src; in_delay; lifetime = r.ty.lifetime; dst = ToRef ident}::!borrows;
       {v = []; assigns = expr_res.assigns}
 
 let rec codegen_proc_body (ctx : codegen_context) (proc : proc_def)
@@ -508,51 +510,53 @@ let rec codegen_proc_body (ctx : codegen_context) (proc : proc_def)
     List.map gen_ref_map proc.refs |> map_of_list
   in
   let borrows = ref [] in
-  let (delay, init_cond, init_env) =
+  let delay = List.nth_opt pb.delays 0 |> Option.value ~default:delay_immediate in
+  let (init_cond, init_env) =
     (* we only look at the first delay for now *)
-    match List.nth_opt pb.delays 0 with
-    | Some (Send {send_binds = idents; send_msg_spec = msg_specifier; send_data = expr}) ->
+    match delay with
+    | `Send {send_binds = idents; send_msg_spec = msg_specifier; send_data = expr} ->
         (* bind return results *)
         let env = gather_ret_wires_from_msg ctx proc msg_specifier |>
           List.combine idents |> map_of_list in
         (* gather the data to send *)
-        let expr_res = codegen_expr ctx proc [] ref_env borrows expr in
-        assign_message_data ctx proc borrows msg_specifier expr_res.v;
+        let expr_res = codegen_expr ctx proc [] ref_env borrows true expr in
+        assign_message_data ctx proc borrows true msg_specifier expr_res.v;
         let cond : condition list = [{
           w = message_ack_wirename ctx proc msg_specifier;
           neg = false;
         }] in
-        (`AtSend msg_specifier, cond, env)
-    | Some (Recv {recv_binds = idents; recv_msg_spec = msg_specifier}) ->
+        (cond, env)
+    | `Recv {recv_binds = idents; recv_msg_spec = msg_specifier} ->
         let env = gather_data_wires_from_msg ctx proc msg_specifier |>
           List.combine idents |> map_of_list in
         let cond : condition list = [{
           w = canonicalise ctx proc format_msg_valid_signal_name msg_specifier.endpoint msg_specifier.msg;
           neg = false;
         }] in
-        (`AtRecv msg_specifier, cond, env)
-    | _ -> (`Cycles 0, [], StringMap.empty) in
+        (cond, env)
+    | _ -> ([], StringMap.empty) (* TODO: support cycle delays *)
+    in
   let expr_res =
     let merger = fun _ a b -> if Option.is_none a then b else a in
-    codegen_expr ctx proc init_cond (StringMap.merge merger ref_env init_env) borrows pb.cycle in
+    codegen_expr ctx proc init_cond (StringMap.merge merger ref_env init_env) borrows false pb.cycle in
   let new_cycle_id = codegen_context_new_cycle ctx in
   let (next_switch, next_default) = match pb.transition with
   | Seq -> ([], next_cycle)
   | If body ->
       let next_cycle' = codegen_proc_body_list ctx proc body next_cycle in
       let cond_w = List.hd expr_res.v in
-      borrows := { src = cond_w.borrow_src; lifetime = sig_lifetime_this_cycle; dst = ToOthers }::!borrows;
+      borrows := { src = cond_w.borrow_src; in_delay = false; lifetime = sig_lifetime_this_cycle; dst = ToOthers }::!borrows;
       ([(cond_w.name, next_cycle')], next_cycle)
   | IfElse (body1, body2) ->
       let next_cycle1 = codegen_proc_body_list ctx proc body1 next_cycle in
       let next_cycle2 = codegen_proc_body_list ctx proc body2 next_cycle in
       let cond_w = List.hd expr_res.v in
-      borrows := { src = cond_w.borrow_src; lifetime = sig_lifetime_this_cycle; dst = ToOthers }::!borrows;
+      borrows := { src = cond_w.borrow_src; in_delay = false; lifetime = sig_lifetime_this_cycle; dst = ToOthers }::!borrows;
       ([(cond_w.name, next_cycle1)], next_cycle2)
   | While body ->
       let next_cycle' = codegen_proc_body_list ctx proc body (Some new_cycle_id) in
       let cond_w = List.hd expr_res.v in
-      borrows := { src = cond_w.borrow_src; lifetime = sig_lifetime_this_cycle; dst = ToOthers }::!borrows;
+      borrows := { src = cond_w.borrow_src; in_delay = false; lifetime = sig_lifetime_this_cycle; dst = ToOthers }::!borrows;
       ([(cond_w.name, next_cycle')], next_cycle)
   in
   let new_cycle = {
@@ -631,16 +635,15 @@ let codegen_state_machine (ctx : codegen_context) (proc : proc_def) =
         (* if has blocking send, set the valid indicator *)
         let transition_cond = match cycle.delay with
         | `Cycles _ -> None
-        | `AtSend msg_spec ->
+        | `Send {send_msg_spec = msg_spec; _} ->
             Printf.printf "        %s = 1'b1;\n"
               (canonicalise ctx proc format_msg_valid_signal_name msg_spec.endpoint msg_spec.msg);
             Some (canonicalise ctx proc format_msg_ack_signal_name msg_spec.endpoint msg_spec.msg)
-        | `AtRecv msg_spec ->
+        | `Recv {recv_msg_spec = msg_spec; _} ->
             Printf.printf "        if (%s) %s = 1'b1;\n"
               (canonicalise ctx proc format_msg_valid_signal_name msg_spec.endpoint msg_spec.msg)
               (canonicalise ctx proc format_msg_ack_signal_name msg_spec.endpoint msg_spec.msg);
             Some (canonicalise ctx proc format_msg_valid_signal_name msg_spec.endpoint msg_spec.msg)
-        | `Eternal -> raise (CodegenError "Bad delay for a cycle.")
         in
         let (transition_begin, transition_end) =
           match transition_cond with
@@ -750,7 +753,7 @@ let codegen_spawns (ctx: codegen_context) (proc: proc_def) =
 
 (** A variant of borrow_info for borrow checking *)
 type borrow_check_info = {
-  src: borrow_source list;
+  bi: borrow_info;
   tight: sig_lifetime;
   relaxed: sig_lifetime;
   pinned: bool;
@@ -759,7 +762,8 @@ type borrow_check_info = {
 type borrow_map = borrow_check_info BorrowDestinationMap.t
 
 type borrow_check_cycle_state = {
-  borrows: borrow_map
+  borrows_in_delay: borrow_map;
+  borrows_in_cycle: borrow_map;
 }
 
 type borrow_check_state = {
@@ -769,13 +773,15 @@ type borrow_check_state = {
 
 exception BorrowCheckError of string
 
-let borrow_check_get_lifetime_relaxed (cycle_state : borrow_check_cycle_state) (d : borrow_destination) : sig_lifetime =
-  BorrowDestinationMap.find_opt d cycle_state.borrows |>
+let borrow_check_get_lifetime_relaxed (cycle_state : borrow_check_cycle_state) (in_delay : bool) (d : borrow_destination) : sig_lifetime =
+  (if in_delay then cycle_state.borrows_in_delay else cycle_state.borrows_in_cycle) |>
+  BorrowDestinationMap.find_opt d |>
   Option.map (fun (bci : borrow_check_info) -> bci.relaxed) |>
   Option.value ~default:sig_lifetime_null
 
-let borrow_check_get_lifetime_tight (cycle_state : borrow_check_cycle_state) (d : borrow_destination) : sig_lifetime =
-  BorrowDestinationMap.find_opt d cycle_state.borrows |>
+let borrow_check_get_lifetime_tight (cycle_state : borrow_check_cycle_state) (in_delay : bool) (d : borrow_destination) : sig_lifetime =
+  (if in_delay then cycle_state.borrows_in_delay else cycle_state.borrows_in_cycle) |>
+  BorrowDestinationMap.find_opt d |>
   Option.map (fun (bci : borrow_check_info) -> bci.tight) |>
   Option.value ~default:sig_lifetime_null
 
@@ -786,6 +792,7 @@ let borrow_check_inspect (state : borrow_check_state)
     (* check each borrowing *)
     let chk_borrow = fun (bi : borrow_info) ->
       (* check that the references borrowed have sufficient lifetime *)
+      (* TODO: take into consideration whether this is an in-delay borrow *)
       let chk_source = fun (src : borrow_source) ->
         match src with
         | FromMsgData (msg_spec, n) ->
@@ -807,7 +814,7 @@ let borrow_check_inspect (state : borrow_check_state)
             raise
           else ()
         | FromRef ref_ident ->
-          let lt = borrow_check_get_lifetime_tight cycle_state (ToRef ref_ident) in
+          let lt = borrow_check_get_lifetime_tight cycle_state bi.in_delay (ToRef ref_ident) in
           if not (Lifetime.lifetime_covered_by bi.lifetime lt) then
             raise (BorrowCheckError "Insufficient lifetime of reference!")
           else ()
@@ -818,7 +825,7 @@ let borrow_check_inspect (state : borrow_check_state)
       let chk_mutate = fun (reg_assign : reg_assign) ->
         (* now check all borrows of the register in this cycle *)
         let chk_reg_borrows = fun _ (bci : borrow_check_info) ->
-          if List.find_opt (fun (s : borrow_source) -> s = FromReg reg_assign.ident) bci.src |> Option.is_some then
+          if List.find_opt (fun (s : borrow_source) -> s = FromReg reg_assign.ident) bci.bi.src |> Option.is_some then
             if Lifetime.lifetime_overlaps_current_mutation bci.relaxed then
               let err_msg = Printf.sprintf "Mutation of borrowed registers detected: %s (borrowed for %s)"
                 reg_assign.ident (string_of_lifetime bci.relaxed) in
@@ -826,7 +833,8 @@ let borrow_check_inspect (state : borrow_check_state)
             else ()
           else ()
         in
-        BorrowDestinationMap.iter chk_reg_borrows cycle_state.borrows
+        (* TODO: check if it's in delay *)
+        BorrowDestinationMap.iter chk_reg_borrows cycle_state.borrows_in_cycle
       in
       List.iter chk_mutate cycle_node.assigns
     in
@@ -836,61 +844,104 @@ let borrow_check_inspect (state : borrow_check_state)
           (* check the current *)
       (* check that the mutated stuff *)
 
+let borrow_check_map_merge (lt_transform_tight : sig_lifetime -> sig_lifetime)
+                           (lt_transform_relaxed : sig_lifetime -> sig_lifetime)
+                           (old_opt : borrow_check_info option) (new_opt : borrow_check_info option)
+                            : borrow_check_info option =
+  let open Lifetime in
+  let new_opt' = Option.map (fun nw ->
+    let new_tight = lt_transform_tight nw.tight
+    and new_relaxed = lt_transform_relaxed nw.relaxed in
+    {nw with tight = new_tight; relaxed = new_relaxed;})
+    new_opt in
+  match old_opt, new_opt' with
+  | None, _ -> new_opt'
+  | Some _, None -> old_opt
+  | Some od, _ when od.pinned -> old_opt
+  | Some od, Some nw ->
+      Some ({
+        bi = od.bi;
+        tight = lifetime_merge_tight od.tight nw.tight;
+        relaxed = lifetime_merge_relaxed od.relaxed nw.relaxed;
+        pinned = false;
+      })
+
 
 let borrow_check_merge (state : borrow_check_state)
                        (cycle_idx : int)
                        (m : borrow_map)
-                       (e : future) : bool =
+                       (d : delay_def) : bool =
+  let open Lifetime in
+  (* get the event between prev.in_cycle and in_delay *)
+  let ev : event =
+    match d with
+    | `Send _ | `Recv _ -> `IndefCycles
+    | _ -> delay_immediate
+  in
   let changed = ref false in
-  let map_merge = fun (_dst : borrow_destination) (old_opt : borrow_check_info option) (new_opt : borrow_check_info option) ->
-    let new_opt' = Option.map (fun nw ->
-      let new_tight = Lifetime.consume_lifetime_must_live nw.tight e
-      and new_relaxed = Lifetime.consume_lifetime_might_live nw.relaxed e in
-      {nw with tight = new_tight; relaxed = new_relaxed;})
-      new_opt in
-    let r = match old_opt, new_opt' with
-    | None, _ -> new_opt'
-    | Some _, None -> old_opt
-    | Some od, _ when od.pinned -> old_opt
-    | Some od, Some nw ->
-        Some ({
-          src = od.src;
-          tight = Lifetime.lifetime_merge_tight od.tight nw.tight;
-          relaxed = Lifetime.lifetime_merge_relaxed od.relaxed nw.relaxed;
-          pinned = false;
-        }) in
+  let lt_transform_tight = fun x ->
+      Lifetime.consume_lifetime_must_live delay_single_cycle x |>
+      Lifetime.consume_lifetime_must_live ev
+  and lt_transform_relaxed = fun x ->
+      Lifetime.consume_lifetime_might_live delay_single_cycle x  |>
+      Lifetime.consume_lifetime_might_live ev
+  in
+  let map_merge = fun _ (old_opt : borrow_check_info option) (new_opt : borrow_check_info option) ->
+    let r = borrow_check_map_merge lt_transform_tight lt_transform_relaxed old_opt new_opt in
     changed := !changed || old_opt <> r;
-    r in
+    r
+  in
   let update = fun (old_map : borrow_check_cycle_state) : borrow_check_cycle_state ->
-    {borrows = BorrowDestinationMap.merge map_merge old_map.borrows m} in
+    {old_map with borrows_in_delay = BorrowDestinationMap.merge map_merge old_map.borrows_in_delay m} in
   let old = Array.get state.cycle_states cycle_idx in
   Array.set state.cycle_states cycle_idx (update old);
+  !changed
+
+let borrow_check_merge_delay_to_cycle (state : borrow_check_state) (cycle_node : cycle_node) : bool =
+  let changed = ref false in
+  let lt_transform_tight = Lifetime.consume_lifetime_must_live cycle_node.delay
+  and lt_transform_relaxed = Lifetime.consume_lifetime_might_live cycle_node.delay in
+  let map_merge = fun _ (old_opt : borrow_check_info option) (new_opt : borrow_check_info option) ->
+    let r = borrow_check_map_merge lt_transform_tight lt_transform_relaxed old_opt new_opt in
+    changed := !changed || old_opt <> r;
+    r
+  in
+  let cycle_state = state.cycle_states.(cycle_node.id) in
+  let new_cycle_state =
+    {cycle_state with borrows_in_cycle = BorrowDestinationMap.merge map_merge cycle_state.borrows_in_cycle cycle_state.borrows_in_delay} in
+  Array.set state.cycle_states cycle_node.id new_cycle_state;
   !changed
 
 let rec borrow_check_internal (state : borrow_check_state)
                           (ctx : codegen_context)
                           (proc : proc_def) =
   let to_continue = ref false in
-  let transit_state = fun cycle_node cycle_state ->
+  let transit_state = fun cycle_node ->
     let visit_next_cycle = fun (nxt : cycle_id) ->
-      let cycle_next : cycle_node = Array.get state.cycle_nodes nxt in
-      to_continue := (borrow_check_merge state nxt cycle_state.borrows cycle_next.delay) || !to_continue;
+      let cycle_next : cycle_node = state.cycle_nodes.(nxt) in
+      let cycle_state : borrow_check_cycle_state = state.cycle_states.(nxt) in
+      to_continue := (borrow_check_merge state nxt cycle_state.borrows_in_cycle cycle_next.delay) || !to_continue;
     in
     let next_default = Option.value ~default:ctx.first_cycle cycle_node.next_default in
     visit_next_cycle next_default;
     List.map (fun ns -> snd ns |> Option.value ~default:ctx.first_cycle) cycle_node.next_switch |>
     List.iter visit_next_cycle;
+    to_continue := (borrow_check_merge_delay_to_cycle state cycle_node) || !to_continue
   in
-  Array.iter2 transit_state state.cycle_nodes state.cycle_states;
+  Array.iter transit_state state.cycle_nodes;
   if !to_continue then borrow_check_internal state ctx proc
   else borrow_check_inspect state ctx proc
 
 (** Perform checks on the borrowing lifetimes and decide whether the operations should be allowed *)
 let borrow_check (ctx : codegen_context) (proc : proc_def) =
+  ctx.cycles <- List.sort (fun c1 c2 -> c1.id - c2.id) ctx.cycles;
   let make_cycle_state = fun (c : cycle_node) : borrow_check_cycle_state ->
-    { borrows = List.map (fun (bi : borrow_info) : (borrow_destination * borrow_check_info) ->
-      (bi.dst, {src = bi.src; relaxed = bi.lifetime; tight = bi.lifetime; pinned = true})) c.borrows |>
-    List.to_seq |> BorrowDestinationMap.of_seq } in
+    { borrows_in_delay = List.filter_map (fun (bi : borrow_info) : (borrow_destination * borrow_check_info) option ->
+       if bi.in_delay then Some (bi.dst, {bi = bi; relaxed = bi.lifetime; tight = bi.lifetime; pinned = true}) else None) c.borrows |>
+      List.to_seq |> BorrowDestinationMap.of_seq;
+      borrows_in_cycle = List.filter_map (fun (bi : borrow_info) : (borrow_destination * borrow_check_info) option ->
+       if not bi.in_delay then Some (bi.dst, {bi = bi; relaxed = bi.lifetime; tight = bi.lifetime; pinned = true}) else None) c.borrows |>
+      List.to_seq |> BorrowDestinationMap.of_seq} in
   let cycle_states = List.map make_cycle_state ctx.cycles |> Array.of_list in
   let state : borrow_check_state = {
     cycle_states = cycle_states;

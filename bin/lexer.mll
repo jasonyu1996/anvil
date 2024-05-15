@@ -77,6 +77,7 @@ rule read =
   | eof       { EOF }
   | "/*"      { skip_comments lexbuf }
   | "//"      { skip_inline_comments lexbuf }
+  | _         { raise (SyntaxError (Lexing.lexeme lexbuf |> Printf.sprintf "Unknown character: %s"))}
 and skip_comments =
   parse
   | "*/"      { read lexbuf }
