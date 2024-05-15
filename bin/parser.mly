@@ -50,6 +50,8 @@
 %token KEYWORD_DONE         (* done *)
 %token KEYWORD_TRYSEND      (* try_send *)
 %token KEYWORD_TRYRECV      (* try_recv *)
+%token KEYWORD_TYPE         (* type *)
+%token KEYWORD_OF           (* of *)
 %token <int>INT             (* int literal *)
 %token <string>IDENT        (* identifier *)
 %token <string>BIT_LITERAL  (* bit literal *)
@@ -71,6 +73,8 @@ cunit:
   { Lang.cunit_empty }
 | p = proc_def; c = cunit
   { Lang.cunit_add_proc c p }
+| ty = type_def; c = cunit
+  { Lang.cunit_add_type_def c ty }
 | cc = channel_class_def; c = cunit
   { Lang.cunit_add_channel_class c cc }
 ;
@@ -94,6 +98,12 @@ proc_def:
     } : Lang.proc_def
   }
 ;
+
+type_def:
+  KEYWORD_TYPE; name = IDENT; EQUAL; dtype = data_type
+  {
+    { name = name; body = dtype } : Lang.type_def
+  }
 
 channel_class_def:
   KEYWORD_CHAN; ident = IDENT; LEFT_BRACE; messages = message_def_list; RIGHT_BRACE
@@ -389,11 +399,6 @@ message_direction:
   { Lang.Out }
 ;
 
-sig_type_list:
-  l = separated_list(COMMA, sig_type)
-  { l }
-;
-
 sig_type:
   dtype = data_type; AT; lifetime_opt = lifetime_spec?
   {
@@ -418,9 +423,27 @@ sig_type_chan_local:
 
 data_type:
 | KEYWORD_LOGIC
-  { Lang.Logic }
+  { `Logic }
 | dtype = data_type; LEFT_BRACKET; n = INT; RIGHT_BRACKET
-  { Lang.Array (dtype, n) }
+  { `Array (dtype, n) }
+| typename = IDENT
+  { `Named typename }
+| LEFT_BRACKET; variants = variant_def+; RIGHT_BRACKET
+  { `Variant variants }
+| LEFT_BRACE; fields = separated_list(SEMICOLON, field_def); RIGHT_BRACE
+  { `Record fields }
+| LEFT_PAREN; comps = separated_list(COMMA, data_type); RIGHT_PAREN
+  { `Tuple comps }
+;
+
+variant_def:
+| OR; name = IDENT; KEYWORD_OF; dtype = data_type
+  { (name, dtype) }
+;
+
+field_def:
+| name = IDENT; COLON; dtype = data_type
+  { (name, dtype) }
 ;
 
 lifetime_spec:

@@ -1,5 +1,12 @@
 /* Example program for testing */
 
+type variant = [| A of (logic, logic[2]) | T of logic ]
+type record = {
+    c: logic[2];
+    b: logic[3];
+    e: logic[5]
+}
+
 chan pack {
     out ping : (logic[10]@#1-#2) -> (logic[10]@#1-#2)
 }

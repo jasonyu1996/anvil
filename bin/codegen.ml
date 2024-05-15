@@ -1,6 +1,8 @@
 open Lang
 open Utils
 
+exception UnimplementedError of string
+
 (* borrows are when we need to check the lifetime constraints *)
 type borrow_source =
 | FromRef of identifier
@@ -148,37 +150,30 @@ let codegen_context_add_cycle (ctx : codegen_context) (cycle : cycle_node) =
 let codegen_context_new_assign (ctx : codegen_context) (a : assign) =
   ctx.assigns <- a::ctx.assigns
 
-let rec format_dtype_split dtype =
+let format_dtype (ctx : codegen_context) (dtype : data_type) =
   match dtype with
-  | Logic -> ("logic", "")
-  | Type typename -> (typename, "")
-  | Array (dtype', n) ->
-      let (base, arrs) = format_dtype_split dtype' in
-      let idx = Printf.sprintf "[%d:0]" (n - 1) in
-      (base, idx ^ arrs)
-
-let format_dtype dtype =
-  let (base, arrs) = format_dtype_split dtype
-  in base ^ arrs
+  | `Logic -> "logic"
+  | `Opaque typename -> typename
+  | _ -> (data_type_size ctx.cunit.type_defs dtype) - 1 |> Printf.sprintf "logic[%d:0]"
 
 let format_refname name : string = "_ref_" ^ name
 
 let wire_of_ref (r: ref_def) : wire_def = { name = r.name; ty = r.ty; borrow_src = [FromRef r.name] }
 
-let format_port port =
+let format_port (ctx : codegen_context) port =
   let inout = match port.dir with
     | In -> "input"
     | Out -> "output"
-  in inout ^ " " ^ format_dtype port.dtype ^ " " ^ port.name
+  in inout ^ " " ^ format_dtype ctx port.dtype ^ " " ^ port.name
 
-let rec print_port_list port_list =
+let rec print_port_list (ctx : codegen_context) port_list =
   match port_list with
   | [] -> ()
   | port :: [] ->
-      let port_fmt = format_port port in print_endline ("  " ^ port_fmt);
+      let port_fmt = format_port ctx port in print_endline ("  " ^ port_fmt);
   | port :: port_list' ->
-      let port_fmt = format_port port in print_endline ("  " ^ port_fmt ^ ",");
-      print_port_list port_list'
+      let port_fmt = format_port ctx port in print_endline ("  " ^ port_fmt ^ ",");
+      print_port_list ctx port_list'
 
 let endpoint_is_canonical (endpoint: endpoint_def) : bool =
   (Option.is_none endpoint.opp) || (endpoint.dir = Left)
@@ -255,7 +250,7 @@ let gather_all_wires_from_msg (ctx : codegen_context) (proc : proc_def) (msg_spe
   {
     name = canonicalise ctx proc format_msg_valid_signal_name msg_spec.endpoint msg_spec.msg;
     ty = {
-      dtype = Logic;
+      dtype = `Logic;
       lifetime = sig_lifetime_const; (* should not matter as this is not directly referenceable *)
     };
     borrow_src = [];
@@ -263,7 +258,7 @@ let gather_all_wires_from_msg (ctx : codegen_context) (proc : proc_def) (msg_spe
   {
     name = canonicalise ctx proc format_msg_ack_signal_name msg_spec.endpoint msg_spec.msg;
     ty = {
-      dtype = Logic;
+      dtype = `Logic;
       lifetime = sig_lifetime_const;
     };
     borrow_src = [];
@@ -283,8 +278,8 @@ let gather_ports_from_endpoint (ctx : codegen_context) (endpoint : endpoint_def)
     let msg_data_dir = get_message_direction msg.dir endpoint.dir in
     let (_, res0) = List.fold_left (folder_inner format_msg_data_signal_name msg_data_dir) (0, []) msg.sig_types in
     let (_, res) = List.fold_left (folder_inner format_msg_ret_signal_name (reverse msg_data_dir)) (0, res0) msg.ret_types in
-    let valid_port = { name = format_msg_valid_signal_name endpoint.name msg.name; dir = msg_data_dir; dtype = Logic} in
-    let ack_port = {name = format_msg_ack_signal_name endpoint.name msg.name; dir = reverse msg_data_dir; dtype = Logic} in
+    let valid_port = { name = format_msg_valid_signal_name endpoint.name msg.name; dir = msg_data_dir; dtype = `Logic} in
+    let ack_port = {name = format_msg_ack_signal_name endpoint.name msg.name; dir = reverse msg_data_dir; dtype = `Logic} in
     ack_port::valid_port::res
   in List.concat_map gen_endpoint_ports cc.messages
 
@@ -293,13 +288,13 @@ let gather_ports (ctx : codegen_context) (endpoints : endpoint_def list) : port_
 
 let codegen_ports (ctx : codegen_context) (endpoints : endpoint_def list) =
   let clk_port = {
-    dir = In; dtype = Logic; name = "clk_i"
+    dir = In; dtype = `Logic; name = "clk_i"
   } in
   let rst_port = {
-    dir = In; dtype = Logic; name = "rst_ni"
+    dir = In; dtype = `Logic; name = "rst_ni"
   } in
   let port_list = gather_ports ctx endpoints in
-    print_port_list ([clk_port; rst_port] @ port_list)
+    print_port_list ctx ([clk_port; rst_port] @ port_list)
 
 let format_regname_current (regname : identifier) = regname ^ "_q"
 let format_regname_next (regname : identifier) = regname ^ "_n"
@@ -322,9 +317,9 @@ let codegen_state_transition (regs : reg_def list) =
     print_endline "    end";
     print_endline "  end"
 
-let codegen_regs_declare (regs : reg_def list) =
+let codegen_regs_declare (ctx : codegen_context) (regs : reg_def list) =
   let codegen_reg = fun (r: reg_def) ->
-    Printf.printf "  %s %s, %s;\n" (format_dtype r.dtype)
+    Printf.printf "  %s %s, %s;\n" (format_dtype ctx r.dtype)
       (format_regname_current r.name) (format_regname_next r.name)
   in List.iter codegen_reg regs
 
@@ -363,7 +358,7 @@ let rec codegen_expr (ctx : codegen_context) (proc : proc_def)
   match e with
   | Literal lit ->
       (* TODO: no-length literal not supported here *)
-      let dtype = Array (Logic, literal_bit_len lit |> Option.get) in
+      let dtype = `Array (`Logic, literal_bit_len lit |> Option.get) in
       let ty = { dtype = dtype; lifetime = sig_lifetime_const } in
       let w = codegen_context_new_wire ctx ty [] in (* literal does not depend on anything *)
       codegen_context_new_assign ctx {wire = w.name; expr_str = string_of_literal lit};
@@ -430,7 +425,7 @@ let rec codegen_expr (ctx : codegen_context) (proc : proc_def)
     let new_dtype =
       match unop with
       | Neg | Not -> w.ty.dtype
-      | AndAll | OrAll -> Logic
+      | AndAll | OrAll -> `Logic
     in
     let w' = codegen_context_new_wire ctx {w.ty with dtype = new_dtype} w.borrow_src in
     let expr_str = Printf.sprintf "%s%s" (string_of_unop unop) w.name in
@@ -584,7 +579,7 @@ let codegen_post_declare (ctx : codegen_context) (proc : proc_def)=
   (* wire declarations *)
   let ref_wires = List.map wire_of_ref proc.refs in
   let codegen_wire = fun (w: wire_def) ->
-    Printf.printf "  %s %s;\n" (format_dtype w.ty.dtype) w.name
+    Printf.printf "  %s %s;\n" (format_dtype ctx w.ty.dtype) w.name
   in List.iter codegen_wire (ctx.wires @ ref_wires);
   (* wire assignments *)
   List.iter print_assign ctx.assigns
@@ -705,7 +700,7 @@ let codegen_channels (ctx: codegen_context) (channels : channel_def list) =
 
 let codegen_endpoints (ctx: codegen_context) =
   let print_port_signal_decl = fun (port : port_def) ->
-    Printf.printf "  %s %s;\n" (format_dtype port.dtype) (port.name)
+    Printf.printf "  %s %s;\n" (format_dtype ctx port.dtype) (port.name)
   in
   List.filter (fun (p : endpoint_def) -> p.dir = Left) ctx.endpoints |>
   gather_ports ctx |>
@@ -959,10 +954,10 @@ let codegen_proc ctx (proc : proc_def) =
   let first_cycle_op = codegen_proc_body_list ctx proc proc.body None in
   Option.iter (fun c -> ctx.first_cycle <- c) first_cycle_op;
   let regs = if List.length ctx.cycles > 1 then
-    ({name = "_st"; dtype = Type "_state_t"; init = Some (format_statename ctx.first_cycle)}::proc.regs)
+    ({name = "_st"; dtype = `Opaque "_state_t"; init = Some (format_statename ctx.first_cycle)}::proc.regs)
   else proc.regs in
   begin
-    codegen_regs_declare regs;
+    codegen_regs_declare ctx regs;
     codegen_state_transition regs
   end;
   codegen_channels ctx proc.channels;

@@ -1,3 +1,5 @@
+exception TypeError of string
+
 type identifier = string
 
 type message_specifier = {
@@ -45,17 +47,39 @@ let sig_lifetime_null : sig_lifetime =
 let sig_lifetime_const : sig_lifetime =
   { b = `Cycles 0; e = `Eternal }
 
+(* type definition *)
+type data_type = [
+  | `Logic
+  | `Array of data_type * int
+  | `Named of identifier (* named type *)
+  | `Variant of (identifier * data_type) list
+  | `Record of (identifier * data_type) list
+  | `Tuple of data_type list
+  | `Opaque of identifier (* reserved named type *)
+]
+and type_def = {
+  name: identifier;
+  body: data_type;
+}
 
-type data_type =
-  | Logic
-  | Type of string
-  | Array of data_type * int
+type type_def_map = type_def Utils.string_map
 
-let rec data_type_size dtype =
+let rec data_type_size (type_defs : type_def_map) (dtype : data_type) : int =
   match dtype with
-  | Logic -> 1
-  | Type _ -> 1 (* this is a hack *)
-  | Array (dtype', n) -> (data_type_size dtype') * n
+  | `Logic -> 1
+  | `Array (dtype', n) -> (data_type_size type_defs dtype') * n
+  | `Named type_name ->
+      let type_def = Utils.StringMap.find type_name type_defs in
+      data_type_size type_defs type_def.body
+  | `Variant vlist ->
+      let mx_data_size = List.fold_left (fun m n -> max m (snd n |> data_type_size type_defs)) 0 vlist
+      and tag_size = List.length vlist |> Utils.int_log2 in
+      mx_data_size + tag_size
+  | `Record flist ->
+      List.fold_left (fun m n -> m + (snd n |> data_type_size type_defs)) 0 flist
+  | `Tuple comp_dtype_list ->
+      List.fold_left (fun m n -> m + (data_type_size type_defs n)) 0 comp_dtype_list
+  | `Opaque _ -> raise (TypeError "Opaque data type is unsized!")
 
 type 'a sig_type_general = {
   dtype: data_type;
@@ -272,15 +296,19 @@ type proc_def = {
 
 type compilation_unit = {
   channel_classes: channel_class_def list;
+  type_defs: type_def_map;
   procs: proc_def list;
 }
 
 let cunit_empty : compilation_unit =
-  { channel_classes = []; procs = [] }
+  { channel_classes = []; type_defs = Utils.StringMap.empty; procs = [] }
 
 let cunit_add_channel_class
   (c : compilation_unit) (cc : channel_class_def) : compilation_unit =
   {c with channel_classes = cc::c.channel_classes}
+
+let cunit_add_type_def (c : compilation_unit) (ty : type_def) : compilation_unit =
+  {c with type_defs = Utils.StringMap.add ty.name ty c.type_defs}
 
 let cunit_add_proc
   (c : compilation_unit) (p : proc_def) : compilation_unit =

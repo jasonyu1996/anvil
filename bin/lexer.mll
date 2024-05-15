@@ -68,6 +68,8 @@ rule read =
   | "done"    { KEYWORD_DONE }
   | "try_send"{ KEYWORD_TRYSEND }
   | "try_recv"{ KEYWORD_TRYRECV }
+  | "type"    { KEYWORD_TYPE }
+  | "of"      { KEYWORD_OF }
   | int       { let n = Lexing.lexeme lexbuf |> int_of_string in INT n }
   | ident     { IDENT (Lexing.lexeme lexbuf) }
   | bit_literal { BIT_LITERAL (Lexing.lexeme lexbuf) }
