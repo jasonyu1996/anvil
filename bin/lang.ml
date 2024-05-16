@@ -266,6 +266,7 @@ and expr =
   | Construct of identifier * expr (* construct a variant type with a constructor *)
   | Index of expr * index
   | Indirect of expr * identifier
+  | Concat of expr list
 and lvalue =
   | Reg of identifier
   | Indexed of lvalue * index (* lvalue[index] *)

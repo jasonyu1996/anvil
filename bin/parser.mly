@@ -270,6 +270,8 @@ expr:
   { Lang.Index (e, ind) }
 | e = expr; PERIOD; fieldname = IDENT
   { Lang.Indirect (e, fieldname) }
+| LEFT_BRACE; components = separated_list(COMMA, expr); RIGHT_BRACE
+  { Lang.Concat components }
 (* TODO: constructor *)
 ;
 

@@ -558,7 +558,15 @@ let rec codegen_expr (ctx : codegen_context) (proc : proc_def)
       let expr_str = Printf.sprintf "%s[%d:%d]" w_res.name offset_le (offset_ri - 1) in
       codegen_context_new_assign ctx {wire = new_w.name; expr_str = expr_str};
       {v = [new_w]; assigns = expr_res.assigns}
-
+  | Concat components ->
+      let comp_res = List.map (codegen_expr ctx proc conds env borrows in_delay) components in
+      let wires = List.map (fun x -> List.hd x.v) comp_res in
+      let borrow_src = List.concat_map (fun x -> x.borrow_src) wires in
+      let size = List.fold_left (fun s x -> s + (data_type_size ctx.cunit.type_defs x.ty.dtype)) 0 wires in
+      let new_w = codegen_context_new_wire ctx {lifetime = sig_lifetime_const (* unused*); dtype = `Array (`Logic, size)} borrow_src in
+      let expr_str = List.map (fun (x: wire_def) -> x.name) wires |> String.concat ", " |>  Printf.sprintf "{%s}" in
+      codegen_context_new_assign ctx {wire = new_w.name; expr_str = expr_str};
+      {v = [new_w]; assigns = List.concat_map (fun (x : expr_result) -> x.assigns) comp_res}
 
 let rec codegen_proc_body (ctx : codegen_context) (proc : proc_def)
                   (pb : proc_body) (next_cycle : cycle_id option) : cycle_id option =
