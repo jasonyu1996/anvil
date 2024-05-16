@@ -11,7 +11,6 @@ let int = ['0'-'9']+
 let bit_literal = int "\'b" ['0'-'1']+
 let dec_literal = int "\'d" ['0'-'9']+
 let hex_literal = int "\'h" ['0'-'9' 'a'-'f']+
-let no_length_literal = int
 
 rule read =
   parse
@@ -35,6 +34,7 @@ rule read =
   | '|'       { OR }
   | '@'       { AT }
   | '~'       { TILDE }
+  | '.'       { PERIOD }
   | "->"      { POINT_TO }
   | "=>"      { D_POINT_TO }
   | ":="      { COLON_EQ }
@@ -70,12 +70,12 @@ rule read =
   | "try_recv"{ KEYWORD_TRYRECV }
   | "type"    { KEYWORD_TYPE }
   | "of"      { KEYWORD_OF }
+  | "set"     { KEYWORD_SET }
   | int       { let n = Lexing.lexeme lexbuf |> int_of_string in INT n }
   | ident     { IDENT (Lexing.lexeme lexbuf) }
   | bit_literal { BIT_LITERAL (Lexing.lexeme lexbuf) }
   | dec_literal { DEC_LITERAL (Lexing.lexeme lexbuf) }
   | hex_literal { HEX_LITERAL (Lexing.lexeme lexbuf) }
-  | no_length_literal { NO_LEN_LITERAL (Lexing.lexeme lexbuf) }
   | eof       { EOF }
   | "/*"      { skip_comments lexbuf }
   | "//"      { skip_inline_comments lexbuf }

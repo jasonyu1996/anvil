@@ -29,6 +29,7 @@
 %token OR                   (* | *)
 %token AT                   (* @ *)
 %token TILDE                (* ~ *)
+%token PERIOD               (* . *)
 %token KEYWORD_PROC         (* proc *)
 %token KEYWORD_CHAN         (* chan *)
 %token KEYWORD_IN           (* in *)
@@ -52,19 +53,19 @@
 %token KEYWORD_TRYRECV      (* try_recv *)
 %token KEYWORD_TYPE         (* type *)
 %token KEYWORD_OF           (* of *)
+%token KEYWORD_SET          (* set *)
 %token <int>INT             (* int literal *)
 %token <string>IDENT        (* identifier *)
 %token <string>BIT_LITERAL  (* bit literal *)
 %token <string>DEC_LITERAL  (* decimal literal *)
 %token <string>HEX_LITERAL  (* hexadecimal literal *)
-%token <string>NO_LEN_LITERAL (* no-length literal *)
 %right COLON_EQ
 %right KEYWORD_IN KEYWORD_ELSE
 %right EXCL_EQ DOUBLE_EQ
 %right DOUBLE_LEFT_ABRACK DOUBLE_RIGHT_ABRACK
 %right LEFT_ABRACK RIGHT_ABRACK LEFT_ABRACK_EQ RIGHT_ABRACK_EQ
 %nonassoc TILDE UMINUS UAND UOR
-%left XOR AND OR PLUS MINUS
+%left LEFT_BRACKET PERIOD XOR AND OR PLUS MINUS
 %start <Lang.compilation_unit> cunit
 %%
 
@@ -222,15 +223,15 @@ term:
   { Lang.Literal (ParserHelper.dec_literal_of_string literal_str) }
 | literal_str = HEX_LITERAL
   { Lang.Literal (ParserHelper.hex_literal_of_string literal_str) }
-| literal_str = NO_LEN_LITERAL
-  { Lang.Literal (Lang.NoLength (int_of_string literal_str))}
+| literal_val = INT
+  { Lang.Literal (Lang.NoLength literal_val)}
 | ident = IDENT
   { Lang.Identifier ident }
 ;
 
 expr:
-| ident = IDENT; COLON_EQ; v = expr
-  { Lang.Assign (ident, v) }
+| KEYWORD_SET; lval = lvalue; COLON_EQ; v = expr
+  { Lang.Assign (lval, v) }
 | e = term
   { e }
 | e = un_expr
@@ -265,6 +266,11 @@ expr:
       Lang.recv_msg_spec = {Lang.endpoint = endpoint; Lang.msg = msg};
     }, succ_expr, fail_expr)
   }
+| e = expr; LEFT_BRACKET; ind = index; RIGHT_BRACKET
+  { Lang.Index (e, ind) }
+| e = expr; PERIOD; fieldname = IDENT
+  { Lang.Indirect (e, fieldname) }
+(* TODO: constructor *)
 ;
 
 bin_expr:
@@ -305,6 +311,24 @@ un_expr:
   { Lang.Unop (Lang.AndAll, e) }
 | OR; e = expr %prec UOR
   { Lang.Unop (Lang.OrAll, e) }
+;
+
+lvalue:
+| regname = IDENT
+  { Lang.Reg regname }
+| lval = lvalue; LEFT_BRACKET; ind = index; RIGHT_BRACKET
+  { Lang.Indexed (lval, ind) }
+| lval = lvalue; PERIOD; fieldname = IDENT
+  { Lang.Indirected (lval, fieldname) }
+| LEFT_PAREN; lval = lvalue; RIGHT_PAREN
+  { lval }
+;
+
+index:
+| i = expr
+  { Lang.Single i }
+| le = expr; COLON; ri = expr
+  { Lang.Range (le, ri) }
 ;
 
 proc_body_list:

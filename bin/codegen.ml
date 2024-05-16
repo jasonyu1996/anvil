@@ -70,9 +70,25 @@ type condition = {
   neg: bool; (* negate? *)
 }
 
+type index_range = {
+  le: int;
+  ri: int;
+}
+
+let index_range_transform (base_opt : index_range option) (offset : index_range) : index_range =
+  match base_opt with
+  | None -> offset
+  | Some base -> {le = base.le + offset.le; ri = base.le + offset.ri}
+
+type lvalue_evaluated = {
+  ident: identifier;
+  range: index_range option;
+  dtype: data_type;
+}
+
 type reg_assign = {
   conds: condition list;
-  ident: identifier;
+  lval: lvalue_evaluated;
   expr_str: string;
 }
 
@@ -296,8 +312,18 @@ let codegen_ports (ctx : codegen_context) (endpoints : endpoint_def list) =
   let port_list = gather_ports ctx endpoints in
     print_port_list ctx ([clk_port; rst_port] @ port_list)
 
+let lookup_reg (proc : proc_def) (name : identifier) : reg_def option =
+  List.find_opt (fun (x : reg_def) -> x.name = name) proc.regs
+
 let format_regname_current (regname : identifier) = regname ^ "_q"
 let format_regname_next (regname : identifier) = regname ^ "_n"
+
+let format_lval_next (lval : lvalue_evaluated) : string =
+  let ind_str =
+    match lval.range with
+    | None -> ""
+    | Some {le = offset_le; ri = offset_ri} -> Printf.sprintf "[%d:%d]" offset_ri offset_le
+  in (format_regname_next lval.ident) ^ ind_str
 
 let codegen_state_transition (regs : reg_def list) =
   match regs with
@@ -351,6 +377,23 @@ let message_ack_wirename (ctx : codegen_context) (proc : proc_def) (msg_spec : m
 
 let message_valid_wirename (ctx : codegen_context) (proc : proc_def) (msg_spec : message_specifier) : string =
   canonicalise ctx proc format_msg_valid_signal_name msg_spec.endpoint msg_spec.msg
+
+let rec evaluate_lvalue (ctx : codegen_context) (proc : proc_def) (lval : lvalue) : lvalue_evaluated option =
+  let ( let* ) = Option.bind in
+  match lval with
+  | Reg ident ->
+      let* reg = lookup_reg proc ident in
+      Some {ident = ident; range = None; dtype = reg.dtype}
+  | Indexed (lval', ind) ->
+      let* lval_eval' = evaluate_lvalue ctx proc lval' in
+      let* (offset_le, offset_ri, new_dtype) = data_type_index ctx.cunit.type_defs lval_eval'.dtype ind in
+      let new_range = index_range_transform lval_eval'.range {le = offset_le; ri = offset_ri - 1} in
+      Some {lval_eval' with range = Some new_range; dtype = new_dtype}
+  | Indirected (lval', fieldname) ->
+      let* lval_eval' = evaluate_lvalue ctx proc lval' in
+      let* (offset_le, offset_ri, new_dtype) = data_type_indirect ctx.cunit.type_defs lval_eval'.dtype fieldname in
+      let new_range = index_range_transform lval_eval'.range {le = offset_le; ri = offset_ri - 1} in
+      Some {lval_eval' with range = Some new_range; dtype = new_dtype}
 
 let rec codegen_expr (ctx : codegen_context) (proc : proc_def)
                      (conds : condition list) (env : wire_def string_map)
@@ -465,17 +508,18 @@ let rec codegen_expr (ctx : codegen_context) (proc : proc_def)
       in
       let v = List.map2 gen_result e1_res.v e2_res.v in
       {v = v; assigns = cond_res.assigns @ e1_res.assigns @ e2_res.assigns}
-  | Assign (ident, e_val) ->
+  | Assign (lval, e_val) ->
+      let lval_eval = evaluate_lvalue ctx proc lval |> Option.get in
       let expr_res = codegen_expr ctx proc conds env borrows in_delay e_val in
       let codegen_assign = fun (w : wire_def) ->
         (* assign borrows for one cycle *)
-        borrows := {src = w.borrow_src; in_delay; lifetime = sig_lifetime_this_cycle; dst = ToReg ident}::!borrows;
+        borrows := {src = w.borrow_src; in_delay; lifetime = sig_lifetime_this_cycle; dst = ToReg lval_eval.ident}::!borrows;
         {
           conds = conds;
-          ident = ident;
+          lval = lval_eval;
           expr_str = w.name
         } in
-        {v = []; assigns = (List.map codegen_assign expr_res.v) @ expr_res.assigns}
+      {v = []; assigns = (List.map codegen_assign expr_res.v) @ expr_res.assigns}
       (* assign evaluates to unit val *)
   | Return (endpoint_ident, msg_ident, e_val) ->
       let msg_spec = {endpoint = endpoint_ident; msg = msg_ident} in
@@ -496,6 +540,25 @@ let rec codegen_expr (ctx : codegen_context) (proc : proc_def)
       let _ = codegen_context_new_assign ctx {wire = format_refname ident; expr_str = w_res.name } in
       borrows := {src = w_res.borrow_src; in_delay; lifetime = r.ty.lifetime; dst = ToRef ident}::!borrows;
       {v = []; assigns = expr_res.assigns}
+  | Construct (_cstr_ident, _cstr_args) ->
+      raise (UnimplementedError "Construct expression unimplemented!")
+  | Index (e', ind) ->
+      let expr_res = codegen_expr ctx proc conds env borrows in_delay e' in
+      let w_res = List.hd expr_res.v in
+      let (offset_le, offset_ri, new_dtype) = data_type_index ctx.cunit.type_defs w_res.ty.dtype ind |> Option.get in
+      let new_w = codegen_context_new_wire ctx {w_res.ty with dtype = new_dtype} w_res.borrow_src in
+      let expr_str = Printf.sprintf "%s[%d:%d]" w_res.name offset_le (offset_ri - 1) in
+      codegen_context_new_assign ctx {wire = new_w.name; expr_str = expr_str};
+      {v = [new_w]; assigns = expr_res.assigns}
+  | Indirect (e', fieldname) ->
+      let expr_res = codegen_expr ctx proc conds env borrows in_delay e' in
+      let w_res = List.hd expr_res.v in
+      let (offset_le, offset_ri, new_dtype) = data_type_indirect ctx.cunit.type_defs w_res.ty.dtype fieldname |> Option.get in
+      let new_w = codegen_context_new_wire ctx {w_res.ty with dtype = new_dtype} w_res.borrow_src in
+      let expr_str = Printf.sprintf "%s[%d:%d]" w_res.name offset_le (offset_ri - 1) in
+      codegen_context_new_assign ctx {wire = new_w.name; expr_str = expr_str};
+      {v = [new_w]; assigns = expr_res.assigns}
+
 
 let rec codegen_proc_body (ctx : codegen_context) (proc : proc_def)
                   (pb : proc_body) (next_cycle : cycle_id option) : cycle_id option =
@@ -653,7 +716,7 @@ let codegen_state_machine (ctx : codegen_context) (proc : proc_def) =
             let cond_a_str = String.concat " && " cond_str_list in
             Printf.sprintf "if (%s) " cond_a_str
           in
-          Printf.printf "        %s%s = %s;\n" cond_str (format_regname_next assign.ident) assign.expr_str
+          Printf.printf "        %s%s = %s;\n" cond_str (format_lval_next assign.lval) assign.expr_str
         in
         begin
           List.iter assign_reg cycle.assigns;
@@ -820,10 +883,10 @@ let borrow_check_inspect (state : borrow_check_state)
       let chk_mutate = fun (reg_assign : reg_assign) ->
         (* now check all borrows of the register in this cycle *)
         let chk_reg_borrows = fun _ (bci : borrow_check_info) ->
-          if List.find_opt (fun (s : borrow_source) -> s = FromReg reg_assign.ident) bci.bi.src |> Option.is_some then
+          if List.find_opt (fun (s : borrow_source) -> s = FromReg reg_assign.lval.ident) bci.bi.src |> Option.is_some then
             if Lifetime.lifetime_overlaps_current_mutation bci.relaxed then
               let err_msg = Printf.sprintf "Mutation of borrowed registers detected: %s (borrowed for %s)"
-                reg_assign.ident (string_of_lifetime bci.relaxed) in
+                reg_assign.lval.ident (string_of_lifetime bci.relaxed) in
               raise (BorrowCheckError err_msg)
             else ()
           else ()

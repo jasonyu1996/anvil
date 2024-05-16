@@ -23,7 +23,7 @@ proc slave(p : right pack)
 /* body */
 {
     /*recv d = p::ping => return p::ping d + 10'b1 done*/
-    => st := let v = try_recv d = p::ping then 1'b1 else 1'b0 in
+    => set st := let v = try_recv d = p::ping then 1'b1 else 1'b0 in
         if v >= 1'b0 then 1'b1 else 1'b0 // testing if-then-else
 }
 
@@ -34,7 +34,8 @@ proc master(p : left pack)
 {}
 /* regs */
 {
-    counter: logic[10]
+    counter: logic[10],
+    rec: record
 }
 /* refs */
 {
@@ -43,15 +44,16 @@ proc master(p : left pack)
 /* body */
 {
     => let a = 10'b1 in
-        counter := counter + a;
+        set counter := counter + a;
     if send d = p::ping(counter) =>
-        /*let _ = counter := counter + d in */
+        /*let _ = set counter := counter + d in */
         let _ = ref d_val = d done in
         1'b0
     {
-        => counter := counter + (2'd1 << 2'd3)
+        => set counter := counter + (2'd1 << 2'd3)
     } else {
-        => counter := ~(counter + 2'b10)
+        => let _ = set counter := ~(counter + 2'b10) in
+            set rec.e[1:3] := 1'b0
     }
 }
 

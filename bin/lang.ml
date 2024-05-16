@@ -169,6 +169,25 @@ let string_of_digit d : string =
   | `Ze -> "e"
   | `Zf -> "f"
 
+let value_of_digit d : int =
+  match d with
+  | `Z0 -> 0x0
+  | `Z1 -> 0x1
+  | `Z2 -> 0x2
+  | `Z3 -> 0x3
+  | `Z4 -> 0x4
+  | `Z5 -> 0x5
+  | `Z6 -> 0x6
+  | `Z7 -> 0x7
+  | `Z8 -> 0x8
+  | `Z9 -> 0x9
+  | `Za -> 0xa
+  | `Zb -> 0xb
+  | `Zc -> 0xc
+  | `Zd -> 0xd
+  | `Ze -> 0xe
+  | `Zf -> 0xf
+
 type literal =
 | Binary of int * bit list
 | Decimal of int * digit list
@@ -179,6 +198,17 @@ let literal_bit_len (lit : literal) : int option =
   match lit with
   | Binary (n, _) | Decimal (n, _) | Hexadecimal (n, _) -> Some n
   | _ -> None
+
+let literal_eval (lit : literal) : int =
+  match lit with
+  | Binary (_, b) ->
+      List.fold_left (fun n x -> n * 2 + (value_of_digit x)) 0 b
+  | Decimal (_, d) ->
+      List.fold_left (fun n x -> n * 10 + (value_of_digit x)) 0 d
+  | Hexadecimal (_, h) ->
+      List.fold_left (fun n x -> n * 16 + (value_of_digit x)) 0 h
+  | NoLength v -> v
+
 
 type binop = Add | Sub | Xor | And | Or | Lt | Gt | Lte | Gte |
              Shl | Shr | Eq | Neq
@@ -224,7 +254,7 @@ and expr =
   (* send and recv *)
   | TrySend of send_pack * expr * expr
   | TryRecv of recv_pack * expr * expr
-  | Assign of identifier * expr
+  | Assign of lvalue * expr
   | Apply of expr * expr
   | Binop of binop * expr * expr
   | Unop of unop * expr
@@ -233,6 +263,65 @@ and expr =
   | IfExpr of expr * expr * expr
   | Return of identifier * identifier * expr
   | Ref of identifier * expr
+  | Construct of identifier * expr (* construct a variant type with a constructor *)
+  | Index of expr * index
+  | Indirect of expr * identifier
+and lvalue =
+  | Reg of identifier
+  | Indexed of lvalue * index (* lvalue[index] *)
+  | Indirected of lvalue * identifier (* lvalue.field *)
+and index =
+  | Single of expr
+  | Range of expr * expr
+
+let data_type_name_resolve (type_defs : type_def_map) (dtype : data_type) : data_type option =
+  match dtype with
+  | `Named type_name -> Utils.StringMap.find_opt type_name type_defs |> Option.map (fun x -> x.body)
+  | _ -> Some dtype
+
+let data_type_indirect (type_defs : type_def_map) (dtype : data_type) (fieldname : identifier) : (int * int * data_type) option =
+  let ( let* ) = Option.bind in
+  let* dtype' = data_type_name_resolve type_defs dtype in
+  match dtype' with
+  | `Record flist ->
+      (* find the field by fieldname *)
+      let found : data_type option ref = ref None
+      and offset = ref 0 in
+      let lookup = fun ((field, field_type) : identifier * data_type) ->
+        if Option.is_none !found then begin
+          if field = fieldname then
+            found := Some field_type
+          else
+            offset := !offset + (data_type_size type_defs field_type)
+        end else ()
+      in
+      List.iter lookup flist;
+      let* found_d = !found in
+      Some (!offset, !offset + (data_type_size type_defs found_d), found_d)
+  | _ -> None
+
+let data_type_index (type_defs : type_def_map) (dtype : data_type) (ind : index) : (int * int * data_type) option =
+  let ( let* ) = Option.bind in
+  let* dtype' = data_type_name_resolve type_defs dtype in
+  match dtype' with
+  | `Array (base_type, n) ->
+      let base_size = data_type_size type_defs base_type in
+      begin
+        (* TODO: we only support literals as indices for now *)
+        match ind with
+        | Single Literal lit ->
+            let lit_val = literal_eval lit in
+            if lit_val < 0 || lit_val >= n then None else
+              Some (base_size * lit_val, base_size * (lit_val + 1), base_type)
+        | Range (Literal lit_le, Literal lit_ri) ->
+            let le = literal_eval lit_le
+            and ri = literal_eval lit_ri in
+            if le < 0 || ri >= n || le > ri then None else
+              Some (base_size * le, base_size * (ri + 1), `Array (base_type, ri - le + 1))
+        | _ -> None
+      end
+  | _ -> None
+
 
 (* the delay before a cycle *)
 type delay_def = [ `Cycles of int | `Send of send_pack | `Recv of recv_pack ]
