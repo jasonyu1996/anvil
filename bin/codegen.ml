@@ -52,7 +52,7 @@ type borrow_info = {
 
 type wire_def = {
   name: identifier;
-  ty: sig_type;
+  dtype: data_type;
   borrow_src: borrow_source list;
 }
 
@@ -147,10 +147,10 @@ let codegen_context_proc_clear (ctx : codegen_context) =
   ctx.cycles_n <- 0;
   ctx.assigns <- []
 
-let codegen_context_new_wire (ctx: codegen_context) (ty : sig_type)
+let codegen_context_new_wire (ctx: codegen_context) (dtype : data_type)
     (borrow_src : borrow_source list): wire_def =
   let id = ctx.wires_n in
-  let w = {name = format_wirename id; ty = ty; borrow_src = borrow_src} in
+  let w = {name = format_wirename id; dtype; borrow_src = borrow_src} in
   ctx.wires_n <- id + 1;
   ctx.wires <- w::ctx.wires;
   w
@@ -174,7 +174,7 @@ let format_dtype (ctx : codegen_context) (dtype : data_type) =
 
 let format_refname name : string = "_ref_" ^ name
 
-let wire_of_ref (r: ref_def) : wire_def = { name = r.name; ty = r.ty; borrow_src = [FromRef r.name] }
+let wire_of_ref (r: ref_def) : wire_def = { name = r.name; dtype = r.ty.dtype; borrow_src = [FromRef r.name] }
 
 let format_port (ctx : codegen_context) port =
   let inout = match port.dir with
@@ -236,49 +236,43 @@ let lookup_message_def_by_msg (ctx : codegen_context) (proc : proc_def)
     (fun endpoint -> lookup_channel_class ctx endpoint.channel_class) >>=
     (fun cc -> List.find_opt (fun (m : message_def) -> m.name = msg_spec.msg) cc.messages)
 
-let gather_ret_wires_from_msg (ctx : codegen_context) (proc : proc_def) (msg_spec : message_specifier) : wire_def list =
+let gather_ret_wires_from_msg (ctx : codegen_context) (proc : proc_def) (msg_spec : message_specifier) : (wire_def * sig_lifetime) list =
   let endpoint = Option.get (lookup_endpoint ctx proc msg_spec.endpoint) in
   let cc = Option.get (lookup_channel_class ctx endpoint.channel_class) in
   let msg = List.find (fun (m : message_def) -> m.name = msg_spec.msg) cc.messages in
   let endpoint_name = endpoint_canonical_name endpoint in
-  let mapper = fun (idx : int) (ty : sig_type_chan_local) : wire_def ->
-    {
+  let mapper = fun (idx : int) (ty : sig_type_chan_local) : (wire_def * sig_lifetime) ->
+    ({
       name = format_msg_ret_signal_name endpoint_name msg_spec.msg idx;
-      ty = sig_type_globalise endpoint_name ty;
+      dtype = ty.dtype;
       borrow_src = [FromMsgRet (msg_spec, idx)];
-    } in
+    }, lifetime_globalise endpoint_name ty.lifetime) in
   List.mapi mapper msg.ret_types
 
-let gather_data_wires_from_msg (ctx : codegen_context) (proc : proc_def) (msg_spec : message_specifier) : wire_def list =
+let gather_data_wires_from_msg (ctx : codegen_context) (proc : proc_def) (msg_spec : message_specifier) : (wire_def * sig_lifetime) list =
   let endpoint = Option.get (lookup_endpoint ctx proc msg_spec.endpoint) in
   let cc = Option.get (lookup_channel_class ctx endpoint.channel_class) in
   let msg = List.find (fun (m : message_def) -> m.name = msg_spec.msg) cc.messages in
   let endpoint_name = endpoint_canonical_name endpoint in
-  let mapper = fun (idx : int) (ty : sig_type_chan_local) : wire_def ->
-    {
+  let mapper = fun (idx : int) (ty : sig_type_chan_local) : (wire_def * sig_lifetime) ->
+    ({
       name = format_msg_data_signal_name endpoint_name msg_spec.msg idx;
-      ty = sig_type_globalise endpoint_name ty;
+      dtype = ty.dtype;
       borrow_src = [FromMsgData (msg_spec, idx)];
-    } in
+    }, lifetime_globalise endpoint_name ty.lifetime) in
   List.mapi mapper msg.sig_types
 
-let gather_all_wires_from_msg (ctx : codegen_context) (proc : proc_def) (msg_spec : message_specifier) : wire_def list =
-  {
+let gather_all_wires_from_msg (ctx : codegen_context) (proc : proc_def) (msg_spec : message_specifier) : (wire_def * sig_lifetime) list =
+  ({
     name = canonicalise ctx proc format_msg_valid_signal_name msg_spec.endpoint msg_spec.msg;
-    ty = {
-      dtype = `Logic;
-      lifetime = sig_lifetime_const; (* should not matter as this is not directly referenceable *)
-    };
+    dtype = `Logic;
     borrow_src = [];
-  }::
-  {
+  }, sig_lifetime_this_cycle)::
+  ({
     name = canonicalise ctx proc format_msg_ack_signal_name msg_spec.endpoint msg_spec.msg;
-    ty = {
-      dtype = `Logic;
-      lifetime = sig_lifetime_const;
-    };
+    dtype = `Logic;
     borrow_src = [];
-  }::
+  }, sig_lifetime_this_cycle)::
   (gather_data_wires_from_msg ctx proc msg_spec)@(gather_ret_wires_from_msg ctx proc msg_spec)
 
 let gather_ports_from_endpoint (ctx : codegen_context) (endpoint : endpoint_def) : port_def list =
@@ -368,8 +362,8 @@ let get_identifier_dtype (_ctx : codegen_context) (proc : proc_def) (ident : ide
 let assign_message_data (ctx : codegen_context) (proc : proc_def) (borrows : borrow_info list ref)
                         (in_delay : bool) (msg_spec : message_specifier) (data_ws : wire_def list) =
   gather_data_wires_from_msg ctx proc msg_spec |>
-    List.iter2 (fun (res_wire : wire_def) (data_wire : wire_def) ->
-        borrows := {src = res_wire.borrow_src; in_delay = in_delay; lifetime = data_wire.ty.lifetime; dst = ToOthers}::!borrows;
+    List.iter2 (fun (res_wire : wire_def) ((data_wire, lt) : (wire_def * sig_lifetime)) ->
+        borrows := {src = res_wire.borrow_src; in_delay = in_delay; lifetime = lt; dst = ToOthers}::!borrows;
         codegen_context_new_assign ctx {wire = data_wire.name; expr_str = res_wire.name}) data_ws
 
 let message_ack_wirename (ctx : codegen_context) (proc : proc_def) (msg_spec : message_specifier) : string =
@@ -402,8 +396,7 @@ let rec codegen_expr (ctx : codegen_context) (proc : proc_def)
   | Literal lit ->
       (* TODO: no-length literal not supported here *)
       let dtype = `Array (`Logic, literal_bit_len lit |> Option.get) in
-      let ty = { dtype = dtype; lifetime = sig_lifetime_const } in
-      let w = codegen_context_new_wire ctx ty [] in (* literal does not depend on anything *)
+      let w = codegen_context_new_wire ctx dtype [] in (* literal does not depend on anything *)
       codegen_context_new_assign ctx {wire = w.name; expr_str = string_of_literal lit};
       {v = [w]; assigns = []}
   | Identifier ident ->
@@ -413,8 +406,7 @@ let rec codegen_expr (ctx : codegen_context) (proc : proc_def)
         | Some w -> {v = [w]; assigns = []}
         | None ->
             let dtype = Option.get (get_identifier_dtype ctx proc ident) in
-            let ty = { dtype = dtype; lifetime = sig_lifetime_const } in
-            let w = codegen_context_new_wire ctx ty [FromReg ident]  in
+            let w = codegen_context_new_wire ctx dtype [FromReg ident]  in
             codegen_context_new_assign ctx {wire = w.name; expr_str = format_regname_current ident};
             {v = [w]; assigns = []}
       )
@@ -424,24 +416,26 @@ let rec codegen_expr (ctx : codegen_context) (proc : proc_def)
       assign_message_data ctx proc borrows in_delay send_pack.send_msg_spec data_res.v;
       let ack_w = message_ack_wirename ctx proc send_pack.send_msg_spec in
       let succ_env = gather_ret_wires_from_msg ctx proc send_pack.send_msg_spec |>
+        List.map fst |>
         List.combine send_pack.send_binds |> map_of_list |>
         StringMap.merge (fun _ op1 op2 -> if Option.is_some op2 then op2 else op1) env in
       let succ_res = codegen_expr ctx proc ({w = ack_w; neg = false}::conds) succ_env borrows in_delay e_succ
       and fail_res = codegen_expr ctx proc ({w = ack_w; neg = true}::conds) env borrows in_delay e_fail in
       let succ_w = List.hd succ_res.v and fail_w = List.hd fail_res.v in
-      let w = codegen_context_new_wire ctx succ_w.ty (succ_w.borrow_src @ fail_w.borrow_src) in
+      let w = codegen_context_new_wire ctx succ_w.dtype (succ_w.borrow_src @ fail_w.borrow_src) in
       let expr_str = Printf.sprintf "(%s) ? %s : %s" ack_w succ_w.name fail_w.name in
       codegen_context_new_assign ctx {wire = w.name; expr_str = expr_str};
       {v = [w]; assigns = data_res.assigns @ succ_res.assigns @ fail_res.assigns}
   | TryRecv (recv_pack, e_succ, e_fail) ->
       let valid_w = message_valid_wirename ctx proc recv_pack.recv_msg_spec in
       let succ_env = gather_data_wires_from_msg ctx proc recv_pack.recv_msg_spec |>
+        List.map fst |>
         List.combine recv_pack.recv_binds |> map_of_list |>
         StringMap.merge (fun _ op1 op2 -> if Option.is_some op2 then op2 else op1) env in
       let succ_res = codegen_expr ctx proc ({w = valid_w; neg = false}::conds) succ_env borrows in_delay e_succ
       and fail_res = codegen_expr ctx proc ({w = valid_w; neg = true}::conds) succ_env borrows in_delay e_fail in
       let succ_w = List.hd succ_res.v and fail_w = List.hd fail_res.v in
-      let w = codegen_context_new_wire ctx succ_w.ty (succ_w.borrow_src @ fail_w.borrow_src) in
+      let w = codegen_context_new_wire ctx succ_w.dtype (succ_w.borrow_src @ fail_w.borrow_src) in
       let expr_str = Printf.sprintf "(%s) ? %s : %s" valid_w succ_w.name fail_w.name in
       codegen_context_new_assign ctx {wire = w.name; expr_str = expr_str};
       {v = [w]; assigns = succ_res.assigns @ fail_res.assigns}
@@ -454,7 +448,7 @@ let rec codegen_expr (ctx : codegen_context) (proc : proc_def)
         | [w1], [w2] ->
             (* if w1.ty.dtype = w2.ty.dtype then *)
             (* TODO: compute the new lifetime; type checking *)
-            let w = codegen_context_new_wire ctx w1.ty (w1.borrow_src @ w2.borrow_src) in
+            let w = codegen_context_new_wire ctx w1.dtype (w1.borrow_src @ w2.borrow_src) in
             let expr_str = Printf.sprintf "%s %s %s"
               w1.name (string_of_binop binop) w2.name in
             codegen_context_new_assign ctx {wire = w.name; expr_str = expr_str};
@@ -467,10 +461,10 @@ let rec codegen_expr (ctx : codegen_context) (proc : proc_def)
     let w = List.hd e_res.v in
     let new_dtype =
       match unop with
-      | Neg | Not -> w.ty.dtype
+      | Neg | Not -> w.dtype
       | AndAll | OrAll -> `Logic
     in
-    let w' = codegen_context_new_wire ctx {w.ty with dtype = new_dtype} w.borrow_src in
+    let w' = codegen_context_new_wire ctx new_dtype w.borrow_src in
     let expr_str = Printf.sprintf "%s%s" (string_of_unop unop) w.name in
     codegen_context_new_assign ctx {wire = w'.name; expr_str = expr_str};
     {v = [w']; assigns = e_res.assigns}
@@ -501,7 +495,7 @@ let rec codegen_expr (ctx : codegen_context) (proc : proc_def)
       (* get the results *)
       let gen_result = fun (w1 : wire_def) (w2 : wire_def) ->
         (* compute new lifetime *)
-        let new_w = codegen_context_new_wire ctx w1.ty (cond_w.borrow_src @ w1.borrow_src @ w2.borrow_src) in
+        let new_w = codegen_context_new_wire ctx w1.dtype (cond_w.borrow_src @ w1.borrow_src @ w2.borrow_src) in
         let expr_str = Printf.sprintf "(%s) ? %s : %s" cond_w.name w1.name w2.name in
         let _ = codegen_context_new_assign ctx {wire = new_w.name; expr_str = expr_str} in
         new_w
@@ -524,9 +518,9 @@ let rec codegen_expr (ctx : codegen_context) (proc : proc_def)
   | Return (endpoint_ident, msg_ident, e_val) ->
       let msg_spec = {endpoint = endpoint_ident; msg = msg_ident} in
       let expr_res = codegen_expr ctx proc conds env borrows in_delay e_val in
-      let assign_ret = fun (w : wire_def) (ret_wire : wire_def) ->
+      let assign_ret = fun (w : wire_def) ((ret_wire, lt) : (wire_def * sig_lifetime)) ->
         (* we have to add to assign because the signals might be used for multiple cycles *)
-        borrows := {src = w.borrow_src; in_delay; lifetime = ret_wire.ty.lifetime; dst = ToOthers}::!borrows;
+        borrows := {src = w.borrow_src; in_delay; lifetime = lt; dst = ToOthers}::!borrows;
         codegen_context_new_assign ctx {wire = ret_wire.name; expr_str = w.name}
       in
       begin
@@ -545,16 +539,16 @@ let rec codegen_expr (ctx : codegen_context) (proc : proc_def)
   | Index (e', ind) ->
       let expr_res = codegen_expr ctx proc conds env borrows in_delay e' in
       let w_res = List.hd expr_res.v in
-      let (offset_le, offset_ri, new_dtype) = data_type_index ctx.cunit.type_defs w_res.ty.dtype ind |> Option.get in
-      let new_w = codegen_context_new_wire ctx {w_res.ty with dtype = new_dtype} w_res.borrow_src in
+      let (offset_le, offset_ri, new_dtype) = data_type_index ctx.cunit.type_defs w_res.dtype ind |> Option.get in
+      let new_w = codegen_context_new_wire ctx new_dtype w_res.borrow_src in
       let expr_str = Printf.sprintf "%s[%d:%d]" w_res.name offset_le (offset_ri - 1) in
       codegen_context_new_assign ctx {wire = new_w.name; expr_str = expr_str};
       {v = [new_w]; assigns = expr_res.assigns}
   | Indirect (e', fieldname) ->
       let expr_res = codegen_expr ctx proc conds env borrows in_delay e' in
       let w_res = List.hd expr_res.v in
-      let (offset_le, offset_ri, new_dtype) = data_type_indirect ctx.cunit.type_defs w_res.ty.dtype fieldname |> Option.get in
-      let new_w = codegen_context_new_wire ctx {w_res.ty with dtype = new_dtype} w_res.borrow_src in
+      let (offset_le, offset_ri, new_dtype) = data_type_indirect ctx.cunit.type_defs w_res.dtype fieldname |> Option.get in
+      let new_w = codegen_context_new_wire ctx new_dtype w_res.borrow_src in
       let expr_str = Printf.sprintf "%s[%d:%d]" w_res.name offset_le (offset_ri - 1) in
       codegen_context_new_assign ctx {wire = new_w.name; expr_str = expr_str};
       {v = [new_w]; assigns = expr_res.assigns}
@@ -562,8 +556,8 @@ let rec codegen_expr (ctx : codegen_context) (proc : proc_def)
       let comp_res = List.map (codegen_expr ctx proc conds env borrows in_delay) components in
       let wires = List.map (fun x -> List.hd x.v) comp_res in
       let borrow_src = List.concat_map (fun x -> x.borrow_src) wires in
-      let size = List.fold_left (fun s x -> s + (data_type_size ctx.cunit.type_defs x.ty.dtype)) 0 wires in
-      let new_w = codegen_context_new_wire ctx {lifetime = sig_lifetime_const (* unused*); dtype = `Array (`Logic, size)} borrow_src in
+      let size = List.fold_left (fun s (x : wire_def) -> s + (data_type_size ctx.cunit.type_defs x.dtype)) 0 wires in
+      let new_w = codegen_context_new_wire ctx (`Array (`Logic, size)) borrow_src in
       let expr_str = List.map (fun (x: wire_def) -> x.name) wires |> String.concat ", " |>  Printf.sprintf "{%s}" in
       codegen_context_new_assign ctx {wire = new_w.name; expr_str = expr_str};
       {v = [new_w]; assigns = List.concat_map (fun (x : expr_result) -> x.assigns) comp_res}
@@ -583,6 +577,7 @@ let rec codegen_proc_body (ctx : codegen_context) (proc : proc_def)
     | `Send {send_binds = idents; send_msg_spec = msg_specifier; send_data = expr} ->
         (* bind return results *)
         let env = gather_ret_wires_from_msg ctx proc msg_specifier |>
+          List.map fst |>
           List.combine idents |> map_of_list in
         (* gather the data to send *)
         let expr_res = codegen_expr ctx proc [] ref_env borrows true expr in
@@ -594,6 +589,7 @@ let rec codegen_proc_body (ctx : codegen_context) (proc : proc_def)
         (cond, env)
     | `Recv {recv_binds = idents; recv_msg_spec = msg_specifier} ->
         let env = gather_data_wires_from_msg ctx proc msg_specifier |>
+          List.map fst |>
           List.combine idents |> map_of_list in
         let cond : condition list = [{
           w = canonicalise ctx proc format_msg_valid_signal_name msg_specifier.endpoint msg_specifier.msg;
@@ -650,7 +646,7 @@ let codegen_post_declare (ctx : codegen_context) (proc : proc_def)=
   (* wire declarations *)
   let ref_wires = List.map wire_of_ref proc.refs in
   let codegen_wire = fun (w: wire_def) ->
-    Printf.printf "  %s %s;\n" (format_dtype ctx w.ty.dtype) w.name
+    Printf.printf "  %s %s;\n" (format_dtype ctx w.dtype) w.name
   in List.iter codegen_wire (ctx.wires @ ref_wires);
   (* wire assignments *)
   List.iter print_assign ctx.assigns
