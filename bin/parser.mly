@@ -496,10 +496,8 @@ lifetime_spec_chan_local:
 timestamp:
 | SHARP; n = INT
   { `Cycles n }
-| KEYWORD_SEND; msg_spec = message_specifier
-  { `Send msg_spec }
-| KEYWORD_RECV; msg_spec = message_specifier
-  { `Recv msg_spec }
+| msg_spec = message_specifier
+  { `Message msg_spec }
 | KEYWORD_ETERNAL
   { `Eternal }
 ;
@@ -507,10 +505,8 @@ timestamp:
 timestamp_chan_local:
 | SHARP; n = INT
   { `Cycles n }
-| KEYWORD_SEND; msg = IDENT
-  { `Send msg }
-| KEYWORD_RECV; msg = IDENT
-  { `Recv msg }
+| msg = IDENT
+  { `Message msg }
 | KEYWORD_ETERNAL
   { `Eternal }
 ;

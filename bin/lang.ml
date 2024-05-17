@@ -10,16 +10,15 @@ type message_specifier = {
 let string_of_msg_spec (msg_spec : message_specifier) : string =
   msg_spec.endpoint ^ "::" ^ msg_spec.msg
 
-type future = [ `Cycles of int | `Send of message_specifier | `Recv of message_specifier | `Eternal ]
+type future = [ `Cycles of int | `Message of message_specifier | `Eternal ]
 
 (* future definition that is local to a specific channel *)
-type future_chan_local = [ `Cycles of int | `Send of identifier | `Recv of identifier | `Eternal ]
+type future_chan_local = [ `Cycles of int | `Message of identifier | `Eternal ]
 
 let string_of_future (t : future) : string =
   match t with
   | `Cycles n -> Printf.sprintf "#%d" n
-  | `Send msg_spec -> Printf.sprintf "S(%s)" (string_of_msg_spec msg_spec)
-  | `Recv msg_spec -> Printf.sprintf "R(%s)" (string_of_msg_spec msg_spec)
+  | `Message msg_spec -> Printf.sprintf "%s" (string_of_msg_spec msg_spec)
   | `Eternal -> "E"
 
 type sig_lifetime = { b: future; e: future;}
@@ -91,8 +90,7 @@ type sig_type_chan_local = sig_lifetime_chan_local sig_type_general
 
 let future_globalise (endpoint : identifier) (t : future_chan_local) : future =
   match t with
-  | `Send msg -> `Send {endpoint = endpoint; msg = msg}
-  | `Recv msg -> `Recv {endpoint = endpoint; msg = msg}
+  | `Message msg -> `Message {endpoint = endpoint; msg = msg}
   | `Cycles n -> `Cycles n
   | `Eternal -> `Eternal
 

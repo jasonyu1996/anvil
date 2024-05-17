@@ -10,8 +10,8 @@ let consume_lowerbound (e : [< delay_def | event]) (t : future) : future =
     let n' = if n > m then n - m else 0 in
     `Cycles n'
   | `Cycles _, _ -> `Cycles 0 (* we can make the timestamp earlier but no later *)
-  | `Send msg1, `Send { send_msg_spec = msg2; _ } -> if msg1 = msg2 then `Cycles 0 else t
-  | `Recv msg1, `Recv { recv_msg_spec = msg2; _ } -> if msg1 = msg2 then `Cycles 0 else t
+  | `Message msg1, `Send { send_msg_spec = msg2; _ }
+  | `Message msg1, `Recv { recv_msg_spec = msg2; _ } -> if msg1 = msg2 then `Cycles 0 else t
   | _ -> t
 
 (* this is for timestamps that specify the upperbound of a point in time *)
@@ -20,8 +20,8 @@ let consume_upperbound (e : [< delay_def | event]) (t : future) : future =
   | `Cycles n, `Cycles m ->
     let n' = if n > m then n - m else 0 in
     `Cycles n'
-  | `Send msg1, `Send { send_msg_spec = msg2; _ } -> if msg1 = msg2 then `Cycles 0 else t
-  | `Recv msg1, `Recv { recv_msg_spec = msg2; _ } -> if msg1 = msg2 then `Cycles 0 else t
+  | `Message msg1, `Send { send_msg_spec = msg2; _ }
+  | `Message msg1, `Recv { recv_msg_spec = msg2; _ } -> if msg1 = msg2 then `Cycles 0 else t
   | _ -> t
 
 (* can only shrink giving a lifetime that guarantees the reference is alive *)
