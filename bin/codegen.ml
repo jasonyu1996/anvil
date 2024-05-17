@@ -80,6 +80,11 @@ let index_range_transform (base_opt : index_range option) (offset : index_range)
   | None -> offset
   | Some base -> {le = base.le + offset.le; ri = base.le + offset.ri}
 
+let variant_lookup_range
+          (v : [< `Variant of (identifier * data_type option) list]) (cstr: identifier) (type_defs : type_def_map) : index_range option =
+  let tag_size = variant_tag_size v in
+  variant_lookup_dtype v cstr |> Option.map (fun x -> let data_size = data_type_size type_defs x in {le = tag_size; ri = tag_size + data_size - 1})
+
 type lvalue_evaluated = {
   ident: identifier;
   range: index_range option;
@@ -372,6 +377,8 @@ let message_ack_wirename (ctx : codegen_context) (proc : proc_def) (msg_spec : m
 let message_valid_wirename (ctx : codegen_context) (proc : proc_def) (msg_spec : message_specifier) : string =
   canonicalise ctx proc format_msg_valid_signal_name msg_spec.endpoint msg_spec.msg
 
+let format_cstrname (cstr : identifier) : string = Printf.sprintf "_CSTR_%s" cstr
+
 let rec evaluate_lvalue (ctx : codegen_context) (proc : proc_def) (lval : lvalue) : lvalue_evaluated option =
   let ( let* ) = Option.bind in
   match lval with
@@ -561,6 +568,50 @@ let rec codegen_expr (ctx : codegen_context) (proc : proc_def)
       let expr_str = List.map (fun (x: wire_def) -> x.name) wires |> String.concat ", " |>  Printf.sprintf "{%s}" in
       codegen_context_new_assign ctx {wire = new_w.name; expr_str = expr_str};
       {v = [new_w]; assigns = List.concat_map (fun (x : expr_result) -> x.assigns) comp_res}
+  | Match (e', match_arm_list) ->
+      let expr_res = codegen_expr ctx proc conds env borrows in_delay e' in
+      let w = List.hd expr_res.v in
+      let dtype_resolved = data_type_name_resolve ctx.cunit.type_defs w.dtype in
+      match dtype_resolved with
+      | Some dtype  ->
+        begin
+          match dtype with
+          | `Variant _ as var ->
+            let ( let* ) = Option.bind in
+            let tag_size = variant_tag_size var
+            and arm_conds : string list ref = ref [] in
+            let process_arm = fun ((pattern, e_opt) : (match_pattern * expr option)) ->
+              let range_opt = variant_lookup_range var pattern.cstr ctx.cunit.type_defs in
+              let cstr_idx = variant_lookup_index var pattern.cstr |> Option.get in
+              let new_cond = Printf.sprintf "%s[%d:0] == %d" w.name (tag_size - 1) cstr_idx in
+              arm_conds := new_cond::!arm_conds;
+              let* e_arm = e_opt in
+              let cond_str = String.concat " || " !arm_conds |> Printf.sprintf "(%s)" in
+              let new_env =
+                match range_opt, pattern.bind_name with
+                | None, None -> env
+                | Some range, Some bind_name ->
+                    let arm_vw = codegen_context_new_wire ctx dtype w.borrow_src in
+                    let arm_v_expr_str = Printf.sprintf "%s[%d:%d]" w.name range.ri range.le in
+                    codegen_context_new_assign ctx {wire = arm_vw.name; expr_str = arm_v_expr_str};
+                    StringMap.add bind_name arm_vw env
+                | _ -> raise (TypeError "Pattern matching incompatible with type definition!")
+              in
+              let arm_res = codegen_expr ctx proc ({w = cond_str; neg = false}::conds) new_env borrows in_delay e_arm in
+              arm_conds := [];
+              Some (new_cond, arm_res)
+            in
+            let arm_res_list = List.filter_map process_arm match_arm_list in
+            let arm_expr_str = List.map (fun ((c, r) : (identifier * expr_result)) ->
+              Printf.sprintf "(%s) ? %s" c (List.hd r.v).name) arm_res_list |> String.concat " : " |> Printf.sprintf "%s : '0" in
+            let new_dtype = (List.hd arm_res_list |> snd |>  (fun (x : expr_result) -> x.v) |> List.hd).dtype in
+            let new_w = codegen_context_new_wire ctx new_dtype (List.concat_map
+              (fun ((_, x) : (identifier * expr_result)) -> (List.hd x.v).borrow_src) arm_res_list) in
+            codegen_context_new_assign ctx {wire = new_w.name; expr_str = arm_expr_str};
+            {v = [new_w]; assigns = List.concat_map (fun ((_, x) : (identifier * expr_result)) -> x.assigns) arm_res_list}
+          | _ ->  raise (TypeError "Illegal match: value is not of a variant type!")
+        end
+      | None -> raise (TypeError "Illegal match: value is not of a variant type!")
 
 let rec codegen_proc_body (ctx : codegen_context) (proc : proc_def)
                   (pb : proc_body) (next_cycle : cycle_id option) : cycle_id option =
@@ -1047,8 +1098,11 @@ let rec codegen_with_context (ctx : codegen_context) (procs: proc_def list) =
       codegen_proc ctx proc;
       codegen_with_context ctx procs'
 
+let codegen_preamble (_cunit : compilation_unit) = ()
+
 let codegen (cunit : compilation_unit) =
   (* let msgs = List.map (fun (p: proc_def) -> (p.name, p.msgs)) cunit in *)
+  codegen_preamble cunit;
   let ctx : codegen_context = {
     wires = [];
     wires_n = 0;

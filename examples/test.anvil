@@ -1,6 +1,6 @@
 /* Example program for testing */
 
-type variant = [| A of (logic, logic[2]) | T of logic ]
+type variant = [| A of logic[2] | T of logic ]
 type record = {
     c: logic[2];
     b: logic[3];
@@ -17,14 +17,19 @@ proc slave(p : right pack)
 /* spawns */
 {}
 /* regs */
-{ st: logic }
+{ st: logic, g : variant }
 /* refs */
 { tmp: logic @ #3 - #3 }
 /* body */
 {
     /*recv d = p::ping => return p::ping d + 10'b1 done*/
     => set st := let v = try_recv d = p::ping then 1'b1 else 1'b0 in
-        if v >= 1'b0 then 1'b1 else 1'b0 // testing if-then-else
+        if v >= 1'b0 then 1'b1 else
+        match g with
+        | A o -> o;
+        | T t -> t;
+        done
+         // testing if-then-else
 }
 
 proc master(p : left pack)

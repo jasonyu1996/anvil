@@ -54,6 +54,8 @@
 %token KEYWORD_TYPE         (* type *)
 %token KEYWORD_OF           (* of *)
 %token KEYWORD_SET          (* set *)
+%token KEYWORD_MATCH        (* match *)
+%token KEYWORD_WITH         (* with *)
 %token <int>INT             (* int literal *)
 %token <string>IDENT        (* identifier *)
 %token <string>BIT_LITERAL  (* bit literal *)
@@ -105,6 +107,7 @@ type_def:
   {
     { name = name; body = dtype } : Lang.type_def
   }
+;
 
 channel_class_def:
   KEYWORD_CHAN; ident = IDENT; LEFT_BRACE; messages = message_def_list; RIGHT_BRACE
@@ -272,6 +275,8 @@ expr:
   { Lang.Indirect (e, fieldname) }
 | LEFT_BRACE; components = separated_list(COMMA, expr); RIGHT_BRACE
   { Lang.Concat components }
+| KEYWORD_MATCH; e = expr; KEYWORD_WITH; match_arm_list = match_arm+; KEYWORD_DONE
+  { Lang.Match (e, match_arm_list) }
 (* TODO: constructor *)
 ;
 
@@ -331,6 +336,23 @@ index:
   { Lang.Single i }
 | le = expr; COLON; ri = expr
   { Lang.Range (le, ri) }
+;
+
+match_arm:
+| OR; pattern = match_pattern; body_opt = match_arm_body?
+  { (pattern, body_opt) }
+;
+
+match_pattern:
+  cstr = IDENT; bind_name_opt = IDENT?
+  {
+    { cstr; bind_name = bind_name_opt } : Lang.match_pattern
+  }
+;
+
+match_arm_body:
+  POINT_TO; e = expr; SEMICOLON
+  { e }
 ;
 
 proc_body_list:
@@ -463,8 +485,13 @@ data_type:
 ;
 
 variant_def:
-| OR; name = IDENT; KEYWORD_OF; dtype = data_type
-  { (name, dtype) }
+| OR; name = IDENT; dtype_opt = variant_type_spec?
+  { (name, dtype_opt) }
+;
+
+variant_type_spec:
+| KEYWORD_OF; dtype = data_type
+  { dtype }
 ;
 
 field_def:

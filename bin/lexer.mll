@@ -71,6 +71,8 @@ rule read =
   | "type"    { KEYWORD_TYPE }
   | "of"      { KEYWORD_OF }
   | "set"     { KEYWORD_SET }
+  | "match"   { KEYWORD_MATCH }
+  | "with"    { KEYWORD_WITH }
   | int       { let n = Lexing.lexeme lexbuf |> int_of_string in INT n }
   | ident     { IDENT (Lexing.lexeme lexbuf) }
   | bit_literal { BIT_LITERAL (Lexing.lexeme lexbuf) }

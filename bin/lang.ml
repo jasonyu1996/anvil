@@ -51,7 +51,7 @@ type data_type = [
   | `Logic
   | `Array of data_type * int
   | `Named of identifier (* named type *)
-  | `Variant of (identifier * data_type) list
+  | `Variant of (identifier * data_type option) list
   | `Record of (identifier * data_type) list
   | `Tuple of data_type list
   | `Opaque of identifier (* reserved named type *)
@@ -63,6 +63,27 @@ and type_def = {
 
 type type_def_map = type_def Utils.string_map
 
+let variant_tag_size (v: [< `Variant of (identifier * data_type option) list]) : int =
+  match v with
+  | `Variant vlist -> List.length vlist |> Utils.int_log2
+
+let variant_lookup_dtype (v: [< `Variant of (identifier * data_type option) list]) (cstr: identifier) : data_type option =
+  match v with
+  | `Variant vlist ->
+      List.find_opt (fun x -> (fst x) = cstr) vlist |> Option.map snd |> Option.join
+
+let variant_lookup_index (v: [< `Variant of (identifier * data_type option) list]) (cstr: identifier) : int option =
+  let res : int option ref = ref None in
+  match v with
+  | `Variant vlist ->
+      List.iteri (fun i x ->
+        if Option.is_none !res then begin
+          if (fst x) = cstr then
+            res := Some i
+          else ()
+        end else ()) vlist;
+  !res
+
 let rec data_type_size (type_defs : type_def_map) (dtype : data_type) : int =
   match dtype with
   | `Logic -> 1
@@ -70,9 +91,14 @@ let rec data_type_size (type_defs : type_def_map) (dtype : data_type) : int =
   | `Named type_name ->
       let type_def = Utils.StringMap.find type_name type_defs in
       data_type_size type_defs type_def.body
-  | `Variant vlist ->
-      let mx_data_size = List.fold_left (fun m n -> max m (snd n |> data_type_size type_defs)) 0 vlist
-      and tag_size = List.length vlist |> Utils.int_log2 in
+  | `Variant vlist as var ->
+      let mx_data_size = List.fold_left (fun m n -> max m (
+        let inner_dtype_op = snd n in
+        match inner_dtype_op with
+        | None -> 0
+        | Some inner_dtype -> data_type_size type_defs inner_dtype
+      )) 0 vlist
+      and tag_size = variant_tag_size var in
       mx_data_size + tag_size
   | `Record flist ->
       List.fold_left (fun m n -> m + (snd n |> data_type_size type_defs)) 0 flist
@@ -265,6 +291,7 @@ and expr =
   | Index of expr * index
   | Indirect of expr * identifier
   | Concat of expr list
+  | Match of expr * ((match_pattern * expr option) list)
 and lvalue =
   | Reg of identifier
   | Indexed of lvalue * index (* lvalue[index] *)
@@ -272,6 +299,10 @@ and lvalue =
 and index =
   | Single of expr
   | Range of expr * expr
+and match_pattern = {
+  cstr: identifier; (* constructor identifier *)
+  bind_name: identifier option; (* name of the binding for the unboxed value *)
+}
 
 let data_type_name_resolve (type_defs : type_def_map) (dtype : data_type) : data_type option =
   match dtype with
