@@ -1,0 +1,39 @@
+type axi_burst_mode = [
+    | Fixed
+    | Incr of logic[4]
+    | Wrap of logic[4]
+]
+
+type axi_arreq = {
+    addr: logic[64];
+    size: logic[4];
+    burst: axi_burst_mode
+}
+
+type axi_awreq = {
+    addr: logic[64];
+    size: logic[4];
+    burst: axi_burst_mode;
+    data: logic[128]
+}
+
+type axi_req = [
+    | AxiReadReq of axi_read_req
+    | AxiWriteReq of axi_write_req
+]
+
+type axi_read_resp = [
+    | AxiReadOkay of logic[128]
+]
+
+type axi_write_resp = [
+    | AxiWriteOkay of logic[128]
+]
+
+type axi_resp = [
+    | AxiReadResp of axi_read_resp
+]
+
+chan axi {
+    out request : (axi_req@#1-#2) -> (axi_resp@#1-#2)
+}

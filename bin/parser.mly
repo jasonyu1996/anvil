@@ -61,13 +61,14 @@
 %token <string>BIT_LITERAL  (* bit literal *)
 %token <string>DEC_LITERAL  (* decimal literal *)
 %token <string>HEX_LITERAL  (* hexadecimal literal *)
-%right COLON_EQ
-%right KEYWORD_IN KEYWORD_ELSE
-%right EXCL_EQ DOUBLE_EQ
-%right DOUBLE_LEFT_ABRACK DOUBLE_RIGHT_ABRACK
 %right LEFT_ABRACK RIGHT_ABRACK LEFT_ABRACK_EQ RIGHT_ABRACK_EQ
+%right DOUBLE_LEFT_ABRACK DOUBLE_RIGHT_ABRACK
+%right EXCL_EQ DOUBLE_EQ
+%right KEYWORD_IN KEYWORD_ELSE
+%right COLON_EQ
+%left LEFT_BRACKET XOR AND OR PLUS MINUS
+%left PERIOD
 %nonassoc TILDE UMINUS UAND UOR
-%left LEFT_BRACKET PERIOD XOR AND OR PLUS MINUS
 %start <Lang.compilation_unit> cunit
 %%
 

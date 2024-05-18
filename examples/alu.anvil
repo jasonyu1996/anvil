@@ -1,0 +1,28 @@
+
+type alu_op = [
+    | Add
+    | Sub
+]
+
+type alu_req = {
+    a: logic[64];
+    b: logic[64];
+    op: alu_op
+}
+
+chan alu_chan {
+    in req : (alu_req@#0-#1) -> (logic[64]@#1-#2)
+}
+
+proc alu(i : left alu_chan) {} {}
+{ res : logic[64] }
+{}
+{
+    recv r_i = i::req =>
+        let _ = return i::req res done in
+        set res := //1'b0
+            match r_i.op with
+            | Add -> r_i.a + r_i.b;
+            | Sub -> r_i.a - r_i.b;
+            done
+}

@@ -715,7 +715,8 @@ exception CodegenError of string
 let codegen_state_machine (ctx : codegen_context) (proc : proc_def) =
   (* state definition *)
   let state_cnt = List.length ctx.cycles in
-  let state_width = Utils.int_log2 (state_cnt - 1) in
+  (* need to make it at least 1 bit wide *)
+  let state_width = Utils.int_log2 (state_cnt - 1) |> max 1 in
     begin
       if state_width > 0 then begin
         Printf.printf "  typedef enum logic[%d:0] {\n" (state_width - 1);
