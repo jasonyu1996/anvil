@@ -62,17 +62,16 @@ rule read =
   | "while"   { KEYWORD_WHILE }
   | "send"    { KEYWORD_SEND }
   | "recv"    { KEYWORD_RECV }
-  | "ref"     { KEYWORD_REF }
   | "eternal" { KEYWORD_ETERNAL }
   | "done"    { KEYWORD_DONE }
-  | "try_send"{ KEYWORD_TRYSEND }
-  | "try_recv"{ KEYWORD_TRYRECV }
   | "type"    { KEYWORD_TYPE }
   | "of"      { KEYWORD_OF }
   | "set"     { KEYWORD_SET }
   | "match"   { KEYWORD_MATCH }
   | "with"    { KEYWORD_WITH }
   | "dyn"     { KEYWORD_DYN }
+  | "wait"    { KEYWORD_WAIT }
+  | "cycle"   { KEYWORD_CYCLE }
   | int       { let n = Lexing.lexeme lexbuf |> int_of_string in INT n }
   | ident     { IDENT (Lexing.lexeme lexbuf) }
   | bit_literal { BIT_LITERAL (Lexing.lexeme lexbuf) }

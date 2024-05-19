@@ -7,32 +7,23 @@ type record = {
     e: logic[5]
 }
 
-chan pack {
+chan pack = {
     out ping : (logic[10]@#1-#2)
 }
 
-proc slave(p : right pack)
+proc slave(p : right pack) =
 /* channel defs */
 {}
 /* spawns */
 {}
 /* regs */
 { st: logic, g : variant }
-/* refs */
-{ tmp: logic @ #3 - #3 }
 /* body */
 {
-    /*recv d = p::ping => return p::ping d + 10'b1 done*/
-    => set st := let v = try_recv d = p::ping then 1'b1 else 1'b0 in
-        if v >= 1'b0 then 1'b1 else
-        match g with
-        | A o -> o;
-        | T t -> t;
-        done
-         // testing if-then-else
+    1'b0
 }
 
-proc master(p : left pack)
+proc master(p : left pack) =
 /* channel defs */
 {}
 /* spawns */
@@ -42,27 +33,13 @@ proc master(p : left pack)
     counter: logic[10],
     rec: record
 }
-/* refs */
-{
-    d_val : logic[10] @ #1 - #2
-}
 /* body */
 {
-    => let a = 10'b1 in
-        set counter := counter + a;
-    if send p::ping(counter) =>
-        /*let _ = set counter := counter + d in */
-        //let _ = ref d_val = d done in
-        1'b0
-    {
-        => set counter := counter + (2'd1 << 2'd3)
-    } else {
-        => let _ = set counter := ~(counter + 2'b10) in
-            set rec.e[1:3] := {1'b0, 2'b10}
-    }
+    let wait send p::ping (counter) in
+    set counter := 1'b1
 }
 
-proc top()
+proc top() =
 /* channel defs */
 {
     foreign master_p -> foreign slave_p : pack
@@ -74,7 +51,7 @@ proc top()
 }
 /* regs */
 {}
-/* refs */
-{}
 /* body */
-{}
+{
+    1'b0
+}

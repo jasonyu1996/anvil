@@ -129,11 +129,6 @@ let sig_type_globalise (endpoint : identifier) (s : sig_type_chan_local) : sig_t
     lifetime = lifetime_globalise endpoint s.lifetime
   }
 
-type ref_def = {
-  name: string;
-  ty: sig_type;
-}
-
 type reg_def = {
   name: string;
   dtype: data_type;
@@ -275,6 +270,7 @@ and recv_pack = {
   recv_binds: identifier list;
   recv_msg_spec: message_specifier;
 }
+and delay_def = [ `Cycles of int | `Send of send_pack | `Recv of recv_pack ]
 and expr =
   | Literal of literal
   | Identifier of identifier
@@ -288,8 +284,8 @@ and expr =
   | Unop of unop * expr
   | Tuple of expr list
   | LetIn of identifier * expr * expr
+  | Wait of delay_def * expr
   | IfExpr of expr * expr * expr
-  | Ref of identifier * expr
   | Construct of identifier * expr (* construct a variant type with a constructor *)
   | Index of expr * index
   | Indirect of expr * identifier
@@ -306,6 +302,10 @@ and match_pattern = {
   cstr: identifier; (* constructor identifier *)
   bind_name: identifier option; (* name of the binding for the unboxed value *)
 }
+
+
+let delay_immediate = `Cycles 0
+let delay_single_cycle = `Cycles 1
 
 let data_type_name_resolve (type_defs : type_def_map) (dtype : data_type) : data_type option =
   match dtype with
@@ -355,12 +355,6 @@ let data_type_index (type_defs : type_def_map) (dtype : data_type) (ind : index)
       end
   | _ -> None
 
-
-(* the delay before a cycle *)
-type delay_def = [ `Cycles of int | `Send of send_pack | `Recv of recv_pack ]
-let delay_immediate = `Cycles 0
-let delay_single_cycle = `Cycles 1
-
 type sig_def = {
   name: identifier;
   stype: sig_type;
@@ -383,19 +377,6 @@ type endpoint_def = {
   opp: identifier option;
 }
 
-(* process body*)
-type proc_body = {
-  delays: delay_def list;
-  cycle : expr;
-  transition : proc_transition;
-}
-and proc_transition =
-  | Seq
-  | If of proc_body_list
-  | IfElse of proc_body_list * proc_body_list
-  | While of proc_body_list
-and proc_body_list = proc_body list
-
 type spawn_def = {
   proc: identifier;
   (* channels to pass as args *)
@@ -412,8 +393,7 @@ type proc_def = {
   (* processes spawned by this process *)
   spawns: spawn_def list;
   regs: reg_def list;
-  refs: ref_def list;
-  body: proc_body_list;
+  body: expr;
 }
 
 type compilation_unit = {

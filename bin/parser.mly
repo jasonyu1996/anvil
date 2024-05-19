@@ -45,17 +45,16 @@
 %token KEYWORD_LET          (* let *)
 %token KEYWORD_SEND         (* send *)
 %token KEYWORD_RECV         (* recv *)
-%token KEYWORD_REF          (* ref *)
 %token KEYWORD_ETERNAL      (* eternal *)
 %token KEYWORD_DONE         (* done *)
-%token KEYWORD_TRYSEND      (* try_send *)
-%token KEYWORD_TRYRECV      (* try_recv *)
 %token KEYWORD_TYPE         (* type *)
 %token KEYWORD_OF           (* of *)
 %token KEYWORD_SET          (* set *)
 %token KEYWORD_MATCH        (* match *)
 %token KEYWORD_WITH         (* with *)
 %token KEYWORD_DYN          (* dyn *)
+%token KEYWORD_WAIT         (* wait *)
+%token KEYWORD_CYCLE        (* cycle *)
 %token <int>INT             (* int literal *)
 %token <string>IDENT        (* identifier *)
 %token <string>BIT_LITERAL  (* bit literal *)
@@ -85,11 +84,11 @@ cunit:
 
 proc_def:
   KEYWORD_PROC; ident = IDENT; LEFT_PAREN; args = proc_def_arg_list; RIGHT_PAREN;
+  EQUAL;
   LEFT_BRACE; channel_def_list = channel_def_list; RIGHT_BRACE;
   LEFT_BRACE; spawns = spawn_list; RIGHT_BRACE;
   LEFT_BRACE; reg_def_list = reg_def_list; RIGHT_BRACE;
-  LEFT_BRACE; ref_def_list = separated_list(COMMA, ref_def); RIGHT_BRACE;
-  LEFT_BRACE; body = proc_body_list; RIGHT_BRACE
+  LEFT_BRACE; body = expr; RIGHT_BRACE
   {
     {
       name = ident;
@@ -97,7 +96,6 @@ proc_def:
       channels = channel_def_list;
       spawns = spawns;
       regs = reg_def_list;
-      refs = ref_def_list;
       body = body;
     } : Lang.proc_def
   }
@@ -111,22 +109,12 @@ type_def:
 ;
 
 channel_class_def:
-  KEYWORD_CHAN; ident = IDENT; LEFT_BRACE; messages = separated_list(COMMA, message_def); RIGHT_BRACE
+  KEYWORD_CHAN; ident = IDENT; EQUAL; LEFT_BRACE; messages = separated_list(COMMA, message_def); RIGHT_BRACE
   {
     {
       name = ident;
       messages = messages;
     } : Lang.channel_class_def
-  }
-;
-
-ref_def:
-  ident = IDENT; COLON; ty = sig_type
-  {
-    {
-      name = ident;
-      ty = ty;
-    } : Lang.ref_def
   }
 ;
 
@@ -247,25 +235,24 @@ expr:
 | LEFT_PAREN; e = expr; RIGHT_PAREN
   { e }
 | KEYWORD_LET; binding = IDENT; EQUAL; v = expr; KEYWORD_IN; body = expr
-  { Lang.LetIn (binding, v, body) } (* FIXME: conflicts *)
+  { Lang.LetIn (binding, v, body) }
+| KEYWORD_LET; KEYWORD_WAIT; KEYWORD_SEND; send_pack = send_pack; KEYWORD_IN; body = expr
+  { Lang.Wait (`Send send_pack, body) }
+| KEYWORD_LET; KEYWORD_WAIT; KEYWORD_RECV; recv_pack = recv_pack; KEYWORD_IN; body = expr
+  { Lang.Wait (`Recv recv_pack, body) }
+| KEYWORD_LET; KEYWORD_WAIT; SHARP n = INT; KEYWORD_IN; body = expr
+  { Lang.Wait (`Cycles n, body) }
+| KEYWORD_LET; KEYWORD_CYCLE; KEYWORD_IN; body = expr
+  { Lang.Wait (Lang.delay_single_cycle, body) }
 | KEYWORD_IF; cond = expr; KEYWORD_THEN; then_v = expr; KEYWORD_ELSE; else_v = expr
-  { Lang.IfExpr (cond, then_v, else_v) } (* FIXME: conflicts *)
-| KEYWORD_REF; ref_name = IDENT; EQUAL; v = expr; KEYWORD_DONE
-  { Lang.Ref (ref_name, v) }
-| KEYWORD_TRYSEND;
-  endpoint = IDENT; DOUBLE_COLON; msg = IDENT;
-  LEFT_PAREN; data = expr; RIGHT_PAREN; KEYWORD_THEN;
+  { Lang.IfExpr (cond, then_v, else_v) }
+| KEYWORD_IF; KEYWORD_SEND; send_pack = send_pack; KEYWORD_THEN;
   succ_expr = expr; KEYWORD_ELSE; fail_expr = expr
-  { Lang.TrySend ({Lang.send_msg_spec = {Lang.endpoint = endpoint; Lang.msg = msg};
-                   Lang.send_data = data}, succ_expr, fail_expr) }
-| KEYWORD_TRYRECV; bindings = separated_list(COMMA, IDENT); EQUAL;
-  endpoint = IDENT; DOUBLE_COLON; msg = IDENT; KEYWORD_THEN;
+  { Lang.TrySend (send_pack, succ_expr, fail_expr) }
+| KEYWORD_IF; KEYWORD_RECV; recv_pack = recv_pack; KEYWORD_THEN;
   succ_expr = expr; KEYWORD_ELSE; fail_expr = expr
   {
-    Lang.TryRecv ({
-      Lang.recv_binds = bindings;
-      Lang.recv_msg_spec = {Lang.endpoint = endpoint; Lang.msg = msg};
-    }, succ_expr, fail_expr)
+    Lang.TryRecv (recv_pack, succ_expr, fail_expr)
   }
 | e = expr; LEFT_BRACKET; ind = index; RIGHT_BRACKET
   { Lang.Index (e, ind) }
@@ -276,6 +263,28 @@ expr:
 | KEYWORD_MATCH; e = expr; KEYWORD_WITH; match_arm_list = match_arm+; KEYWORD_DONE
   { Lang.Match (e, match_arm_list) }
 (* TODO: constructor *)
+;
+
+send_pack:
+  msg_specifier = message_specifier;
+  LEFT_PAREN; data = expr; RIGHT_PAREN
+  {
+    {
+      Lang.send_msg_spec = msg_specifier;
+      Lang.send_data = data;
+    }
+  }
+;
+
+recv_pack:
+  bindings = separated_list(COMMA, IDENT); EQUAL;
+  msg_specifier = message_specifier
+  {
+    {
+      Lang.recv_binds = bindings;
+      Lang.recv_msg_spec = msg_specifier
+    }
+  }
 ;
 
 bin_expr:
@@ -351,71 +360,6 @@ match_pattern:
 match_arm_body:
   POINT_TO; e = expr; SEMICOLON
   { e }
-;
-
-proc_body_list:
-  l = separated_list(SEMICOLON, proc_body)
-  { l }
-;
-
-proc_body:
-| delays = separated_list(SEMICOLON, delay); D_POINT_TO; cycle_expr = expr
-  {
-    {
-      delays = delays;
-      cycle = cycle_expr;
-      transition = Lang.Seq;
-    } : Lang.proc_body
-  }
-| KEYWORD_IF delays = separated_list(SEMICOLON, delay); D_POINT_TO; cycle_expr = expr;
-  LEFT_BRACE; if_body = proc_body_list; RIGHT_BRACE;
-  else_clause = proc_else_clause?
-  {
-    let trans = match else_clause with
-      | Some else_body -> Lang.IfElse (if_body, else_body)
-      | None -> Lang.If if_body
-    in
-    {
-      delays = delays;
-      cycle = cycle_expr;
-      transition = trans;
-    } : Lang.proc_body
-  }
-| KEYWORD_WHILE delays = separated_list(SEMICOLON, delay); D_POINT_TO; cycle_expr = expr;
-  LEFT_BRACE; while_body = proc_body_list; RIGHT_BRACE;
-  {
-    {
-      delays = delays;
-      cycle = cycle_expr;
-      transition = Lang.While while_body;
-    } : Lang.proc_body
-  }
-;
-
-proc_else_clause:
-  KEYWORD_ELSE; LEFT_BRACE; else_body = proc_body_list; RIGHT_BRACE
-  { else_body }
-;
-
-delay:
-| SHARP; n = INT
-  { `Cycles n }
-| KEYWORD_SEND; endpoint_ident = IDENT; DOUBLE_COLON; message_name = IDENT;
-  LEFT_PAREN; e = expr; RIGHT_PAREN
-  {
-    `Send ({
-      send_msg_spec = { endpoint = endpoint_ident; msg = message_name };
-      send_data = e
-    })
-  }
-| KEYWORD_RECV;  bindings = separated_list(COMMA, IDENT);
-  EQUAL; endpoint_ident = IDENT; DOUBLE_COLON; message_name = IDENT
-  {
-    `Recv ({
-      recv_binds = bindings;
-      recv_msg_spec = { endpoint = endpoint_ident; msg = message_name }
-    })
-  }
 ;
 
 message_def:
