@@ -736,7 +736,7 @@ let codegen_state_machine (ctx : codegen_context) (proc : proc_def) =
   (* need to make it at least 1 bit wide *)
   let state_width = Utils.int_log2 (state_cnt - 1) |> max 1 in
     begin
-      if state_width > 0 then begin
+      if state_cnt > 1 then begin
         Printf.printf "  typedef enum logic[%d:0] {\n" (state_width - 1);
         let codegen_state_def = fun id wire ->
           if id = 0 then
@@ -756,13 +756,14 @@ let codegen_state_machine (ctx : codegen_context) (proc : proc_def) =
       (* default output indicators, we need to know which messages are local-sent/received *)
       List.iter (Printf.printf "    %s = '0;\n") (gather_out_indicators ctx);
 
-      if state_width > 0 then
+      if state_cnt > 1 then
         print_endline "    _st_n = _st_q;\n    unique case (_st_q)"
       else ();
       let codegen_cycle = fun (cycle: cycle_node) ->
-        if state_width > 0 then
+        if state_cnt > 1 then
           Printf.printf "      %s: begin\n" (format_statename cycle.id)
         else ();
+
 
         (* if has blocking send, set the valid indicator *)
         let transition_cond = match cycle.delay with
@@ -806,7 +807,7 @@ let codegen_state_machine (ctx : codegen_context) (proc : proc_def) =
         begin
           List.iter assign_reg cycle.assigns;
 
-          if state_width > 0 then
+          if state_cnt > 1 then
           begin
             (* state transition *)
             print_string transition_begin;
@@ -823,7 +824,7 @@ let codegen_state_machine (ctx : codegen_context) (proc : proc_def) =
           end else ()
         end
       in List.iter codegen_cycle ctx.cycles;
-      if state_width > 0 then
+      if state_cnt > 1 then
         print_endline "    endcase"
       else ();
       print_endline "  end"
