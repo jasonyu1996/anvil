@@ -144,10 +144,16 @@ type reg_def_list = reg_def list
 
 type message_direction = In | Out
 
+type message_sync_mode =
+  | Dynamic
+  | Dependent of future
+
 (* message definition *)
 type message_def = {
   name: identifier;
   dir: message_direction;
+  send_sync: message_sync_mode; (* how to synchronise when data is available *)
+  recv_sync: message_sync_mode; (* how to synchronise when data is acknowledged *)
   sig_types: sig_type_chan_local list;
   ret_types: sig_type_chan_local list;
 }

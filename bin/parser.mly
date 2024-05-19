@@ -56,6 +56,7 @@
 %token KEYWORD_SET          (* set *)
 %token KEYWORD_MATCH        (* match *)
 %token KEYWORD_WITH         (* with *)
+%token KEYWORD_DYN          (* dyn *)
 %token <int>INT             (* int literal *)
 %token <string>IDENT        (* identifier *)
 %token <string>BIT_LITERAL  (* bit literal *)
@@ -111,7 +112,7 @@ type_def:
 ;
 
 channel_class_def:
-  KEYWORD_CHAN; ident = IDENT; LEFT_BRACE; messages = message_def_list; RIGHT_BRACE
+  KEYWORD_CHAN; ident = IDENT; LEFT_BRACE; messages = separated_list(COMMA, message_def); RIGHT_BRACE
   {
     {
       name = ident;
@@ -423,21 +424,33 @@ delay:
   }
 ;
 
-message_def_list:
-  messages = separated_list(COMMA, message_def)
-  { messages }
-;
-
 message_def:
   dir = message_direction; ident = IDENT; COLON; LEFT_PAREN; data = separated_list(COMMA, sig_type_chan_local); RIGHT_PAREN;
-  POINT_TO; LEFT_PAREN; rets = separated_list(COMMA, sig_type_chan_local); RIGHT_PAREN
+  send_sync_mode_opt = message_sync_mode_spec?;
+  POINT_TO; LEFT_PAREN; rets = separated_list(COMMA, sig_type_chan_local); RIGHT_PAREN;
+  recv_sync_mode_opt = message_sync_mode_spec?
   {
+    let send_sync_mode = Option.value ~default:Lang.Dynamic send_sync_mode_opt
+    and recv_sync_mode = Option.value ~default:Lang.Dynamic recv_sync_mode_opt in
     {
       name = ident;
       dir = dir;
+      send_sync = send_sync_mode;
+      recv_sync = recv_sync_mode;
       sig_types = data;
       ret_types = rets;
     } : Lang.message_def
+  }
+;
+
+message_sync_mode_spec:
+| AT; t = timestamp
+  {
+    Lang.Dependent t
+  }
+| AT; KEYWORD_DYN
+  {
+    Lang.Dynamic
   }
 ;
 

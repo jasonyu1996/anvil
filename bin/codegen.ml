@@ -3,6 +3,9 @@ open Utils
 
 exception UnimplementedError of string
 
+let message_has_valid_port (msg : message_def) : bool = msg.send_sync = Dynamic
+let message_has_ack_port (msg : message_def) : bool = msg.recv_sync = Dynamic
+
 (* borrows are when we need to check the lifetime constraints *)
 type borrow_source =
 | FromRef of identifier
@@ -267,19 +270,6 @@ let gather_data_wires_from_msg (ctx : codegen_context) (proc : proc_def) (msg_sp
     }, lifetime_globalise endpoint_name ty.lifetime) in
   List.mapi mapper msg.sig_types
 
-let gather_all_wires_from_msg (ctx : codegen_context) (proc : proc_def) (msg_spec : message_specifier) : (wire_def * sig_lifetime) list =
-  ({
-    name = canonicalise ctx proc format_msg_valid_signal_name msg_spec.endpoint msg_spec.msg;
-    dtype = `Logic;
-    borrow_src = [];
-  }, sig_lifetime_this_cycle)::
-  ({
-    name = canonicalise ctx proc format_msg_ack_signal_name msg_spec.endpoint msg_spec.msg;
-    dtype = `Logic;
-    borrow_src = [];
-  }, sig_lifetime_this_cycle)::
-  (gather_data_wires_from_msg ctx proc msg_spec)@(gather_ret_wires_from_msg ctx proc msg_spec)
-
 let gather_ports_from_endpoint (ctx : codegen_context) (endpoint : endpoint_def) : port_def list =
   let cc = Option.get (lookup_channel_class ctx endpoint.channel_class) in
   let gen_endpoint_ports = fun (msg : message_def) ->
@@ -293,9 +283,16 @@ let gather_ports_from_endpoint (ctx : codegen_context) (endpoint : endpoint_def)
     let msg_data_dir = get_message_direction msg.dir endpoint.dir in
     let (_, res0) = List.fold_left (folder_inner format_msg_data_signal_name msg_data_dir) (0, []) msg.sig_types in
     let (_, res) = List.fold_left (folder_inner format_msg_ret_signal_name (reverse msg_data_dir)) (0, res0) msg.ret_types in
-    let valid_port = { name = format_msg_valid_signal_name endpoint.name msg.name; dir = msg_data_dir; dtype = `Logic} in
-    let ack_port = {name = format_msg_ack_signal_name endpoint.name msg.name; dir = reverse msg_data_dir; dtype = `Logic} in
-    ack_port::valid_port::res
+    let res =
+      if message_has_valid_port msg then
+        let valid_port = { name = format_msg_valid_signal_name endpoint.name msg.name; dir = msg_data_dir; dtype = `Logic} in
+        valid_port::res
+      else res
+    in
+    if message_has_ack_port msg then
+      let ack_port = {name = format_msg_ack_signal_name endpoint.name msg.name; dir = reverse msg_data_dir; dtype = `Logic} in
+      ack_port::res
+    else res
   in List.concat_map gen_endpoint_ports cc.messages
 
 let gather_ports (ctx : codegen_context) (endpoints : endpoint_def list) : port_def list =
@@ -421,31 +418,41 @@ let rec codegen_expr (ctx : codegen_context) (proc : proc_def)
   | TrySend (send_pack, e_succ, e_fail) ->
       let data_res = codegen_expr ctx proc conds env borrows in_delay send_pack.send_data in
       assign_message_data ctx proc borrows in_delay send_pack.send_msg_spec data_res.v;
-      let ack_w = message_ack_wirename ctx proc send_pack.send_msg_spec in
+      let has_ack = lookup_message_def_by_msg ctx proc send_pack.send_msg_spec |> Option.get |> message_has_ack_port in
       let succ_env = gather_ret_wires_from_msg ctx proc send_pack.send_msg_spec |>
         List.map fst |>
         List.combine send_pack.send_binds |> map_of_list |>
         StringMap.merge (fun _ op1 op2 -> if Option.is_some op2 then op2 else op1) env in
-      let succ_res = codegen_expr ctx proc ({w = ack_w; neg = false}::conds) succ_env borrows in_delay e_succ
-      and fail_res = codegen_expr ctx proc ({w = ack_w; neg = true}::conds) env borrows in_delay e_fail in
-      let succ_w = List.hd succ_res.v and fail_w = List.hd fail_res.v in
-      let w = codegen_context_new_wire ctx succ_w.dtype (succ_w.borrow_src @ fail_w.borrow_src) in
-      let expr_str = Printf.sprintf "(%s) ? %s : %s" ack_w succ_w.name fail_w.name in
-      codegen_context_new_assign ctx {wire = w.name; expr_str = expr_str};
-      {v = [w]; assigns = data_res.assigns @ succ_res.assigns @ fail_res.assigns}
+      if has_ack then
+        let ack_w = message_ack_wirename ctx proc send_pack.send_msg_spec in
+        let succ_res = codegen_expr ctx proc ({w = ack_w; neg = false}::conds) succ_env borrows in_delay e_succ
+        and fail_res = codegen_expr ctx proc ({w = ack_w; neg = true}::conds) env borrows in_delay e_fail in
+        let succ_w = List.hd succ_res.v and fail_w = List.hd fail_res.v in
+        let w = codegen_context_new_wire ctx succ_w.dtype (succ_w.borrow_src @ fail_w.borrow_src) in
+        let expr_str = Printf.sprintf "(%s) ? %s : %s" ack_w succ_w.name fail_w.name in
+        codegen_context_new_assign ctx {wire = w.name; expr_str = expr_str};
+        {v = [w]; assigns = data_res.assigns @ succ_res.assigns @ fail_res.assigns}
+      else
+        (* TODO: static checks *)
+        codegen_expr ctx proc conds succ_env borrows in_delay e_succ
   | TryRecv (recv_pack, e_succ, e_fail) ->
-      let valid_w = message_valid_wirename ctx proc recv_pack.recv_msg_spec in
+      let has_valid = lookup_message_def_by_msg ctx proc recv_pack.recv_msg_spec |> Option.get |> message_has_valid_port in
       let succ_env = gather_data_wires_from_msg ctx proc recv_pack.recv_msg_spec |>
         List.map fst |>
         List.combine recv_pack.recv_binds |> map_of_list |>
         StringMap.merge (fun _ op1 op2 -> if Option.is_some op2 then op2 else op1) env in
-      let succ_res = codegen_expr ctx proc ({w = valid_w; neg = false}::conds) succ_env borrows in_delay e_succ
-      and fail_res = codegen_expr ctx proc ({w = valid_w; neg = true}::conds) succ_env borrows in_delay e_fail in
-      let succ_w = List.hd succ_res.v and fail_w = List.hd fail_res.v in
-      let w = codegen_context_new_wire ctx succ_w.dtype (succ_w.borrow_src @ fail_w.borrow_src) in
-      let expr_str = Printf.sprintf "(%s) ? %s : %s" valid_w succ_w.name fail_w.name in
-      codegen_context_new_assign ctx {wire = w.name; expr_str = expr_str};
-      {v = [w]; assigns = succ_res.assigns @ fail_res.assigns}
+      if has_valid then
+        let valid_w = message_valid_wirename ctx proc recv_pack.recv_msg_spec in
+        let succ_res = codegen_expr ctx proc ({w = valid_w; neg = false}::conds) succ_env borrows in_delay e_succ
+        and fail_res = codegen_expr ctx proc ({w = valid_w; neg = true}::conds) succ_env borrows in_delay e_fail in
+        let succ_w = List.hd succ_res.v and fail_w = List.hd fail_res.v in
+        let w = codegen_context_new_wire ctx succ_w.dtype (succ_w.borrow_src @ fail_w.borrow_src) in
+        let expr_str = Printf.sprintf "(%s) ? %s : %s" valid_w succ_w.name fail_w.name in
+        codegen_context_new_assign ctx {wire = w.name; expr_str = expr_str};
+        {v = [w]; assigns = succ_res.assigns @ fail_res.assigns}
+      else
+        (* TODO: static checks *)
+        codegen_expr ctx proc conds succ_env borrows in_delay e_succ
   | Apply _ -> {v = []; assigns = []}
   | Binop (binop, e1, e2) ->
       let e1_res = codegen_expr ctx proc conds env borrows in_delay e1 in
@@ -633,19 +640,27 @@ let rec codegen_proc_body (ctx : codegen_context) (proc : proc_def)
         (* gather the data to send *)
         let expr_res = codegen_expr ctx proc [] ref_env borrows true expr in
         assign_message_data ctx proc borrows true msg_specifier expr_res.v;
-        let cond : condition list = [{
-          w = message_ack_wirename ctx proc msg_specifier;
-          neg = false;
-        }] in
+        let cond : condition list =
+          if lookup_message_def_by_msg ctx proc msg_specifier |> Option.get |> message_has_ack_port then
+            [{
+              w = message_ack_wirename ctx proc msg_specifier;
+              neg = false;
+            }]
+          else []
+        in
         (cond, env)
     | `Recv {recv_binds = idents; recv_msg_spec = msg_specifier} ->
         let env = gather_data_wires_from_msg ctx proc msg_specifier |>
           List.map fst |>
           List.combine idents |> map_of_list in
-        let cond : condition list = [{
-          w = canonicalise ctx proc format_msg_valid_signal_name msg_specifier.endpoint msg_specifier.msg;
-          neg = false;
-        }] in
+        let cond : condition list =
+          if lookup_message_def_by_msg ctx proc msg_specifier |> Option.get |> message_has_valid_port then
+            [{
+              w = canonicalise ctx proc format_msg_valid_signal_name msg_specifier.endpoint msg_specifier.msg;
+              neg = false;
+            }]
+          else []
+        in
         (cond, env)
     | _ -> ([], StringMap.empty) (* TODO: support cycle delays *)
     in
@@ -704,11 +719,14 @@ let codegen_post_declare (ctx : codegen_context) (proc : proc_def)=
 
 let gather_out_indicators (ctx : codegen_context) : identifier list =
   let msg_map = fun ((endpoint, msg, msg_dir) : endpoint_def * message_def * message_direction) ->
-    let indicator_formatter = match msg_dir with
-    | In -> format_msg_ack_signal_name
-    | Out -> format_msg_valid_signal_name
-    in indicator_formatter (endpoint_canonical_name endpoint) msg.name
-  in List.map msg_map ctx.local_messages
+    let (indicator_formatter, checker) = match msg_dir with
+    | In -> (format_msg_ack_signal_name, message_has_ack_port)
+    | Out -> (format_msg_valid_signal_name, message_has_valid_port)
+    in
+    if checker msg then
+      Some (indicator_formatter (endpoint_canonical_name endpoint) msg.name)
+    else None
+  in List.filter_map msg_map ctx.local_messages
 
 exception CodegenError of string
 
@@ -750,14 +768,25 @@ let codegen_state_machine (ctx : codegen_context) (proc : proc_def) =
         let transition_cond = match cycle.delay with
         | `Cycles _ -> None
         | `Send {send_msg_spec = msg_spec; _} ->
-            Printf.printf "        %s = 1'b1;\n"
-              (canonicalise ctx proc format_msg_valid_signal_name msg_spec.endpoint msg_spec.msg);
-            Some (canonicalise ctx proc format_msg_ack_signal_name msg_spec.endpoint msg_spec.msg)
+            if lookup_message_def_by_msg ctx proc msg_spec |> Option.get |> message_has_valid_port then begin
+              Printf.printf "        %s = 1'b1;\n"
+                (canonicalise ctx proc format_msg_valid_signal_name msg_spec.endpoint msg_spec.msg);
+              Some (canonicalise ctx proc format_msg_ack_signal_name msg_spec.endpoint msg_spec.msg)
+            end else None
         | `Recv {recv_msg_spec = msg_spec; _} ->
-            Printf.printf "        if (%s) %s = 1'b1;\n"
-              (canonicalise ctx proc format_msg_valid_signal_name msg_spec.endpoint msg_spec.msg)
-              (canonicalise ctx proc format_msg_ack_signal_name msg_spec.endpoint msg_spec.msg);
-            Some (canonicalise ctx proc format_msg_valid_signal_name msg_spec.endpoint msg_spec.msg)
+            let msg_def = lookup_message_def_by_msg ctx proc msg_spec |> Option.get in
+            let has_valid = message_has_valid_port msg_def
+            and has_ack = message_has_ack_port msg_def in
+            if has_ack then
+              let pred =
+                if has_valid then Printf.sprintf "if (%s) " @@ canonicalise ctx proc format_msg_valid_signal_name msg_spec.endpoint msg_spec.msg
+                else ""
+              in
+              Printf.printf "        %s%s = 1'b1;\n" pred  @@ canonicalise ctx proc format_msg_ack_signal_name msg_spec.endpoint msg_spec.msg;
+            else ();
+            if has_valid then
+              Some (canonicalise ctx proc format_msg_valid_signal_name msg_spec.endpoint msg_spec.msg)
+            else None
         in
         let (transition_begin, transition_end) =
           match transition_cond with
@@ -849,10 +878,14 @@ let codegen_spawns (ctx: codegen_context) (proc: proc_def) =
       let endpoint_name_local = endpoint_canonical_name endpoint_local in
       let cc = lookup_channel_class ctx endpoint_local.channel_class |> Option.get in
       let print_msg_con = fun (msg : message_def) ->
-        gen_connect (format_msg_valid_signal_name arg_endpoint.name msg.name)
-          (format_msg_valid_signal_name endpoint_name_local msg.name);
-        gen_connect (format_msg_ack_signal_name arg_endpoint.name msg.name)
-          (format_msg_ack_signal_name endpoint_name_local msg.name);
+        if message_has_valid_port msg then
+          gen_connect (format_msg_valid_signal_name arg_endpoint.name msg.name)
+            (format_msg_valid_signal_name endpoint_name_local msg.name)
+        else ();
+        if message_has_ack_port msg then
+          gen_connect (format_msg_ack_signal_name arg_endpoint.name msg.name)
+            (format_msg_ack_signal_name endpoint_name_local msg.name)
+        else ();
         let print_data_con = fun fmt idx _ ->
           gen_connect (fmt arg_endpoint.name msg.name idx)
             (fmt endpoint_name_local msg.name idx)
