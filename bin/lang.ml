@@ -146,7 +146,7 @@ type message_direction = In | Out
 
 type message_sync_mode =
   | Dynamic
-  | Dependent of future
+  | Dependent of future_chan_local
 
 (* message definition *)
 type message_def = {
@@ -155,7 +155,6 @@ type message_def = {
   send_sync: message_sync_mode; (* how to synchronise when data is available *)
   recv_sync: message_sync_mode; (* how to synchronise when data is acknowledged *)
   sig_types: sig_type_chan_local list;
-  ret_types: sig_type_chan_local list;
 }
 
 type channel_class_def = {
@@ -269,7 +268,6 @@ let string_of_unop (unop: unop) : string =
   | OrAll -> "|"
 
 type send_pack = {
-  send_binds: identifier list;
   send_msg_spec: message_specifier;
   send_data: expr;
 }
@@ -291,7 +289,6 @@ and expr =
   | Tuple of expr list
   | LetIn of identifier * expr * expr
   | IfExpr of expr * expr * expr
-  | Return of identifier * identifier * expr
   | Ref of identifier * expr
   | Construct of identifier * expr (* construct a variant type with a constructor *)
   | Index of expr * index

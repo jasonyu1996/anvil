@@ -11,7 +11,8 @@ type alu_req = {
 }
 
 chan alu_chan {
-    in req : (alu_req@#0-#1) @#1 -> (logic[64]@#1-#2) @#1
+    in req : (alu_req@#0-#1) @#1 - @#1,
+    out resp : (logic[64]@#0-#1) @req - @req
 }
 
 proc alu(i : left alu_chan) {} {}
@@ -19,10 +20,11 @@ proc alu(i : left alu_chan) {} {}
 {}
 {
     recv r_i = i::req =>
-        let _ = return i::req res done in
+        try_send i::resp (res) then
         set res := //1'b0
             match r_i.op with
             | Add -> r_i.a + r_i.b;
             | Sub -> r_i.a - r_i.b;
             done
+        else 1'b0
 }

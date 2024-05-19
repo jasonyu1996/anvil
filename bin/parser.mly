@@ -45,7 +45,6 @@
 %token KEYWORD_LET          (* let *)
 %token KEYWORD_SEND         (* send *)
 %token KEYWORD_RECV         (* recv *)
-%token KEYWORD_RETURN       (* return *)
 %token KEYWORD_REF          (* ref *)
 %token KEYWORD_ETERNAL      (* eternal *)
 %token KEYWORD_DONE         (* done *)
@@ -251,16 +250,13 @@ expr:
   { Lang.LetIn (binding, v, body) } (* FIXME: conflicts *)
 | KEYWORD_IF; cond = expr; KEYWORD_THEN; then_v = expr; KEYWORD_ELSE; else_v = expr
   { Lang.IfExpr (cond, then_v, else_v) } (* FIXME: conflicts *)
-| KEYWORD_RETURN; endpoint = IDENT; DOUBLE_COLON; msg = IDENT; v = expr; KEYWORD_DONE
-  { Lang.Return (endpoint, msg, v) }
 | KEYWORD_REF; ref_name = IDENT; EQUAL; v = expr; KEYWORD_DONE
   { Lang.Ref (ref_name, v) }
-| KEYWORD_TRYSEND; bindings = separated_list(COMMA, IDENT); EQUAL;
+| KEYWORD_TRYSEND;
   endpoint = IDENT; DOUBLE_COLON; msg = IDENT;
   LEFT_PAREN; data = expr; RIGHT_PAREN; KEYWORD_THEN;
   succ_expr = expr; KEYWORD_ELSE; fail_expr = expr
-  { Lang.TrySend ({Lang.send_binds = bindings;
-                   Lang.send_msg_spec = {Lang.endpoint = endpoint; Lang.msg = msg};
+  { Lang.TrySend ({Lang.send_msg_spec = {Lang.endpoint = endpoint; Lang.msg = msg};
                    Lang.send_data = data}, succ_expr, fail_expr) }
 | KEYWORD_TRYRECV; bindings = separated_list(COMMA, IDENT); EQUAL;
   endpoint = IDENT; DOUBLE_COLON; msg = IDENT; KEYWORD_THEN;
@@ -404,12 +400,10 @@ proc_else_clause:
 delay:
 | SHARP; n = INT
   { `Cycles n }
-| KEYWORD_SEND; bindings = separated_list(COMMA, IDENT);
-  EQUAL; endpoint_ident = IDENT; DOUBLE_COLON; message_name = IDENT;
+| KEYWORD_SEND; endpoint_ident = IDENT; DOUBLE_COLON; message_name = IDENT;
   LEFT_PAREN; e = expr; RIGHT_PAREN
   {
     `Send ({
-      send_binds = bindings;
       send_msg_spec = { endpoint = endpoint_ident; msg = message_name };
       send_data = e
     })
@@ -427,8 +421,7 @@ delay:
 message_def:
   dir = message_direction; ident = IDENT; COLON; LEFT_PAREN; data = separated_list(COMMA, sig_type_chan_local); RIGHT_PAREN;
   send_sync_mode_opt = message_sync_mode_spec?;
-  POINT_TO; LEFT_PAREN; rets = separated_list(COMMA, sig_type_chan_local); RIGHT_PAREN;
-  recv_sync_mode_opt = message_sync_mode_spec?
+  recv_sync_mode_opt = recv_message_sync_mode_spec?
   {
     let send_sync_mode = Option.value ~default:Lang.Dynamic send_sync_mode_opt
     and recv_sync_mode = Option.value ~default:Lang.Dynamic recv_sync_mode_opt in
@@ -438,13 +431,17 @@ message_def:
       send_sync = send_sync_mode;
       recv_sync = recv_sync_mode;
       sig_types = data;
-      ret_types = rets;
     } : Lang.message_def
   }
 ;
 
+recv_message_sync_mode_spec:
+  MINUS; sync = message_sync_mode_spec
+  { sync }
+;
+
 message_sync_mode_spec:
-| AT; t = timestamp
+| AT; t = timestamp_chan_local
   {
     Lang.Dependent t
   }

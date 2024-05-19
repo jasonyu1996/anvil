@@ -12,21 +12,20 @@ type borrow_source =
 | FromReg of identifier
 (* these two are cycle-local constraints *)
 | FromMsgData of message_specifier * int
-| FromMsgRet of message_specifier * int
 
 
 module BorrowDestination : sig
   type t =
   | ToRef of identifier (* bind to reference*)
   | ToReg of identifier (* set register *)
-  | ToOthers (* pass as data or ret in msg; no need to record which it is *)
+  | ToOthers (* pass as data in msg; no need to record which it is *)
 
   val compare : t -> t -> int
 end = struct
   type t =
   | ToRef of identifier (* bind to reference*)
   | ToReg of identifier (* set register *)
-  | ToOthers (* pass as data or ret in msg; no need to record which it is *)
+  | ToOthers (* pass as data in msg; no need to record which it is *)
 
   let compare (a : t) (b : t) : int =
     match a, b with
@@ -213,9 +212,6 @@ let lookup_channel_class (ctx : codegen_context) (name : identifier) : channel_c
 let format_msg_data_signal_name (endpoint_name : identifier) (message_name : identifier) (data_idx : int) : string =
   endpoint_name ^ "_" ^ message_name ^ "_" ^ (string_of_int data_idx)
 
-let format_msg_ret_signal_name (endpoint_name : identifier) (message_name : identifier) (ret_idx : int) : string =
-  endpoint_name ^ "_" ^ message_name ^ "_" ^ (string_of_int ret_idx) ^ "_ret"
-
 let format_msg_valid_signal_name (endpoint_name : identifier) (message_name : identifier) : string =
   endpoint_name ^ "_" ^ message_name ^ "_valid"
 
@@ -244,19 +240,6 @@ let lookup_message_def_by_msg (ctx : codegen_context) (proc : proc_def)
     (fun endpoint -> lookup_channel_class ctx endpoint.channel_class) >>=
     (fun cc -> List.find_opt (fun (m : message_def) -> m.name = msg_spec.msg) cc.messages)
 
-let gather_ret_wires_from_msg (ctx : codegen_context) (proc : proc_def) (msg_spec : message_specifier) : (wire_def * sig_lifetime) list =
-  let endpoint = Option.get (lookup_endpoint ctx proc msg_spec.endpoint) in
-  let cc = Option.get (lookup_channel_class ctx endpoint.channel_class) in
-  let msg = List.find (fun (m : message_def) -> m.name = msg_spec.msg) cc.messages in
-  let endpoint_name = endpoint_canonical_name endpoint in
-  let mapper = fun (idx : int) (ty : sig_type_chan_local) : (wire_def * sig_lifetime) ->
-    ({
-      name = format_msg_ret_signal_name endpoint_name msg_spec.msg idx;
-      dtype = ty.dtype;
-      borrow_src = [FromMsgRet (msg_spec, idx)];
-    }, lifetime_globalise endpoint_name ty.lifetime) in
-  List.mapi mapper msg.ret_types
-
 let gather_data_wires_from_msg (ctx : codegen_context) (proc : proc_def) (msg_spec : message_specifier) : (wire_def * sig_lifetime) list =
   let endpoint = Option.get (lookup_endpoint ctx proc msg_spec.endpoint) in
   let cc = Option.get (lookup_channel_class ctx endpoint.channel_class) in
@@ -281,8 +264,7 @@ let gather_ports_from_endpoint (ctx : codegen_context) (endpoint : endpoint_def)
       } in (n + 1, new_port::port_list)
     in
     let msg_data_dir = get_message_direction msg.dir endpoint.dir in
-    let (_, res0) = List.fold_left (folder_inner format_msg_data_signal_name msg_data_dir) (0, []) msg.sig_types in
-    let (_, res) = List.fold_left (folder_inner format_msg_ret_signal_name (reverse msg_data_dir)) (0, res0) msg.ret_types in
+    let (_, res) = List.fold_left (folder_inner format_msg_data_signal_name msg_data_dir) (0, []) msg.sig_types in
     let res =
       if message_has_valid_port msg then
         let valid_port = { name = format_msg_valid_signal_name endpoint.name msg.name; dir = msg_data_dir; dtype = `Logic} in
@@ -419,13 +401,9 @@ let rec codegen_expr (ctx : codegen_context) (proc : proc_def)
       let data_res = codegen_expr ctx proc conds env borrows in_delay send_pack.send_data in
       assign_message_data ctx proc borrows in_delay send_pack.send_msg_spec data_res.v;
       let has_ack = lookup_message_def_by_msg ctx proc send_pack.send_msg_spec |> Option.get |> message_has_ack_port in
-      let succ_env = gather_ret_wires_from_msg ctx proc send_pack.send_msg_spec |>
-        List.map fst |>
-        List.combine send_pack.send_binds |> map_of_list |>
-        StringMap.merge (fun _ op1 op2 -> if Option.is_some op2 then op2 else op1) env in
       if has_ack then
         let ack_w = message_ack_wirename ctx proc send_pack.send_msg_spec in
-        let succ_res = codegen_expr ctx proc ({w = ack_w; neg = false}::conds) succ_env borrows in_delay e_succ
+        let succ_res = codegen_expr ctx proc ({w = ack_w; neg = false}::conds) env borrows in_delay e_succ
         and fail_res = codegen_expr ctx proc ({w = ack_w; neg = true}::conds) env borrows in_delay e_fail in
         let succ_w = List.hd succ_res.v and fail_w = List.hd fail_res.v in
         let w = codegen_context_new_wire ctx succ_w.dtype (succ_w.borrow_src @ fail_w.borrow_src) in
@@ -434,7 +412,7 @@ let rec codegen_expr (ctx : codegen_context) (proc : proc_def)
         {v = [w]; assigns = data_res.assigns @ succ_res.assigns @ fail_res.assigns}
       else
         (* TODO: static checks *)
-        codegen_expr ctx proc conds succ_env borrows in_delay e_succ
+        codegen_expr ctx proc conds env borrows in_delay e_succ
   | TryRecv (recv_pack, e_succ, e_fail) ->
       let has_valid = lookup_message_def_by_msg ctx proc recv_pack.recv_msg_spec |> Option.get |> message_has_valid_port in
       let succ_env = gather_data_wires_from_msg ctx proc recv_pack.recv_msg_spec |>
@@ -529,18 +507,6 @@ let rec codegen_expr (ctx : codegen_context) (proc : proc_def)
         } in
       {v = []; assigns = (List.map codegen_assign expr_res.v) @ expr_res.assigns}
       (* assign evaluates to unit val *)
-  | Return (endpoint_ident, msg_ident, e_val) ->
-      let msg_spec = {endpoint = endpoint_ident; msg = msg_ident} in
-      let expr_res = codegen_expr ctx proc conds env borrows in_delay e_val in
-      let assign_ret = fun (w : wire_def) ((ret_wire, lt) : (wire_def * sig_lifetime)) ->
-        (* we have to add to assign because the signals might be used for multiple cycles *)
-        borrows := {src = w.borrow_src; in_delay; lifetime = lt; dst = ToOthers}::!borrows;
-        codegen_context_new_assign ctx {wire = ret_wire.name; expr_str = w.name}
-      in
-      begin
-        List.iter2 assign_ret expr_res.v (gather_ret_wires_from_msg ctx proc msg_spec);
-        {v = []; assigns = expr_res.assigns}
-      end
   | Ref (ident, e_val) ->
       let expr_res = codegen_expr ctx proc conds env borrows in_delay e_val in
       let w_res = List.hd expr_res.v in
@@ -632,11 +598,7 @@ let rec codegen_proc_body (ctx : codegen_context) (proc : proc_def)
   let (init_cond, init_env) =
     (* we only look at the first delay for now *)
     match delay with
-    | `Send {send_binds = idents; send_msg_spec = msg_specifier; send_data = expr} ->
-        (* bind return results *)
-        let env = gather_ret_wires_from_msg ctx proc msg_specifier |>
-          List.map fst |>
-          List.combine idents |> map_of_list in
+    | `Send {send_msg_spec = msg_specifier; send_data = expr} ->
         (* gather the data to send *)
         let expr_res = codegen_expr ctx proc [] ref_env borrows true expr in
         assign_message_data ctx proc borrows true msg_specifier expr_res.v;
@@ -648,7 +610,7 @@ let rec codegen_proc_body (ctx : codegen_context) (proc : proc_def)
             }]
           else []
         in
-        (cond, env)
+        (cond, StringMap.empty)
     | `Recv {recv_binds = idents; recv_msg_spec = msg_specifier} ->
         let env = gather_data_wires_from_msg ctx proc msg_specifier |>
           List.map fst |>
@@ -892,7 +854,6 @@ let codegen_spawns (ctx: codegen_context) (proc: proc_def) =
             (fmt endpoint_name_local msg.name idx)
         in begin
           List.iteri (print_data_con format_msg_data_signal_name) msg.sig_types;
-          List.iteri (print_data_con format_msg_ret_signal_name) msg.ret_types
         end
       in List.iter print_msg_con cc.messages
     in List.iter2 connect_endpoints proc_other.args spawn.params;
@@ -948,15 +909,6 @@ let borrow_check_inspect (state : borrow_check_state)
           let msg_ty = List.nth msg_def.sig_types n |> sig_type_globalise msg_spec.endpoint in
           if not (Lifetime.lifetime_covered_by bi.lifetime msg_ty.lifetime) then
             let err_msg = Printf.sprintf "Insufficient lifetime of message data: %s::%s, %d (requiring %s but got %s)"
-              msg_spec.endpoint msg_spec.msg n (string_of_lifetime bi.lifetime) (string_of_lifetime msg_ty.lifetime) in
-            BorrowCheckError err_msg |>
-            raise
-          else ()
-        | FromMsgRet (msg_spec, n) ->
-          let msg_def = lookup_message_def_by_msg ctx proc msg_spec |> Option.get in
-          let msg_ty = List.nth msg_def.ret_types n |> sig_type_globalise msg_spec.endpoint in
-          if not (Lifetime.lifetime_covered_by bi.lifetime msg_ty.lifetime) then
-            let err_msg = Printf.sprintf "Insufficient lifetime of message return value: %s::%s, %d (requiring %s but got %s)"
               msg_spec.endpoint msg_spec.msg n (string_of_lifetime bi.lifetime) (string_of_lifetime msg_ty.lifetime) in
             BorrowCheckError err_msg |>
             raise

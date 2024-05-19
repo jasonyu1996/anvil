@@ -8,7 +8,7 @@ type record = {
 }
 
 chan pack {
-    out ping : (logic[10]@#1-#2) -> (logic[10]@#1-#2)
+    out ping : (logic[10]@#1-#2)
 }
 
 proc slave(p : right pack)
@@ -50,9 +50,9 @@ proc master(p : left pack)
 {
     => let a = 10'b1 in
         set counter := counter + a;
-    if send d = p::ping(counter) =>
+    if send p::ping(counter) =>
         /*let _ = set counter := counter + d in */
-        let _ = ref d_val = d done in
+        //let _ = ref d_val = d done in
         1'b0
     {
         => set counter := counter + (2'd1 << 2'd3)

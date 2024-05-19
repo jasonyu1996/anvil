@@ -62,7 +62,6 @@ rule read =
   | "while"   { KEYWORD_WHILE }
   | "send"    { KEYWORD_SEND }
   | "recv"    { KEYWORD_RECV }
-  | "return"  { KEYWORD_RETURN }
   | "ref"     { KEYWORD_REF }
   | "eternal" { KEYWORD_ETERNAL }
   | "done"    { KEYWORD_DONE }
