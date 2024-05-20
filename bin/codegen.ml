@@ -96,7 +96,6 @@ type lvalue_evaluated = {
 type cycle_node = {
   id: cycle_id;
   delay: delay_def;
-  mutable assigns: reg_assign list; (* assignment to regs only *)
   mutable borrows: borrow_info list;
   mutable next_switch: (string * cycle_id) list;
 }
@@ -109,7 +108,6 @@ and reg_assign = {
 
 type expr_result = {
   v: wire_def list;
-  assigns: reg_assign list; (* assignment to regs only *)
   superpos: superposition;
 }
 
@@ -125,8 +123,10 @@ type codegen_context = {
   mutable wires_n: int;
   mutable cycles: cycle_node list;
   mutable cycles_n: int;
-  mutable assigns: assign list;
+  mutable assigns: assign list; (* assignments to wires *)
+  mutable reg_assigns: reg_assign list;
   mutable first_cycle: int;
+  mutable first_cycle_nonempty: bool;
   (* endpoints defined in a process *)
   mutable endpoints: endpoint_def list;
   (* messages that are sent by this process, through either ports or wires *)
@@ -152,7 +152,9 @@ let codegen_context_proc_clear (ctx : codegen_context) =
   ctx.wires_n <- 0;
   ctx.cycles <- [];
   ctx.cycles_n <- 0;
-  ctx.assigns <- []
+  ctx.assigns <- [];
+  ctx.reg_assigns <- [];
+  ctx.first_cycle_nonempty <- false
 
 let codegen_context_new_wire (ctx: codegen_context) (dtype : data_type)
     (borrow_src : borrow_source list): wire_def =
@@ -166,7 +168,6 @@ let codegen_context_new_cycle (ctx : codegen_context) (delay : delay_def) : cycl
   let new_cycle = {
     id = ctx.cycles_n;
     delay = delay;
-    assigns = [];
     borrows = [];
     next_switch = [];
   } in
@@ -384,7 +385,7 @@ let rec evaluate_lvalue (ctx : codegen_context) (proc : proc_def) (lval : lvalue
 let env_map_merge _idx op1 op2 = if Option.is_some op2 then op2 else op1
 
 let leaf_expression_result (cur_cycles : superposition) (ws : wire_def list) : expr_result =
-  {v = ws; assigns = []; superpos = cur_cycles}
+  {v = ws; superpos = cur_cycles}
 
 (* This also create connections between cycles *)
 (* let generate_expression_result
@@ -397,10 +398,15 @@ let superposition_extra_conds (cur_cycles : superposition) (conds : condition li
 (* let superposition_merge (superposes : (condition list * superposition) list) : superposition =
   List.concat_map (fun (conds, superpos) -> superposition_extra_conds superpos conds) superposes *)
 
+let superposition_add_reg_assigns (ctx : codegen_context) (assign: reg_assign) =
+  ctx.reg_assigns <- assign::ctx.reg_assigns
+
 let rec codegen_expr (ctx : codegen_context) (proc : proc_def)
                      (cur_cycles : superposition) (* possible cycles the start of the expression is in *)
                      (env : wire_def string_map)
                      (borrows : (borrow_info list) ref) (in_delay : bool) (e : expr) : expr_result =
+  let first_cycle_nonempty = ctx.first_cycle_nonempty in
+  ctx.first_cycle_nonempty <- true;
   match e with
   | Literal lit ->
       (* TODO: no-length literal not supported here *)
@@ -432,7 +438,7 @@ let rec codegen_expr (ctx : codegen_context) (proc : proc_def)
         let w = codegen_context_new_wire ctx succ_w.dtype (succ_w.borrow_src @ fail_w.borrow_src) in
         let expr_str = Printf.sprintf "(%s) ? %s : %s" ack_w succ_w.name fail_w.name in
         codegen_context_new_assign ctx {wire = w.name; expr_str = expr_str};
-        {v = [w]; assigns = data_res.assigns @ succ_res.assigns @ fail_res.assigns; superpos = succ_res.superpos @ fail_res.superpos}
+        {v = [w]; superpos = succ_res.superpos @ fail_res.superpos}
       else
         (* TODO: static checks *)
         codegen_expr ctx proc cur_cycles env borrows in_delay e_succ
@@ -450,7 +456,7 @@ let rec codegen_expr (ctx : codegen_context) (proc : proc_def)
         let w = codegen_context_new_wire ctx succ_w.dtype (succ_w.borrow_src @ fail_w.borrow_src) in
         let expr_str = Printf.sprintf "(%s) ? %s : %s" valid_w succ_w.name fail_w.name in
         codegen_context_new_assign ctx {wire = w.name; expr_str = expr_str};
-        {v = [w]; assigns = succ_res.assigns @ fail_res.assigns; superpos = succ_res.superpos @ fail_res.superpos}
+        {v = [w]; superpos = succ_res.superpos @ fail_res.superpos}
       else
         (* TODO: static checks *)
         codegen_expr ctx proc cur_cycles succ_env borrows in_delay e_succ
@@ -467,7 +473,7 @@ let rec codegen_expr (ctx : codegen_context) (proc : proc_def)
             let expr_str = Printf.sprintf "%s %s %s"
               w1.name (string_of_binop binop) w2.name in
             codegen_context_new_assign ctx {wire = w.name; expr_str = expr_str};
-            {v = [w]; assigns = e1_res.assigns @ e2_res.assigns; superpos = e2_res.superpos}
+            {v = [w]; superpos = e2_res.superpos}
         | _ -> raise (TypeError "Invalid types for binary operation!")
       end
   | Unop (unop, e') ->
@@ -481,7 +487,7 @@ let rec codegen_expr (ctx : codegen_context) (proc : proc_def)
     let w' = codegen_context_new_wire ctx new_dtype w.borrow_src in
     let expr_str = Printf.sprintf "%s%s" (string_of_unop unop) w.name in
     codegen_context_new_assign ctx {wire = w'.name; expr_str = expr_str};
-    {v = [w']; assigns = e_res.assigns; superpos = e_res.superpos}
+    {v = [w']; superpos = e_res.superpos}
   | Tuple _elist -> raise (UnimplementedError "Tuple expression unimplemented!")
   | LetIn (ident, v_expr, body_expr) ->
       let v_res = codegen_expr ctx proc cur_cycles env borrows in_delay v_expr in
@@ -494,7 +500,6 @@ let rec codegen_expr (ctx : codegen_context) (proc : proc_def)
       let expr_res = codegen_expr ctx proc v_res.superpos new_env borrows in_delay body_expr in
       {
         v = expr_res.v;
-        assigns = v_res.assigns @ expr_res.assigns;
         superpos = expr_res.superpos
       }
   | IfExpr (cond_expr, e1, e2) ->
@@ -511,7 +516,7 @@ let rec codegen_expr (ctx : codegen_context) (proc : proc_def)
         new_w
       in
       let v = List.map2 gen_result e1_res.v e2_res.v in
-      {v = v; assigns = cond_res.assigns @ e1_res.assigns @ e2_res.assigns; superpos = e1_res.superpos @ e2_res.superpos}
+      {v = v; superpos = e1_res.superpos @ e2_res.superpos}
   | Assign (lval, e_val) ->
       let lval_eval = evaluate_lvalue ctx proc lval |> Option.get in
       let expr_res = codegen_expr ctx proc cur_cycles env borrows in_delay e_val in
@@ -522,8 +527,10 @@ let rec codegen_expr (ctx : codegen_context) (proc : proc_def)
           superpos = expr_res.superpos;
           lval = lval_eval;
           expr_str = w.name
-        } in
-      {v = []; assigns = (List.map codegen_assign expr_res.v) @ expr_res.assigns; superpos = expr_res.superpos}
+        } |> superposition_add_reg_assigns ctx;
+      in
+      List.iter codegen_assign expr_res.v;
+      {v = []; superpos = expr_res.superpos}
       (* assign evaluates to unit val *)
   | Construct (_cstr_ident, _cstr_args) ->
       raise (UnimplementedError "Construct expression unimplemented!")
@@ -535,7 +542,7 @@ let rec codegen_expr (ctx : codegen_context) (proc : proc_def)
       let expr_str = Printf.sprintf "%s[%d:%d]" w_res.name offset_le (offset_ri - 1) in
       codegen_context_new_assign ctx {wire = new_w.name; expr_str = expr_str};
       (* TODO: non-literal index *)
-      {v = [new_w]; assigns = expr_res.assigns; superpos = expr_res.superpos}
+      {v = [new_w]; superpos = expr_res.superpos}
   | Indirect (e', fieldname) ->
       let expr_res = codegen_expr ctx proc cur_cycles env borrows in_delay e' in
       let w_res = List.hd expr_res.v in
@@ -543,7 +550,7 @@ let rec codegen_expr (ctx : codegen_context) (proc : proc_def)
       let new_w = codegen_context_new_wire ctx new_dtype w_res.borrow_src in
       let expr_str = Printf.sprintf "%s[%d:%d]" w_res.name offset_le (offset_ri - 1) in
       codegen_context_new_assign ctx {wire = new_w.name; expr_str = expr_str};
-      {v = [new_w]; assigns = expr_res.assigns; superpos = expr_res.superpos}
+      {v = [new_w]; superpos = expr_res.superpos}
   | Concat components ->
       let cur_superpos = ref cur_cycles in
       let comp_res = List.map (
@@ -557,7 +564,7 @@ let rec codegen_expr (ctx : codegen_context) (proc : proc_def)
       let new_w = codegen_context_new_wire ctx (`Array (`Logic, size)) borrow_src in
       let expr_str = List.map (fun (x: wire_def) -> x.name) wires |> String.concat ", " |>  Printf.sprintf "{%s}" in
       codegen_context_new_assign ctx {wire = new_w.name; expr_str = expr_str};
-      {v = [new_w]; assigns = List.concat_map (fun (x : expr_result) -> x.assigns) comp_res; superpos = !cur_superpos}
+      {v = [new_w]; superpos = !cur_superpos}
   | Match (e', match_arm_list) ->
       let expr_res = codegen_expr ctx proc cur_cycles env borrows in_delay e' in
       let w = List.hd expr_res.v in
@@ -600,7 +607,7 @@ let rec codegen_expr (ctx : codegen_context) (proc : proc_def)
               let new_w = codegen_context_new_wire ctx new_dtype (List.concat_map
                 (fun ((_, x) : (identifier * expr_result)) -> (List.hd x.v).borrow_src) arm_res_list) in
               codegen_context_new_assign ctx {wire = new_w.name; expr_str = arm_expr_str};
-              {v = [new_w]; assigns = List.concat_map (fun ((_, x) : (identifier * expr_result)) -> x.assigns) arm_res_list;
+              {v = [new_w];
               superpos = List.concat_map (fun ((_, x) : (identifier * expr_result)) -> x.superpos) arm_res_list}
             | _ ->  raise (TypeError "Illegal match: value is not of a variant type!")
           end
@@ -621,11 +628,15 @@ let rec codegen_expr (ctx : codegen_context) (proc : proc_def)
           env
       | _ -> StringMap.empty (* TODO: support cycle delays *)
       in
-      let new_cycle = codegen_context_new_cycle ctx delay in
-      (* connect cycles *)
-      connect_cycles cur_cycles new_cycle.id;
-      let new_superpos = [([], new_cycle)] in (* FIXME: probably no need for init_cond *)
-      codegen_expr ctx proc new_superpos (StringMap.merge env_map_merge env init_env) borrows false body
+      let superpos = if first_cycle_nonempty then
+        let new_cycle = codegen_context_new_cycle ctx delay in
+        (* connect cycles *)
+        connect_cycles cur_cycles new_cycle.id;
+        [([], new_cycle)] (* FIXME: probably no need for init_cond *)
+      else
+        cur_cycles
+      in
+      codegen_expr ctx proc superpos (StringMap.merge env_map_merge env init_env) borrows false body
 
 let codegen_post_declare (ctx : codegen_context) (_proc : proc_def)=
   (* wire declarations *)
@@ -715,17 +726,25 @@ let codegen_state_machine (ctx : codegen_context) (proc : proc_def) =
 
         (* choose the state transition signals and output for this cycle *)
         let assign_reg = fun (assign : reg_assign) ->
+          let to_assign = ref false in
           let conds = List.filter_map
-            (fun (c, cy) -> if cy.id = cycle.id then Some c else None) assign.superpos |>
-            List.concat in
-          let cond_str = if conds = [] then "" else
-            format_condition_list conds |>
-            Printf.sprintf "if (%s) "
-          in
-          Printf.printf "        %s%s = %s;\n" cond_str (format_lval_next assign.lval) assign.expr_str
+            (fun (c, cy) -> if cy.id = cycle.id then begin
+              to_assign := true;
+              if c = [] then
+                None
+              else
+                Some (format_condition_list c |> Printf.sprintf "(%s)")
+            end else None) assign.superpos |>
+            String.concat " || " in
+          if !to_assign then
+            let cond_str = if conds = "" then "" else
+              Printf.sprintf "if (%s) " conds
+            in
+            Printf.printf "        %s%s = %s;\n" cond_str (format_lval_next assign.lval) assign.expr_str
+          else ()
         in
         begin
-          List.iter assign_reg cycle.assigns;
+          List.iter assign_reg ctx.reg_assigns;
 
           if state_cnt > 1 then
           begin
@@ -880,6 +899,7 @@ let borrow_check_inspect (state : borrow_check_state)
       List.iter chk_source bi.src;
 
       let chk_mutate = fun (reg_assign : reg_assign) ->
+        (* FIXME: take superposition into consideration *)
         (* now check all borrows of the register in this cycle *)
         let chk_reg_borrows = fun _ (bci : borrow_check_info) ->
           if List.find_opt (fun (s : borrow_source) -> s = FromReg reg_assign.lval.ident) bci.bi.src |> Option.is_some then
@@ -893,7 +913,7 @@ let borrow_check_inspect (state : borrow_check_state)
         (* TODO: check if it's in delay *)
         BorrowDestinationMap.iter chk_reg_borrows cycle_state.borrows_in_cycle
       in
-      List.iter chk_mutate cycle_node.assigns
+      List.iter chk_mutate ctx.reg_assigns
     in
     List.iter chk_borrow cycle_node.borrows;
   in
@@ -1056,7 +1076,9 @@ let codegen (cunit : compilation_unit) =
     cycles = [];
     cycles_n = 0;
     first_cycle = 0;
+    first_cycle_nonempty = false;
     assigns = [];
+    reg_assigns = [];
     cunit = cunit;
     endpoints = [];
     local_messages = [];
