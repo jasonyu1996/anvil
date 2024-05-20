@@ -22,6 +22,7 @@
 %token DOUBLE_RIGHT_ABRACK  (* << *)
 %token DOUBLE_EQ            (* == *)
 %token EXCL_EQ              (* != *)
+%token EXCL                 (* ! *)
 %token PLUS                 (* + *)
 %token MINUS                (* - *)
 %token XOR                  (* ^ *)
@@ -262,6 +263,8 @@ expr:
   { Lang.Concat components }
 | KEYWORD_MATCH; e = expr; KEYWORD_WITH; match_arm_list = match_arm+; KEYWORD_DONE
   { Lang.Match (e, match_arm_list) }
+| EXCL; reg_ident = IDENT
+  { Lang.Read reg_ident }
 (* TODO: constructor *)
 ;
 

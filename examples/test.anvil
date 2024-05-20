@@ -35,7 +35,7 @@ proc master(p : left pack) =
 }
 /* body */
 {
-    let wait send p::ping (counter) in
+    let wait send p::ping (!counter) in
     set counter := 1'b1
 }
 

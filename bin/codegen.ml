@@ -8,7 +8,6 @@ let message_has_ack_port (msg : message_def) : bool = msg.recv_sync = Dynamic
 
 (* borrows are when we need to check the lifetime constraints *)
 type borrow_source =
-| FromRef of identifier
 | FromReg of identifier
 (* these two are cycle-local constraints *)
 | FromMsgData of message_specifier * int
@@ -16,21 +15,18 @@ type borrow_source =
 
 module BorrowDestination : sig
   type t =
-  | ToRef of identifier (* bind to reference*)
   | ToReg of identifier (* set register *)
   | ToOthers (* pass as data in msg; no need to record which it is *)
 
   val compare : t -> t -> int
 end = struct
   type t =
-  | ToRef of identifier (* bind to reference*)
   | ToReg of identifier (* set register *)
   | ToOthers (* pass as data in msg; no need to record which it is *)
 
   let compare (a : t) (b : t) : int =
     match a, b with
-    | ToRef _, ToReg _ | ToRef _, ToOthers | ToReg _, ToOthers -> -1
-    | ToRef a_ident, ToRef b_ident -> String.compare a_ident b_ident
+      ToReg _, ToOthers -> -1
     | ToReg a_ident, ToReg b_ident -> String.compare a_ident b_ident
     | ToOthers, ToOthers -> 0
     | _ -> 1
@@ -416,15 +412,12 @@ let rec codegen_expr (ctx : codegen_context) (proc : proc_def)
       leaf_expression_result cur_cycles [w]
   | Identifier ident ->
       (* only supports registers for now *)
-      (
-        match StringMap.find_opt ident env with
-        | Some w -> leaf_expression_result cur_cycles [w]
-        | None ->
-            let dtype = Option.get (get_identifier_dtype ctx proc ident) in
-            let w = codegen_context_new_wire ctx dtype [FromReg ident]  in
-            codegen_context_new_assign ctx {wire = w.name; expr_str = format_regname_current ident};
-            leaf_expression_result cur_cycles [w]
-      )
+      let w = StringMap.find ident env in leaf_expression_result cur_cycles [w]
+  | Read reg_ident ->
+      let dtype = Option.get (get_identifier_dtype ctx proc reg_ident) in
+      let w = codegen_context_new_wire ctx dtype [FromReg reg_ident]  in
+      codegen_context_new_assign ctx {wire = w.name; expr_str = format_regname_current reg_ident};
+        leaf_expression_result cur_cycles [w]
   | Function _  -> raise (UnimplementedError "Function expression unimplemented!")
   | TrySend (send_pack, e_succ, e_fail) ->
       let data_res = codegen_expr ctx proc cur_cycles env borrows in_delay send_pack.send_data in
@@ -632,7 +625,7 @@ let rec codegen_expr (ctx : codegen_context) (proc : proc_def)
         let new_cycle = codegen_context_new_cycle ctx delay in
         (* connect cycles *)
         connect_cycles cur_cycles new_cycle.id;
-        [([], new_cycle)] (* FIXME: probably no need for init_cond *)
+        [([], new_cycle)]
       else
         cur_cycles
       in
@@ -870,6 +863,7 @@ let borrow_check_get_lifetime_tight (cycle_state : borrow_check_cycle_state) (in
   Option.map (fun (bci : borrow_check_info) -> bci.tight) |>
   Option.value ~default:sig_lifetime_null
 
+(* FIXME: the borrow checking needs rework *)
 (** Performs checks on each cycle that borrowing is always valid *)
 let borrow_check_inspect (state : borrow_check_state)
                          (ctx : codegen_context) (proc : proc_def) =
@@ -888,11 +882,6 @@ let borrow_check_inspect (state : borrow_check_state)
               msg_spec.endpoint msg_spec.msg n (string_of_lifetime bi.lifetime) (string_of_lifetime msg_ty.lifetime) in
             BorrowCheckError err_msg |>
             raise
-          else ()
-        | FromRef ref_ident ->
-          let lt = borrow_check_get_lifetime_tight cycle_state bi.in_delay (ToRef ref_ident) in
-          if not (Lifetime.lifetime_covered_by bi.lifetime lt) then
-            raise (BorrowCheckError "Insufficient lifetime of reference!")
           else ()
         | FromReg _ -> () (* regs are always good *)
       in

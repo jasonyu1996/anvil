@@ -291,6 +291,7 @@ and expr =
   | Indirect of expr * identifier
   | Concat of expr list
   | Match of expr * ((match_pattern * expr option) list)
+  | Read of identifier
 and lvalue =
   | Reg of identifier
   | Indexed of lvalue * index (* lvalue[index] *)

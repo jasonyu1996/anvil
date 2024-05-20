@@ -19,7 +19,7 @@ proc alu(i : left alu_chan) = {} {}
 { res : logic[64] }
 {
     let wait recv r_i = i::req in
-    if send i::resp (res) then
+    if send i::resp (!res) then
         set res := //1'b0
             match r_i.op with
             | Add -> r_i.a + r_i.b;
