@@ -304,6 +304,11 @@ and match_pattern = {
   bind_name: identifier option; (* name of the binding for the unboxed value *)
 }
 
+let string_of_delay (delay : delay_def) : string =
+  match delay with
+  | `Cycles n -> Printf.sprintf "#%d" n
+  | `Send send_pack -> Printf.sprintf "send(%s)" (string_of_msg_spec send_pack.send_msg_spec)
+  | `Recv recv_pack -> Printf.sprintf "recv(%s)" (string_of_msg_spec recv_pack.recv_msg_spec)
 
 let delay_immediate = `Cycles 0
 let delay_single_cycle = `Cycles 1

@@ -106,7 +106,7 @@ type codegen_context = {
   (* messages that are sent by this process, through either ports or wires *)
   mutable local_messages: (endpoint_def * message_def * message_direction) list;
   cunit: compilation_unit;
-  (* msgs: (identifier * (message_def list)) list; *)
+  config: Config.compile_config;
 }
 
 let lookup_proc (ctx: codegen_context) (name: identifier) : proc_def option =
@@ -397,6 +397,16 @@ module BorrowEnv = struct
     env.borrows := borrows @ !(env.borrows)
 
   let name_resolve (env : t) (name : identifier) : wire_def option = StringMap.find_opt name env.bindings
+
+  let debug_dump (env : t) (config : Config.compile_config) : unit =
+    if config.verbose then begin
+      Config.debug_println config "Borrow environment dump: ";
+      List.map (fun x -> Printf.sprintf "%s@%s" x.reg (string_of_lifetime x.duration)) !(env.borrows) |> String.concat ", "
+        |> Printf.sprintf "- Borrows = %s" |> Config.debug_println config;
+      StringMap.to_seq env.bindings |> Seq.map
+        (fun ((s, w) : (borrow_source * wire_def)) -> Printf.sprintf "%s@%s" s (string_of_lifetime w.ty.lifetime))
+        |> List.of_seq |> String.concat ", " |> Printf.sprintf "- Bindings = %s" |> Config.debug_println config
+    end else ()
 end
 
 type borrow_env = BorrowEnv.t
@@ -466,10 +476,38 @@ let superposition_extra_conds (cur_cycles : superposition) (conds : condition li
 let superposition_add_reg_assigns (ctx : codegen_context) (assign: reg_assign) =
   ctx.reg_assigns <- assign::ctx.reg_assigns
 
+let expr_debug_dump (e : expr) (config : Config.compile_config) : unit =
+  if config.verbose then begin
+    (
+      match e with
+      | Literal _ -> "literal"
+      | Identifier ident -> Printf.sprintf "ident(%s)" ident
+      | Read reg_ident -> Printf.sprintf "read(%s)" reg_ident
+      | Function _ -> "func"
+      | TrySend _ -> "trysend"
+      | TryRecv _ -> "tryrecv"
+      | Apply _ -> "apply"
+      | Binop _ -> "binop"
+      | Unop _ -> "unop"
+      | LetIn (ident, _, _) -> Printf.sprintf "let(%s)" ident
+      | Wait (delay, _) -> Printf.sprintf "delay(%s)" (string_of_delay delay)
+      | IfExpr _ -> "if"
+      | Construct _ -> "cons"
+      | Index _ -> "index"
+      | Indirect (_, ident) -> Printf.sprintf "indirect(%s)" ident
+      | Concat _ -> "concat"
+      | Match _ -> "match"
+      | Assign _ -> "assign"
+      | Tuple _ -> "tuple"
+    ) |> Printf.sprintf "Expr: %s" |> Config.debug_println config;
+  end
+
 let rec codegen_expr (ctx : codegen_context) (proc : proc_def)
                      (cur_cycles : superposition) (* possible cycles the start of the expression is in *)
                      (env : borrow_env)
                      (in_delay : bool) (e : expr) : expr_result =
+  BorrowEnv.debug_dump env ctx.config;
+  expr_debug_dump e ctx.config;
   let first_cycle_nonempty = ctx.first_cycle_nonempty in
   ctx.first_cycle_nonempty <- true;
   match e with
@@ -969,7 +1007,7 @@ let rec codegen_with_context (ctx : codegen_context) (procs: proc_def list) =
 
 let codegen_preamble (_cunit : compilation_unit) = ()
 
-let codegen (cunit : compilation_unit) =
+let codegen (cunit : compilation_unit) (config : Config.compile_config)=
   (* let msgs = List.map (fun (p: proc_def) -> (p.name, p.msgs)) cunit in *)
   codegen_preamble cunit;
   let ctx : codegen_context = {
@@ -984,6 +1022,6 @@ let codegen (cunit : compilation_unit) =
     cunit = cunit;
     endpoints = [];
     local_messages = [];
-    (* msgs = msgs; *)
+    config;
   } in
   codegen_with_context ctx cunit.procs
