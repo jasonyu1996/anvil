@@ -112,8 +112,8 @@ type codegen_context = {
 let lookup_proc (ctx: codegen_context) (name: identifier) : proc_def option =
   List.find_opt (fun (p : proc_def) -> p.name = name) ctx.cunit.procs
 
-let format_wirename (id : wire_id) : string = "wire" ^ (string_of_int id)
-let format_statename (id : cycle_id) : string = "STATE" ^ (string_of_int id)
+let format_wirename (id : wire_id) : string = Printf.sprintf "_wire$%d" id
+let format_statename (id : cycle_id) : string = Printf.sprintf "_STATE_%d" id
 
 let format_condition (c : condition) : string =
   let prefix = if c.neg then "!" else "" in prefix ^ c.w
@@ -163,7 +163,7 @@ let format_port (ctx : codegen_context) port =
   let inout = match port.dir with
     | In -> "input"
     | Out -> "output"
-  in inout ^ " " ^ format_dtype ctx port.dtype ^ " " ^ port.name
+  in Printf.sprintf "%s %s %s" inout (format_dtype ctx port.dtype) port.name
 
 let rec print_port_list (ctx : codegen_context) port_list =
   match port_list with
@@ -186,13 +186,13 @@ let lookup_channel_class (ctx : codegen_context) (name : identifier) : channel_c
   List.find_opt (fun (cc : channel_class_def) -> cc.name = name) ctx.cunit.channel_classes
 
 let format_msg_data_signal_name (endpoint_name : identifier) (message_name : identifier) (data_idx : int) : string =
-  endpoint_name ^ "_" ^ message_name ^ "_" ^ (string_of_int data_idx)
+  Printf.sprintf "_%s_%s_%d" endpoint_name message_name data_idx
 
 let format_msg_valid_signal_name (endpoint_name : identifier) (message_name : identifier) : string =
-  endpoint_name ^ "_" ^ message_name ^ "_valid"
+  Printf.sprintf "_%s_%s_valid" endpoint_name message_name
 
 let format_msg_ack_signal_name (endpoint_name : identifier) (message_name : identifier) : string =
-  endpoint_name ^ "_" ^ message_name ^ "_ack"
+  Printf.sprintf "_%s_%s_ack" endpoint_name message_name
 
 let lookup_endpoint (ctx : codegen_context) (proc : proc_def) (endpoint_name : identifier) : endpoint_def option =
   let match_fun = fun (p : endpoint_def) -> p.name = endpoint_name in
@@ -269,8 +269,10 @@ let codegen_ports (ctx : codegen_context) (endpoints : endpoint_def list) =
 let lookup_reg (proc : proc_def) (name : identifier) : reg_def option =
   List.find_opt (fun (x : reg_def) -> x.name = name) proc.body.regs
 
-let format_regname_current (regname : identifier) = regname ^ "_q"
-let format_regname_next (regname : identifier) = regname ^ "_n"
+let format_regname_current (regname : identifier) =
+  Printf.sprintf "%s_q" regname
+let format_regname_next (regname : identifier) =
+  Printf.sprintf "%s_n" regname
 
 let format_lval_next (lval : lvalue_evaluated) : string =
   let ind_str =
