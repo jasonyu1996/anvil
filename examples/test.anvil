@@ -8,7 +8,7 @@ type record = {
 }
 
 chan pack = {
-    out ping : (logic[10]@#1-#2)
+    out ping : (logic[10]@#0-#1)
 }
 
 proc slave(p : right pack) =

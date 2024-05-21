@@ -82,3 +82,10 @@ let lifetime_overlaps_current_mutation (lt : lifetime) : bool =
     match lt.e with
     | `Cycles 0 | `Cycles 1 -> false
     | _ -> true
+
+(** Currently alive and for an indefinite number of cycles *)
+let lifetime_live_indefinite (lt : lifetime) : bool =
+  (lt.b = `Cycles 0) &&
+    match lt.e with
+    | `Cycles _ -> false
+    | _ -> true
