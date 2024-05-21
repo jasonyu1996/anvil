@@ -11,13 +11,14 @@ type alu_req = {
 }
 
 chan alu_chan = {
-    in req : (alu_req@#0-#1) @#1 - @#1,
+    in req : (alu_req@#0-#2) @#1 - @#1,
     out resp : (logic[64]@#0-#1) @req - @req
 }
 
 proc alu(i : left alu_chan) =
     reg res : logic[64]
     let wait recv r_i = i::req in
+    let cycle in
     if send i::resp (!res) then
         set res := //1'b0
             match r_i.op with
