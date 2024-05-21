@@ -12,46 +12,18 @@ chan pack = {
 }
 
 proc slave(p : right pack) =
-/* channel defs */
-{}
-/* spawns */
-{}
-/* regs */
-{ st: logic, g : variant }
-/* body */
-{
+    reg st: logic
+    reg g : variant
     1'b0
-}
 
 proc master(p : left pack) =
-/* channel defs */
-{}
-/* spawns */
-{}
-/* regs */
-{
-    counter: logic[10],
-    rec: record
-}
-/* body */
-{
+    reg counter: logic[10]
+    reg rec: record
     let wait send p::ping (!counter) in
     set counter := 1'b1
-}
 
 proc top() =
-/* channel defs */
-{
-    foreign master_p -> foreign slave_p : pack
-}
-/* spawns */
-{
-    master(master_p),
-    slave(slave_p)
-}
-/* regs */
-{}
-/* body */
-{
+    chan foreign master_p -> foreign slave_p : pack
+    spawn master(master_p)
+    spawn slave(slave_p)
     1'b0
-}

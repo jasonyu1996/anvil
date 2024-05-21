@@ -267,7 +267,7 @@ let codegen_ports (ctx : codegen_context) (endpoints : endpoint_def list) =
     print_port_list ctx ([clk_port; rst_port] @ port_list)
 
 let lookup_reg (proc : proc_def) (name : identifier) : reg_def option =
-  List.find_opt (fun (x : reg_def) -> x.name = name) proc.regs
+  List.find_opt (fun (x : reg_def) -> x.name = name) proc.body.regs
 
 let format_regname_current (regname : identifier) = regname ^ "_q"
 let format_regname_next (regname : identifier) = regname ^ "_n"
@@ -316,7 +316,7 @@ let string_of_literal (lit : literal) =
 
 let get_identifier_dtype (_ctx : codegen_context) (proc : proc_def) (ident : identifier) : data_type option =
   let m = fun (r: reg_def) -> if r.name = ident then Some r.dtype else None in
-  List.find_map m proc.regs
+  List.find_map m proc.body.regs
 
 module BorrowEnv = struct
   exception BorrowEnvException of string
@@ -770,7 +770,7 @@ let codegen_state_machine (ctx : codegen_context) (proc : proc_def) =
       (* default next reg values *)
       let assign_reg_default = fun (r: reg_def) ->
         Printf.printf "    %s = %s;\n" (format_regname_next r.name) (format_regname_current r.name)
-      in List.iter assign_reg_default proc.regs;
+      in List.iter assign_reg_default proc.body.regs;
 
       (* default output indicators, we need to know which messages are local-sent/received *)
       List.iter (Printf.printf "    %s = '0;\n") (gather_out_indicators ctx);
@@ -924,7 +924,7 @@ let codegen_spawns (ctx: codegen_context) (proc: proc_def) =
       in List.iter print_msg_con cc.messages
     in List.iter2 connect_endpoints proc_other.args spawn.params;
     Printf.printf "\n  );\n"
-  in List.iteri gen_spawn proc.spawns
+  in List.iteri gen_spawn proc.body.spawns
 
 
 
@@ -939,16 +939,16 @@ let codegen_proc ctx (proc : proc_def) =
   (* Option.iter (fun c -> ctx.first_cycle <- c) first_cycle_op; *)
   let init_cycle = codegen_context_new_cycle ctx delay_immediate in
   ctx.first_cycle <- init_cycle.id;
-  let body_res = codegen_expr ctx proc [([], init_cycle)] (BorrowEnv.empty ()) false proc.body in
+  let body_res = codegen_expr ctx proc [([], init_cycle)] (BorrowEnv.empty ()) false proc.body.prog in
   connect_cycles body_res.superpos init_cycle.id;
   let regs = if List.length ctx.cycles > 1 then
-    ({name = "_st"; dtype = `Opaque "_state_t"; init = Some (format_statename ctx.first_cycle)}::proc.regs)
-  else proc.regs in
+    ({name = "_st"; dtype = `Opaque "_state_t"; init = Some (format_statename ctx.first_cycle)}::proc.body.regs)
+  else proc.body.regs in
   begin
     codegen_regs_declare ctx regs;
     codegen_state_transition regs
   end;
-  codegen_channels ctx proc.channels;
+  codegen_channels ctx proc.body.channels;
   codegen_endpoints ctx;
   ctx.local_messages <- gather_local_messages ctx proc;
   codegen_spawns ctx proc;

@@ -12,7 +12,6 @@
 %token SHARP                (* # *)
 %token EQUAL                (* = *)
 %token POINT_TO             (* -> *)
-%token D_POINT_TO           (* => *)
 %token COLON_EQ             (* := *)
 %token LEFT_ABRACK          (* < *)
 %token RIGHT_ABRACK         (* > *)
@@ -56,6 +55,8 @@
 %token KEYWORD_DYN          (* dyn *)
 %token KEYWORD_WAIT         (* wait *)
 %token KEYWORD_CYCLE        (* cycle *)
+%token KEYWORD_REG          (* reg *)
+%token KEYWORD_SPAWN        (* spawn *)
 %token <int>INT             (* int literal *)
 %token <string>IDENT        (* identifier *)
 %token <string>BIT_LITERAL  (* bit literal *)
@@ -85,20 +86,37 @@ cunit:
 
 proc_def:
   KEYWORD_PROC; ident = IDENT; LEFT_PAREN; args = proc_def_arg_list; RIGHT_PAREN;
-  EQUAL;
-  LEFT_BRACE; channel_def_list = channel_def_list; RIGHT_BRACE;
-  LEFT_BRACE; spawns = spawn_list; RIGHT_BRACE;
-  LEFT_BRACE; reg_def_list = reg_def_list; RIGHT_BRACE;
-  LEFT_BRACE; body = expr; RIGHT_BRACE
+  EQUAL; body = proc_def_body
   {
     {
       name = ident;
       args = args;
-      channels = channel_def_list;
-      spawns = spawns;
-      regs = reg_def_list;
       body = body;
     } : Lang.proc_def
+  }
+;
+
+proc_def_body:
+| prog = expr
+  {
+    let open Lang in {
+      channels = [];
+      spawns = [];
+      regs = [];
+      prog = prog;
+    }
+  }
+| KEYWORD_CHAN; chan_def = channel_def; body = proc_def_body
+  {
+    let open Lang in {body with channels = chan_def::(body.channels)}
+  }
+| KEYWORD_REG; reg_def = reg_def; body = proc_def_body
+  {
+    let open Lang in {body with regs = reg_def::(body.regs)}
+  }
+| KEYWORD_SPAWN; spawn_def = spawn; body = proc_def_body
+  {
+    let open Lang in {body with spawns = spawn_def::(body.spawns)}
   }
 ;
 
@@ -149,11 +167,6 @@ channel_direction:
   { Lang.Right }
 ;
 
-channel_def_list:
-  l = separated_list(COMMA, channel_def)
-  { l }
-;
-
 channel_def:
   left_foreign = foreign_tag; left_endpoint = IDENT; POINT_TO;
   right_foreign = foreign_tag; right_endpoint = IDENT; COLON;
@@ -173,29 +186,14 @@ channel_def:
   }
 ;
 
-spawn_list:
-  l = separated_list(COMMA, spawn)
-  { l }
-;
-
 spawn:
-  proc = IDENT; LEFT_PAREN; params = ident_list; RIGHT_PAREN
+  proc = IDENT; LEFT_PAREN; params = separated_list(COMMA, IDENT); RIGHT_PAREN
   {
     {
       proc = proc;
       params = params;
     } : Lang.spawn_def
   }
-;
-
-ident_list:
-  l = separated_list(COMMA, IDENT)
-  { l }
-;
-
-reg_def_list:
-  l = separated_list(COMMA, reg_def)
-  { l }
 ;
 
 reg_def:
@@ -436,7 +434,7 @@ data_type:
   { `Named typename }
 | LEFT_BRACKET; variants = variant_def+; RIGHT_BRACKET
   { `Variant variants }
-| LEFT_BRACE; fields = separated_list(SEMICOLON, field_def); RIGHT_BRACE
+| LEFT_BRACE; fields = separated_nonempty_list(SEMICOLON, field_def); RIGHT_BRACE
   { `Record fields }
 | LEFT_PAREN; comps = separated_list(COMMA, data_type); RIGHT_PAREN
   { `Tuple comps }

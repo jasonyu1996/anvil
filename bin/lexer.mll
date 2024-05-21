@@ -36,7 +36,6 @@ rule read =
   | '~'       { TILDE }
   | '.'       { PERIOD }
   | "->"      { POINT_TO }
-  | "=>"      { D_POINT_TO }
   | ":="      { COLON_EQ }
   | "::"      { DOUBLE_COLON }
   | "<"       { LEFT_ABRACK }
@@ -73,6 +72,8 @@ rule read =
   | "dyn"     { KEYWORD_DYN }
   | "wait"    { KEYWORD_WAIT }
   | "cycle"   { KEYWORD_CYCLE }
+  | "reg"     { KEYWORD_REG }
+  | "spawn"   { KEYWORD_SPAWN }
   | int       { let n = Lexing.lexeme lexbuf |> int_of_string in INT n }
   | ident     { IDENT (Lexing.lexeme lexbuf) }
   | bit_literal { BIT_LITERAL (Lexing.lexeme lexbuf) }

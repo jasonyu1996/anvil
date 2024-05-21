@@ -384,17 +384,21 @@ type spawn_def = {
   params: identifier list;
 }
 
-(* process definition *)
-type proc_def = {
-  name: string;
-  (* arguments are endpoints passed from outside *)
-  args: endpoint_def list;
+type proc_def_body = {
   (* new channels available to this process *)
   channels: channel_def list;
   (* processes spawned by this process *)
   spawns: spawn_def list;
   regs: reg_def list;
-  body: expr;
+  prog: expr;
+}
+
+(* process definition *)
+type proc_def = {
+  name: string;
+  (* arguments are endpoints passed from outside *)
+  args: endpoint_def list;
+  body: proc_def_body;
 }
 
 type compilation_unit = {
