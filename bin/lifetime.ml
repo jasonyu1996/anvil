@@ -42,7 +42,8 @@ let consume_lifetime_might_live (e : [< delay_def | event]) (lt : lifetime) : li
 let future_no_later_than (t1 : future) (t2 : future) : bool =
   match t1, t2 with
   | `Cycles n, `Cycles m -> n <= m
-  | `Cycles 0, _ | `Cycles 1, _ -> true
+  | `Cycles 0, _ | `Cycles 1, _
+  | _, `Eternal -> true
   | _ -> t1 = t2
 
 (* lifetime relation *)
