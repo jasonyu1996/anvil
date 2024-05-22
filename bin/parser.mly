@@ -57,6 +57,7 @@
 %token KEYWORD_CYCLE        (* cycle *)
 %token KEYWORD_REG          (* reg *)
 %token KEYWORD_SPAWN        (* spawn *)
+%token KEYWORD_TRY          (* try *)
 %token <int>INT             (* int literal *)
 %token <string>IDENT        (* identifier *)
 %token <string>BIT_LITERAL  (* bit literal *)
@@ -65,7 +66,7 @@
 %right LEFT_ABRACK RIGHT_ABRACK LEFT_ABRACK_EQ RIGHT_ABRACK_EQ
 %right DOUBLE_LEFT_ABRACK DOUBLE_RIGHT_ABRACK
 %right EXCL_EQ DOUBLE_EQ
-%right KEYWORD_IN KEYWORD_ELSE
+%right KEYWORD_THEN KEYWORD_IN KEYWORD_ELSE
 %right COLON_EQ
 %left LEFT_BRACKET XOR AND OR PLUS MINUS
 %left PERIOD
@@ -235,20 +236,20 @@ expr:
   { e }
 | KEYWORD_LET; binding = IDENT; EQUAL; v = expr; KEYWORD_IN; body = expr
   { Lang.LetIn (binding, v, body) }
-| KEYWORD_LET; KEYWORD_WAIT; KEYWORD_SEND; send_pack = send_pack; KEYWORD_IN; body = expr
+| KEYWORD_WAIT; KEYWORD_SEND; send_pack = send_pack; KEYWORD_THEN; body = expr
   { Lang.Wait (`Send send_pack, body) }
-| KEYWORD_LET; KEYWORD_WAIT; KEYWORD_RECV; recv_pack = recv_pack; KEYWORD_IN; body = expr
+| KEYWORD_WAIT; KEYWORD_RECV; recv_pack = recv_pack; KEYWORD_THEN; body = expr
   { Lang.Wait (`Recv recv_pack, body) }
-| KEYWORD_LET; KEYWORD_WAIT; SHARP n = INT; KEYWORD_IN; body = expr
+| KEYWORD_WAIT; SHARP n = INT; KEYWORD_THEN; body = expr
   { Lang.Wait (`Cycles n, body) }
-| KEYWORD_LET; KEYWORD_CYCLE; KEYWORD_IN; body = expr
+| KEYWORD_CYCLE; KEYWORD_THEN; body = expr
   { Lang.Wait (Lang.delay_single_cycle, body) }
 | KEYWORD_IF; cond = expr; KEYWORD_THEN; then_v = expr; KEYWORD_ELSE; else_v = expr
   { Lang.IfExpr (cond, then_v, else_v) }
-| KEYWORD_IF; KEYWORD_SEND; send_pack = send_pack; KEYWORD_THEN;
+| KEYWORD_TRY; KEYWORD_SEND; send_pack = send_pack; KEYWORD_THEN;
   succ_expr = expr; KEYWORD_ELSE; fail_expr = expr
   { Lang.TrySend (send_pack, succ_expr, fail_expr) }
-| KEYWORD_IF; KEYWORD_RECV; recv_pack = recv_pack; KEYWORD_THEN;
+| KEYWORD_TRY; KEYWORD_RECV; recv_pack = recv_pack; KEYWORD_THEN;
   succ_expr = expr; KEYWORD_ELSE; fail_expr = expr
   {
     Lang.TryRecv (recv_pack, succ_expr, fail_expr)

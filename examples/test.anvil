@@ -19,7 +19,7 @@ proc slave(p : right pack) =
 proc master(p : left pack) =
     reg counter: logic[10]
     reg rec: record
-    let wait send p::ping (!counter) in
+    wait send p::ping (!counter) then
     set counter := 1'b1
 
 proc top() =
