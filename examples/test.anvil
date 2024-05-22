@@ -14,7 +14,7 @@ chan pack = {
 proc slave(p : right pack) =
     reg st: logic
     reg g : variant
-    1'b0
+    cycle then 1'b0
 
 proc master(p : left pack) =
     reg counter: logic[10]
@@ -26,4 +26,4 @@ proc top() =
     chan foreign master_p -> foreign slave_p : pack
     spawn master(master_p)
     spawn slave(slave_p)
-    1'b0
+    cycle then 1'b0
