@@ -212,6 +212,29 @@ end
 type borrow_env = BorrowEnv.t
 
 
+let rec type_is_integral (type_defs : type_def_map) (dtype : data_type) : bool =
+  let dtype_resolved = data_type_name_resolve type_defs dtype |> Option.get in
+  match dtype_resolved with
+  | `Logic -> true
+  | `Array (dtype', _) -> type_is_integral type_defs dtype'
+  | _ -> false
+
+let type_check_binop (type_defs : type_def_map) binop dtype1 dtype2 =
+  let dtype1_resolved = data_type_name_resolve type_defs dtype1 |> Option.get
+  and dtype2_resolved = data_type_name_resolve type_defs dtype2 |> Option.get in
+  (* only integral types can be used here *)
+  if (not @@ type_is_integral type_defs dtype1_resolved)
+    || (not @@ type_is_integral type_defs dtype2_resolved) then
+    None
+  else
+  match binop with
+  | Add | Sub | Xor | And | Or ->
+    (* TODO: performance improvement *)
+    if dtype1_resolved = dtype2_resolved then
+      Some dtype1_resolved
+    else None
+  | Lt | Gt | Lte | Gte | Eq | Neq -> Some `Logic
+  | Shl | Shr -> Some dtype1_resolved
 
 type codegen_context = {
   (* temp wires only *)
@@ -255,7 +278,6 @@ let codegen_context_proc_clear (ctx : codegen_context) =
   ctx.reg_assigns <- [];
   ctx.first_cycle_nonempty <- false
 
-(* TODO: No need to maintain the lifetime here. *)
 let codegen_context_new_wire (ctx: codegen_context) (ty : sig_type)
     (borrow_src : borrow_source list): wire_def =
   let open Wire in
@@ -625,8 +647,13 @@ let rec codegen_expr (ctx : codegen_context) (proc : proc_def)
         match e1_res.v, e2_res.v with
         | [w1], [w2] ->
             (* if w1.ty.dtype = w2.ty.dtype then *)
-            (* TODO: compute the new lifetime; type checking *)
-            let w = codegen_context_new_wire ctx w1.ty (w1.borrow_src @ w2.borrow_src) in
+            let new_dtype =
+              match type_check_binop ctx.cunit.type_defs binop w1.ty.dtype w2.ty.dtype with
+              | Some new_dtype -> new_dtype
+              | _ -> raise (TypeError "Binary operator type checking failed!")
+            and
+            lt = Lifetime.lifetime_merge_tight w1.ty.lifetime w2.ty.lifetime in
+            let w = codegen_context_new_wire ctx {dtype = new_dtype; lifetime = lt} (w1.borrow_src @ w2.borrow_src) in
             let expr_str = Printf.sprintf "%s %s %s"
               w1.name (string_of_binop binop) w2.name in
             codegen_context_new_assign ctx {wire = w.name; expr_str = expr_str};
@@ -735,9 +762,10 @@ let rec codegen_expr (ctx : codegen_context) (proc : proc_def)
         v) components in
       let wires = List.map (fun x -> List.hd x.v) comp_res in
       let borrow_src = let open Wire in List.concat_map (fun x -> x.borrow_src) wires in
-      let size = List.fold_left (fun s (x : wire_def) -> s + (data_type_size ctx.cunit.type_defs x.ty.dtype)) 0 wires in
-      (* TODO: lifetime not correct *)
-      let new_w = codegen_context_new_wire ctx {(List.hd wires).ty with dtype =`Array (`Logic, size)} borrow_src in
+      let (size, lt) = List.fold_left
+        (fun (s, l) (x : wire_def) -> (s + (data_type_size ctx.cunit.type_defs x.ty.dtype), Lifetime.lifetime_merge_tight l x.ty.lifetime))
+        (0, sig_lifetime_const) wires in
+      let new_w = codegen_context_new_wire ctx {dtype =`Array (`Logic, size); lifetime = lt} borrow_src in
       let expr_str = List.map (fun (x: wire_def) -> x.name) wires |> String.concat ", " |>  Printf.sprintf "{%s}" in
       codegen_context_new_assign ctx {wire = new_w.name; expr_str = expr_str};
       {v = [new_w]; superpos = !cur_superpos; out_cf_node = !cur_in_cf_node}
