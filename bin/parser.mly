@@ -24,6 +24,7 @@
 %token EXCL                 (* ! *)
 %token PLUS                 (* + *)
 %token MINUS                (* - *)
+%token DOUBLE_MINUS         (* -- *)
 %token XOR                  (* ^ *)
 %token AND                  (* & *)
 %token OR                   (* | *)
@@ -33,7 +34,6 @@
 %token KEYWORD_PROC         (* proc *)
 %token KEYWORD_CHAN         (* chan *)
 %token KEYWORD_IN           (* in *)
-%token KEYWORD_OUT          (* out *)
 %token KEYWORD_LEFT         (* left *)
 %token KEYWORD_RIGHT        (* right *)
 %token KEYWORD_LOGIC        (* logic *)
@@ -169,7 +169,7 @@ channel_direction:
 ;
 
 channel_def:
-  left_foreign = foreign_tag; left_endpoint = IDENT; POINT_TO;
+  left_foreign = foreign_tag; left_endpoint = IDENT; DOUBLE_MINUS;
   right_foreign = foreign_tag; right_endpoint = IDENT; COLON;
   chan_class = IDENT
   {
@@ -240,7 +240,7 @@ expr:
   { Lang.Wait (`Send send_pack, body) }
 | KEYWORD_WAIT; KEYWORD_RECV; recv_pack = recv_pack; KEYWORD_THEN; body = expr
   { Lang.Wait (`Recv recv_pack, body) }
-| KEYWORD_WAIT; SHARP n = INT; KEYWORD_THEN; body = expr
+| KEYWORD_CYCLE; SHARP n = INT; KEYWORD_THEN; body = expr
   { Lang.Wait (`Cycles n, body) }
 | KEYWORD_CYCLE; KEYWORD_THEN; body = expr
   { Lang.Wait (Lang.delay_single_cycle, body) }
@@ -398,9 +398,9 @@ message_sync_mode_spec:
 ;
 
 message_direction:
-| KEYWORD_IN
+| KEYWORD_LEFT
   { Lang.In }
-| KEYWORD_OUT
+| KEYWORD_RIGHT
   { Lang.Out }
 ;
 

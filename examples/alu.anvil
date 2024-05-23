@@ -11,8 +11,8 @@ type alu_req = {
 }
 
 chan alu_chan = {
-    in req : (alu_req@#0-#2) @#1 - @#1,
-    out resp : (logic[64]@#0-#2) @req - @req
+    left req : (alu_req@#0-#2) @#1 - @#1,
+    right resp : (logic[64]@#0-#2) @req - @req
 }
 
 proc alu(i : left alu_chan) =

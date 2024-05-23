@@ -8,7 +8,7 @@ type record = {
 }
 
 chan pack = {
-    out ping : (logic[10]@#0-#1)
+    right ping : (logic[10]@#0-#1)
 }
 
 proc slave(p : right pack) =
@@ -23,7 +23,7 @@ proc master(p : left pack) =
     set counter := 1'b1
 
 proc top() =
-    chan foreign master_p -> foreign slave_p : pack
+    chan foreign master_p -- foreign slave_p : pack
     spawn master(master_p)
     spawn slave(slave_p)
     cycle then 1'b0

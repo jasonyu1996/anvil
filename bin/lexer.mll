@@ -29,6 +29,7 @@ rule read =
   | '='       { EQUAL }
   | '+'       { PLUS }
   | '-'       { MINUS }
+  | "--"      { DOUBLE_MINUS }
   | '^'       { XOR }
   | '&'       { AND }
   | '|'       { OR }
@@ -50,7 +51,6 @@ rule read =
   | "proc"    { KEYWORD_PROC }
   | "chan"    { KEYWORD_CHAN }
   | "in"      { KEYWORD_IN }
-  | "out"     { KEYWORD_OUT }
   | "left"    { KEYWORD_LEFT }
   | "right"   { KEYWORD_RIGHT }
   | "logic"   { KEYWORD_LOGIC }
