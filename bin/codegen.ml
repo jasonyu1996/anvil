@@ -834,8 +834,7 @@ let rec codegen_expr (ctx : codegen_context) (proc : proc_def)
         | None -> raise (TypeError "Illegal match: value is not of a variant type!")
         end
   | Wait (delay, body) ->
-      (* FIXME: support cycle delays *)
-      let (init_bindings, in_cf_node_wait) = match delay with
+      let (init_bindings, in_cf_node_wait, first_delay) = match delay with
       | `Send {send_msg_spec = msg_specifier; send_data = expr} ->
           BorrowEnv.transit env (`Cycles 1);
           let in_cf_node_wait = ControlFlowGraph.new_node (`Cycles 1) in
@@ -845,7 +844,7 @@ let rec codegen_expr (ctx : codegen_context) (proc : proc_def)
           let in_cf_node_wait = expr_res.out_cf_node in
           BorrowEnv.transit env (delay :> Lifetime.event);
           assign_message_data ctx proc env true msg_specifier expr_res.v;
-          (StringMap.empty, in_cf_node_wait)
+          (StringMap.empty, in_cf_node_wait, delay)
       | `Recv {recv_binds = idents; recv_msg_spec = msg_specifier} ->
           BorrowEnv.transit env (`Cycles 1);
           let in_cf_node_wait = ControlFlowGraph.new_node (`Cycles 1) in
@@ -854,21 +853,36 @@ let rec codegen_expr (ctx : codegen_context) (proc : proc_def)
           let env = gather_data_wires_from_msg ctx proc msg_specifier |>
             List.map fst |>
             List.combine idents |> map_of_list in
-          (env, in_cf_node_wait)
+          (env, in_cf_node_wait, delay)
       | `Cycles 0 -> raise (TypeError "Invalid delay: #0 (n must be > 0 in #n)!")
-      | _ -> (StringMap.empty, in_cf_node)
+      | _ ->
+          BorrowEnv.transit env (delay :> Lifetime.event);
+          (StringMap.empty, in_cf_node, `Cycles 1)
       in
       let in_cf_node_body = ControlFlowGraph.new_node delay in
       ControlFlowGraph.add_successors in_cf_node_wait [in_cf_node_body];
       let superpos = if first_cycle_nonempty then
-        let new_cycle = codegen_context_new_cycle ctx delay in
+        let new_cycle = codegen_context_new_cycle ctx first_delay in
         (* connect cycles *)
         connect_cycles cur_cycles new_cycle.id;
         [([], new_cycle)]
       else
         cur_cycles
       in
-      codegen_expr ctx proc superpos in_cf_node_body
+      let superpos' =
+        match delay with
+        | `Cycles n ->
+          let cur_cycles = ref superpos in
+          (* n - 1 times *)
+          for _ = 2 to n do
+            let new_cycle = codegen_context_new_cycle ctx @@ `Cycles 1 in
+            connect_cycles !cur_cycles new_cycle.id;
+            cur_cycles := [([], new_cycle)]
+          done;
+          !cur_cycles
+        | _ -> superpos
+      in
+      codegen_expr ctx proc superpos' in_cf_node_body
         (BorrowEnv.add_bindings env init_bindings) false body
 
 let codegen_post_declare (ctx : codegen_context) (_proc : proc_def)=
