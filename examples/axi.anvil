@@ -34,6 +34,6 @@ type axi_resp = [
     | AxiReadResp of axi_read_resp
 ]
 
-chan axi {
-    out request : (axi_req@#1-#2) -> (axi_resp@#1-#2)
+chan axi = {
+    right request : (axi_req@#1-#2)
 }
