@@ -1,0 +1,11 @@
+type result = [
+    | good of logic[32]
+    | bad of logic[64]
+]
+
+proc demo() =
+    reg res : result
+    cycle then
+    let _ = set res := result::good 32'b1 in
+    cycle then
+    set res := result::bad 64'b0

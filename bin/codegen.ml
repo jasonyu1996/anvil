@@ -776,8 +776,53 @@ let rec codegen_expr (ctx : codegen_context) (proc : proc_def)
       List.iter codegen_assign expr_res.v;
       {v = []; superpos = expr_res.superpos; out_cf_node = in_cf_node'}
       (* assign evaluates to unit val *)
-  | Construct (_cstr_ident, _cstr_args) ->
-      raise (UnimplementedError "Construct expression unimplemented!")
+  | Construct (cstr_spec, cstr_expr_opt) ->
+      let dtype_opt = data_type_name_resolve ctx.cunit.type_defs @@ `Named cstr_spec.variant_ty_name in
+      (
+        match dtype_opt with
+        | Some(`Variant _ as dtype) ->
+            let e_dtype_opt = variant_lookup_dtype dtype cstr_spec.variant in
+            (
+              match e_dtype_opt, cstr_expr_opt with
+              | Some _e_dtype, Some cstr_expr ->
+                  let res = codegen_expr ctx proc cur_cycles in_cf_node env in_delay cstr_expr in
+                  let v = List.hd res.v in
+                  (* TODO: type check *)
+                  let w = codegen_context_new_wire ctx {dtype; lifetime = v.ty.lifetime} v.borrow_src in
+                  let tag_size = variant_tag_size dtype
+                  and var_idx = variant_lookup_index dtype cstr_spec.variant |> Option.get
+                  and data_range = variant_lookup_range dtype cstr_spec.variant ctx.cunit.type_defs |> Option.get
+                  and tot_size = data_type_size ctx.cunit.type_defs dtype in
+                  let expr_str_tag = Printf.sprintf "%d'd%d" tag_size var_idx
+                  and expr_str_tag_wire = Printf.sprintf "%s[%d:0]" w.name (tag_size - 1)
+                  and expr_str_data = v.name
+                  and expr_str_data_wire = Printf.sprintf "%s[%d:%d]" w.name data_range.ri data_range.le in
+                  codegen_context_new_assign ctx {wire = expr_str_tag_wire; expr_str = expr_str_tag};
+                  codegen_context_new_assign ctx {wire = expr_str_data_wire; expr_str = expr_str_data};
+                  if tot_size <> data_range.ri + 1 then
+                    let expr_str_unused = Printf.sprintf "'0"
+                    and expr_str_unused_wire = Printf.sprintf "%s[%d:%d]" w.name (tot_size - 1) (data_range.ri + 1) in
+                    codegen_context_new_assign ctx {wire = expr_str_unused_wire; expr_str = expr_str_unused}
+                  else ();
+                  {res with v = [w]}
+              | None, None ->
+                  let w = codegen_context_new_wire ctx {dtype; lifetime = sig_lifetime_const} []
+                  and tag_size = variant_tag_size dtype
+                  and var_idx = variant_lookup_index dtype cstr_spec.variant |> Option.get
+                  and tot_size = data_type_size ctx.cunit.type_defs dtype in
+                  let expr_str_tag = Printf.sprintf "%d'd%d" tag_size var_idx
+                  and expr_str_tag_wire = Printf.sprintf "%s[%d:0]" w.name (tag_size - 1) in
+                  codegen_context_new_assign ctx {wire = expr_str_tag_wire; expr_str = expr_str_tag};
+                  if tot_size <> tag_size then
+                    let expr_str_unused = Printf.sprintf "'0"
+                    and expr_str_unused_wire = Printf.sprintf "%s[%d:%d]" w.name (tot_size - 1) tag_size in
+                    codegen_context_new_assign ctx {wire = expr_str_unused_wire; expr_str = expr_str_unused}
+                  else ();
+                  {v = [w]; superpos = cur_cycles; out_cf_node = in_cf_node}
+              | _ -> raise (TypeError "Invalid constructor argument!")
+          )
+        | _ -> raise (TypeError "Invalid constructor!")
+      )
   | Index (e', ind) ->
       let expr_res = codegen_expr ctx proc cur_cycles in_cf_node env in_delay e' in
       let w_res = List.hd expr_res.v in

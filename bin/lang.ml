@@ -270,6 +270,10 @@ and recv_pack = {
   recv_binds: identifier list;
   recv_msg_spec: message_specifier;
 }
+and constructor_spec = {
+  variant_ty_name: identifier;
+  variant: identifier;
+}
 and delay_def = [ `Cycles of int | `Send of send_pack | `Recv of recv_pack ]
 and expr =
   | Literal of literal
@@ -286,7 +290,8 @@ and expr =
   | LetIn of identifier * expr * expr
   | Wait of delay_def * expr
   | IfExpr of expr * expr * expr
-  | Construct of identifier * expr (* construct a variant type with a constructor *)
+  (* construct a variant type value with a constructor *)
+  | Construct of constructor_spec * expr option
   | Index of expr * index
   | Indirect of expr * identifier
   | Concat of expr list

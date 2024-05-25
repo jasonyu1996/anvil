@@ -68,6 +68,7 @@
 %right EXCL_EQ DOUBLE_EQ
 %right KEYWORD_THEN KEYWORD_IN KEYWORD_ELSE
 %right COLON_EQ
+%right CONSTRUCT
 %left LEFT_BRACKET XOR AND OR PLUS MINUS
 %left PERIOD
 %nonassoc TILDE UMINUS UAND UOR
@@ -264,7 +265,13 @@ expr:
   { Lang.Match (e, match_arm_list) }
 | EXCL; reg_ident = IDENT
   { Lang.Read reg_ident }
-(* TODO: constructor *)
+| constructor_spec = constructor_spec; e = ioption(expr)
+  { Lang.Construct (constructor_spec, e) } %prec CONSTRUCT
+;
+
+constructor_spec:
+  ty = IDENT; DOUBLE_COLON; variant = IDENT
+  { let open Lang in {variant_ty_name = ty; variant} }
 ;
 
 send_pack:
@@ -319,14 +326,14 @@ bin_expr:
 ;
 
 un_expr:
-| MINUS; e = expr %prec UMINUS
-  { Lang.Unop (Lang.Neg, e) }
+| MINUS; e = expr
+  { Lang.Unop (Lang.Neg, e) } %prec UMINUS
 | TILDE; e = expr
   { Lang.Unop (Lang.Not, e) }
-| AND; e = expr %prec UAND
-  { Lang.Unop (Lang.AndAll, e) }
-| OR; e = expr %prec UOR
-  { Lang.Unop (Lang.OrAll, e) }
+| AND; e = expr
+  { Lang.Unop (Lang.AndAll, e) } %prec UAND
+| OR; e = expr
+  { Lang.Unop (Lang.OrAll, e) } %prec UOR
 ;
 
 lvalue:
