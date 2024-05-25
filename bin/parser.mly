@@ -58,11 +58,14 @@
 %token KEYWORD_REG          (* reg *)
 %token KEYWORD_SPAWN        (* spawn *)
 %token KEYWORD_TRY          (* try *)
+%token KEYWORD_DPRINT       (* dprint *)
+%token KEYWORD_DFINISH      (* dfinish *)
 %token <int>INT             (* int literal *)
 %token <string>IDENT        (* identifier *)
 %token <string>BIT_LITERAL  (* bit literal *)
 %token <string>DEC_LITERAL  (* decimal literal *)
 %token <string>HEX_LITERAL  (* hexadecimal literal *)
+%token <string>STR_LITERAL
 %right LEFT_ABRACK RIGHT_ABRACK LEFT_ABRACK_EQ RIGHT_ABRACK_EQ
 %right DOUBLE_LEFT_ABRACK DOUBLE_RIGHT_ABRACK
 %right EXCL_EQ DOUBLE_EQ
@@ -269,6 +272,11 @@ expr:
   { Anvil.Lang.Read reg_ident }
 | constructor_spec = constructor_spec; e = ioption(expr)
   { Anvil.Lang.Construct (constructor_spec, e) } %prec CONSTRUCT
+  (* debug operations *)
+| KEYWORD_DPRINT; s = STR_LITERAL; LEFT_PAREN; v = separated_list(COMMA, expr); RIGHT_PAREN
+  { Anvil.Lang.Debug (Anvil.Lang.DebugPrint (s, v)) }
+| KEYWORD_DFINISH
+  { Anvil.Lang.Debug Anvil.Lang.DebugFinish }
 ;
 
 constructor_spec:

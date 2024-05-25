@@ -1,1 +1,6 @@
-proc top() = cycle then 1'b0
+proc top() =
+    cycle then
+    let answer = 8'd42 in
+    dprint "Hello Anvil! Answer = %d" (answer);
+    cycle then
+    dfinish

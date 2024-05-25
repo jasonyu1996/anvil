@@ -4,7 +4,7 @@ TEST_DRIVER = sim_main.cpp
 
 all: obj_dir/V$(MODULE_NAME)
 
-.PHONY: run
+.PHONY: run clean
 
 $(MODULE_NAME).sv: $(MODULE_NAME).anvil
 	dune exec anvil $< > $@
@@ -14,3 +14,6 @@ obj_dir/V$(MODULE_NAME): $(MODULE_NAME).sv
 
 run: obj_dir/V$(MODULE_NAME)
 	$<
+
+clean: $(MODULE_NAME).sv obj_dir
+	rm -rf $^

@@ -100,6 +100,7 @@ type cycle_node = {
   id: cycle_id;
   delay: delay_def;
   mutable next_switch: (string * cycle_id) list;
+  mutable debug_statements: string list;
 }
 and superposition = (condition list * cycle_node) list
 and reg_assign = {
@@ -334,6 +335,7 @@ let codegen_context_new_cycle (ctx : codegen_context) (delay : delay_def) : cycl
     id = ctx.cycles_n;
     delay = delay;
     next_switch = [];
+    debug_statements = [];
   } in
   ctx.cycles_n <- ctx.cycles_n + 1;
   ctx.cycles <- new_cycle::ctx.cycles;
@@ -470,7 +472,7 @@ let format_lval_next (lval : lvalue_evaluated) : string =
     | Some {le = offset_le; ri = offset_ri} -> Printf.sprintf "[%d:%d]" offset_ri offset_le
   in (format_regname_next lval.ident) ^ ind_str
 
-let codegen_state_transition (regs : reg_def list) =
+let codegen_state_transition (ctx : codegen_context) (regs : reg_def list) =
   match regs with
   | [] -> ()
   | _ ->
@@ -481,12 +483,33 @@ let codegen_state_transition (regs : reg_def list) =
       Printf.printf "      %s <= %s;\n" (format_regname_current r.name) init_val_str
     in List.iter codegen_reg_reset regs;
     print_endline "    end else begin";
+
+    (* print out debug statements *)
+    if ctx.cycles_n > 1 then
+      Printf.printf "      unique case (_st_q)\n"
+    else ();
+    let print_cycle_debug_statements (cycle : cycle_node) =
+      if ctx.cycles_n > 1 then
+        Printf.printf "        %s: begin\n" @@ format_statename cycle.id
+      else ();
+      List.iter (Printf.printf "          %s\n") cycle.debug_statements;
+      if ctx.cycles_n > 1 then
+        Printf.printf "        end\n"
+      else ()
+    in
+    List.iter print_cycle_debug_statements ctx.cycles;
+    if ctx.cycles_n > 1 then
+      Printf.printf "      endcase\n"
+    else ();
+
     let codegen_reg_next = fun (r: reg_def) ->
       Printf.printf "      %s <= %s;\n"
         (format_regname_current r.name) (format_regname_next r.name)
     in List.iter codegen_reg_next regs;
     print_endline "    end";
     print_endline "  end"
+
+
 
 let codegen_regs_declare (ctx : codegen_context) (regs : reg_def list) =
   let codegen_reg = fun (r: reg_def) ->
@@ -500,9 +523,9 @@ let print_assign (a : assign) =
 
 let string_of_literal (lit : literal) =
   match lit with
-  | Binary (len, b) -> Printf.sprintf "%d'b%s" len (List.map string_of_digit b |> String.concat "")
-  | Decimal (len, d) -> Printf.sprintf "%d'd%s" len (List.map string_of_digit d |> String.concat "")
-  | Hexadecimal (len, h) -> Printf.sprintf "%d'h%s" len (List.map string_of_digit h |> String.concat "")
+  | Binary (len, b) -> Printf.sprintf "%d'b%s" len (List.map string_of_digit b |> List.rev |> String.concat "")
+  | Decimal (len, d) -> Printf.sprintf "%d'd%s" len (List.map string_of_digit d |> List.rev |> String.concat "")
+  | Hexadecimal (len, h) -> Printf.sprintf "%d'h%s" len (List.map string_of_digit h |> List.rev |> String.concat "")
   | NoLength n -> string_of_int n
 
 let get_identifier_dtype (_ctx : codegen_context) (proc : proc_def) (ident : identifier) : data_type option =
@@ -539,6 +562,16 @@ let connect_cycles (superpos : superposition) (cycle_id : cycle_id) : unit =
     let new_switch_entry = (format_condition_list conds, cycle_id) in
     prev_cycle.next_switch <- new_switch_entry::prev_cycle.next_switch in
   List.iter connect_cycle superpos
+
+let cycle_add_debug_statement (superpos : superposition) (unconditioned : string) : unit =
+  let add_debug_statement ((conds, cycle) : (condition list * cycle_node)) =
+    let cond_str = (format_condition_list conds) in
+    let if_cond_str = if cond_str <> "" then Printf.sprintf "if (%s) " cond_str else "" in
+    let full_statement = Printf.sprintf "%s%s" if_cond_str unconditioned in
+    cycle.debug_statements <- full_statement::cycle.debug_statements
+  in
+  List.iter add_debug_statement superpos
+
 
 let rec evaluate_lvalue (ctx : codegen_context) (proc : proc_def) (lval : lvalue) : lvalue_evaluated option =
   let ( let* ) = Option.bind in
@@ -598,10 +631,26 @@ let expr_debug_dump (e : expr) (config : Config.compile_config) : unit =
       | Match _ -> "match"
       | Assign _ -> "assign"
       | Tuple _ -> "tuple"
+      | Debug _ -> "debug"
     ) |> Printf.sprintf "Expr: %s" |> Config.debug_println config;
   end
 
-let rec codegen_expr (ctx : codegen_context) (proc : proc_def)
+let rec codegen_expr_list (ctx : codegen_context) (proc : proc_def)
+                     (cur_cycles : superposition) (* possible cycles the start of the expression is in *)
+                     (in_cf_node : ControlFlowGraph.node)
+                     (env : borrow_env)
+                     (in_delay : bool) (elist : expr list)
+                     : expr_result list * superposition * ControlFlowGraph.node  =
+  let cur_superpos = ref cur_cycles
+  and cur_in_cf_node = ref in_cf_node in
+  let comp_res = List.map (
+    fun x ->
+    let v = codegen_expr ctx proc !cur_superpos !cur_in_cf_node env in_delay x in
+    cur_superpos := v.superpos;
+    cur_in_cf_node := v.out_cf_node;
+    v) elist in
+  (comp_res, !cur_superpos, !cur_in_cf_node)
+and codegen_expr (ctx : codegen_context) (proc : proc_def)
                      (cur_cycles : superposition) (* possible cycles the start of the expression is in *)
                      (in_cf_node : ControlFlowGraph.node)
                      (env : borrow_env)
@@ -841,14 +890,8 @@ let rec codegen_expr (ctx : codegen_context) (proc : proc_def)
       codegen_context_new_assign ctx {wire = new_w.name; expr_str = expr_str};
       {expr_res with v = [new_w]}
   | Concat components ->
-      let cur_superpos = ref cur_cycles
-      and cur_in_cf_node = ref in_cf_node in
-      let comp_res = List.map (
-        fun x ->
-        let v = codegen_expr ctx proc !cur_superpos !cur_in_cf_node env in_delay x in
-        cur_superpos := v.superpos;
-        cur_in_cf_node := v.out_cf_node;
-        v) components in
+      let (comp_res, cur_superpos, cur_in_cf_node) =
+        codegen_expr_list ctx proc cur_cycles in_cf_node env in_delay components in
       let wires = List.map (fun x -> List.hd x.v) comp_res in
       let borrow_src = let open Wire in List.concat_map (fun x -> x.borrow_src) wires in
       let (size, lt) = List.fold_left
@@ -857,7 +900,7 @@ let rec codegen_expr (ctx : codegen_context) (proc : proc_def)
       let new_w = codegen_context_new_wire ctx {dtype =`Array (`Logic, size); lifetime = lt} borrow_src in
       let expr_str = List.map (fun (x: wire_def) -> x.name) wires |> String.concat ", " |>  Printf.sprintf "{%s}" in
       codegen_context_new_assign ctx {wire = new_w.name; expr_str = expr_str};
-      {v = [new_w]; superpos = !cur_superpos; out_cf_node = !cur_in_cf_node}
+      {v = [new_w]; superpos = cur_superpos; out_cf_node = cur_in_cf_node}
   | Match (e', match_arm_list) ->
       let expr_res = codegen_expr ctx proc cur_cycles in_cf_node env in_delay e' in
       let in_cf_node' = expr_res.out_cf_node in
@@ -973,6 +1016,28 @@ let rec codegen_expr (ctx : codegen_context) (proc : proc_def)
       in
       codegen_expr ctx proc superpos' in_cf_node_body
         (BorrowEnv.add_bindings ctx.binding_versions env init_bindings) false body
+  | Debug debug_op ->
+      (
+        match debug_op with
+        | DebugPrint (fmt, vlist) ->
+            let (comp_res, cur_superpos, cur_in_cf_node) =
+              codegen_expr_list ctx proc cur_cycles in_cf_node env in_delay vlist in
+            let wires = List.map (fun x -> List.hd x.v) comp_res in
+            if List.exists (fun x -> not @@ Wire.live_now x) wires then
+              raise (BorrowCheckError "Attempting to print dead signal!")
+            else ();
+            let args = List.map (fun (x: wire_def) -> x.name) wires |> String.concat ", " in
+            let statement = if args <> "" then
+              Printf.sprintf "$display(\"%s\", %s);" fmt args
+            else
+              Printf.sprintf "$display(\"%s\");" fmt
+            in
+            cycle_add_debug_statement cur_superpos statement;
+            {v = []; superpos = cur_superpos; out_cf_node = cur_in_cf_node}
+        | DebugFinish ->
+            cycle_add_debug_statement cur_cycles "$finish;";
+            {v = []; superpos = cur_cycles; out_cf_node = in_cf_node}
+      )
 
 let codegen_post_declare (ctx : codegen_context) (_proc : proc_def)=
   (* wire declarations *)
@@ -1029,7 +1094,6 @@ let codegen_state_machine (ctx : codegen_context) (proc : proc_def) =
           Printf.printf "      %s: begin\n" (format_statename cycle.id)
         else ();
 
-
         (* if has blocking send, set the valid indicator *)
         let transition_cond = match cycle.delay with
         | `Cycles _ -> None
@@ -1079,24 +1143,22 @@ let codegen_state_machine (ctx : codegen_context) (proc : proc_def) =
             Printf.printf "        %s%s = %s;\n" cond_str (format_lval_next assign.lval) assign.expr_str
           else ()
         in
-        begin
-          List.iter assign_reg ctx.reg_assigns;
+        List.iter assign_reg ctx.reg_assigns;
 
-          if state_cnt > 1 then
-          begin
-            (* state transition *)
-            print_string transition_begin;
-            (* default next state *)
-            let cond_next_state = fun (w_cond, c) ->
-              if w_cond = "" then
-                Printf.printf "          _st_n = %s;\n" @@ format_statename c
-              else
-                Printf.printf "          if (%s) _st_n = %s;\n" w_cond @@ format_statename c
-            in List.iter cond_next_state cycle.next_switch;
-            print_string transition_end;
-            print_endline "      end"
-          end else ()
-        end
+        if state_cnt > 1 then
+        begin
+          (* state transition *)
+          print_string transition_begin;
+          (* default next state *)
+          let cond_next_state = fun (w_cond, c) ->
+            if w_cond = "" then
+              Printf.printf "          _st_n = %s;\n" @@ format_statename c
+            else
+              Printf.printf "          if (%s) _st_n = %s;\n" w_cond @@ format_statename c
+          in List.iter cond_next_state cycle.next_switch;
+          print_string transition_end;
+          print_endline "      end"
+        end else ()
       in List.iter codegen_cycle ctx.cycles;
       if state_cnt > 1 then
         print_endline "    endcase"
@@ -1204,7 +1266,7 @@ let codegen_proc ctx (proc : proc_def) =
   else proc.body.regs in
   begin
     codegen_regs_declare ctx regs;
-    codegen_state_transition regs
+    codegen_state_transition ctx regs
   end;
   codegen_post_declare ctx proc;
 

@@ -75,6 +75,8 @@ rule read =
   | "reg"     { KEYWORD_REG }
   | "spawn"   { KEYWORD_SPAWN }
   | "try"     { KEYWORD_TRY }
+  | "dprint"  { KEYWORD_DPRINT }
+  | "dfinish" { KEYWORD_DFINISH }
   | int       { let n = Lexing.lexeme lexbuf |> int_of_string in INT n }
   | ident     { IDENT (Lexing.lexeme lexbuf) }
   | bit_literal { BIT_LITERAL (Lexing.lexeme lexbuf) }
@@ -83,6 +85,7 @@ rule read =
   | eof       { EOF }
   | "/*"      { skip_comments lexbuf }
   | "//"      { skip_inline_comments lexbuf }
+  | '"'       { read_string (Buffer.create 32) lexbuf }
   | _         { raise (SyntaxError (Lexing.lexeme lexbuf |> Printf.sprintf "Unknown character: %s"))}
 and skip_comments =
   parse
@@ -94,3 +97,10 @@ and skip_inline_comments =
   | newline  { Lexing.new_line lexbuf; read lexbuf }
   | _         { skip_inline_comments lexbuf }
   | eof       { EOF }
+and read_string buf =
+  parse
+  | newline { raise (SyntaxError "End of line in string") }
+  | eof     { raise (SyntaxError "End of file in string") }
+  | '"'     { STR_LITERAL (Buffer.contents buf) }
+  | "\\\""  { Buffer.add_string buf (Lexing.lexeme lexbuf); read_string buf lexbuf }
+  | _       { Buffer.add_string buf (Lexing.lexeme lexbuf); read_string buf lexbuf }

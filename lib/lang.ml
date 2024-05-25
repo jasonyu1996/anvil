@@ -297,6 +297,7 @@ and expr =
   | Concat of expr list
   | Match of expr * ((match_pattern * expr option) list)
   | Read of identifier
+  | Debug of debug_op
 and lvalue =
   | Reg of identifier
   | Indexed of lvalue * index (* lvalue[index] *)
@@ -308,6 +309,9 @@ and match_pattern = {
   cstr: identifier; (* constructor identifier *)
   bind_name: identifier option; (* name of the binding for the unboxed value *)
 }
+and debug_op =
+  | DebugPrint of string * expr list
+  | DebugFinish
 
 let string_of_delay (delay : delay_def) : string =
   match delay with
