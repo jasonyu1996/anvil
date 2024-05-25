@@ -72,18 +72,18 @@
 %left LEFT_BRACKET XOR AND OR PLUS MINUS
 %left PERIOD
 %nonassoc TILDE UMINUS UAND UOR
-%start <Lang.compilation_unit> cunit
+%start <Anvil.Lang.compilation_unit> cunit
 %%
 
 cunit:
 | EOF
-  { Lang.cunit_empty }
+  { Anvil.Lang.cunit_empty }
 | p = proc_def; c = cunit
-  { Lang.cunit_add_proc c p }
+  { Anvil.Lang.cunit_add_proc c p }
 | ty = type_def; c = cunit
-  { Lang.cunit_add_type_def c ty }
+  { Anvil.Lang.cunit_add_type_def c ty }
 | cc = channel_class_def; c = cunit
-  { Lang.cunit_add_channel_class c cc }
+  { Anvil.Lang.cunit_add_channel_class c cc }
 ;
 
 proc_def:
@@ -94,14 +94,14 @@ proc_def:
       name = ident;
       args = args;
       body = body;
-    } : Lang.proc_def
+    } : Anvil.Lang.proc_def
   }
 ;
 
 proc_def_body:
 | prog = expr
   {
-    let open Lang in {
+    let open Anvil.Lang in {
       channels = [];
       spawns = [];
       regs = [];
@@ -110,22 +110,22 @@ proc_def_body:
   }
 | KEYWORD_CHAN; chan_def = channel_def; body = proc_def_body
   {
-    let open Lang in {body with channels = chan_def::(body.channels)}
+    let open Anvil.Lang in {body with channels = chan_def::(body.channels)}
   }
 | KEYWORD_REG; reg_def = reg_def; body = proc_def_body
   {
-    let open Lang in {body with regs = reg_def::(body.regs)}
+    let open Anvil.Lang in {body with regs = reg_def::(body.regs)}
   }
 | KEYWORD_SPAWN; spawn_def = spawn; body = proc_def_body
   {
-    let open Lang in {body with spawns = spawn_def::(body.spawns)}
+    let open Anvil.Lang in {body with spawns = spawn_def::(body.spawns)}
   }
 ;
 
 type_def:
   KEYWORD_TYPE; name = IDENT; EQUAL; dtype = data_type
   {
-    { name = name; body = dtype } : Lang.type_def
+    { name = name; body = dtype } : Anvil.Lang.type_def
   }
 ;
 
@@ -135,7 +135,7 @@ channel_class_def:
     {
       name = ident;
       messages = messages;
-    } : Lang.channel_class_def
+    } : Anvil.Lang.channel_class_def
   }
 ;
 
@@ -153,7 +153,7 @@ proc_def_arg:
       dir = chan_dir;
       foreign = foreign;
       opp = None;
-    } : Lang.endpoint_def
+    } : Anvil.Lang.endpoint_def
   }
 ;
 
@@ -164,9 +164,9 @@ foreign_tag:
 
 channel_direction:
 | KEYWORD_LEFT
-  { Lang.Left }
+  { Anvil.Lang.Left }
 | KEYWORD_RIGHT
-  { Lang.Right }
+  { Anvil.Lang.Right }
 ;
 
 channel_def:
@@ -175,16 +175,16 @@ channel_def:
   chan_class = IDENT
   {
     let visibility = match left_foreign, right_foreign with
-      | true, true -> Lang.BothForeign
-      | false, true -> Lang.RightForeign
-      | _ -> Lang.LeftForeign
+      | true, true -> Anvil.Lang.BothForeign
+      | false, true -> Anvil.Lang.RightForeign
+      | _ -> Anvil.Lang.LeftForeign
     in
     {
       channel_class = chan_class;
       endpoint_left = left_endpoint;
       endpoint_right = right_endpoint;
       visibility = visibility;
-    } : Lang.channel_def
+    } : Anvil.Lang.channel_def
   }
 ;
 
@@ -194,7 +194,7 @@ spawn:
     {
       proc = proc;
       params = params;
-    } : Lang.spawn_def
+    } : Anvil.Lang.spawn_def
   }
 ;
 
@@ -205,26 +205,26 @@ reg_def:
       name = ident;
       dtype = dtype;
       init = None;
-    } : Lang.reg_def
+    } : Anvil.Lang.reg_def
   }
 ;
 
 term:
 | literal_str = BIT_LITERAL
-  { Lang.Literal (ParserHelper.bit_literal_of_string literal_str) }
+  { Anvil.Lang.Literal (ParserHelper.bit_literal_of_string literal_str) }
 | literal_str = DEC_LITERAL
-  { Lang.Literal (ParserHelper.dec_literal_of_string literal_str) }
+  { Anvil.Lang.Literal (ParserHelper.dec_literal_of_string literal_str) }
 | literal_str = HEX_LITERAL
-  { Lang.Literal (ParserHelper.hex_literal_of_string literal_str) }
+  { Anvil.Lang.Literal (ParserHelper.hex_literal_of_string literal_str) }
 | literal_val = INT
-  { Lang.Literal (Lang.NoLength literal_val)}
+  { Anvil.Lang.Literal (Anvil.Lang.NoLength literal_val)}
 | ident = IDENT
-  { Lang.Identifier ident }
+  { Anvil.Lang.Identifier ident }
 ;
 
 expr:
 | KEYWORD_SET; lval = lvalue; COLON_EQ; v = expr
-  { Lang.Assign (lval, v) }
+  { Anvil.Lang.Assign (lval, v) }
 | e = term
   { e }
 | e = un_expr
@@ -232,48 +232,48 @@ expr:
 | e = bin_expr
   { e }
 // | LEFT_PAREN; tuple = separated_list(COMMA, expr); RIGHT_PAREN
-//   { Lang.Tuple tuple }
+//   { Anvil.Lang.Tuple tuple }
 | LEFT_PAREN; e = expr; RIGHT_PAREN
   { e }
 | KEYWORD_LET; binding = IDENT; EQUAL; v = expr; KEYWORD_IN; body = expr
-  { Lang.LetIn (binding, v, body) }
+  { Anvil.Lang.LetIn (binding, v, body) }
 | v = expr; SEMICOLON; body = expr
-  { Lang.LetIn ("_", v, body) } // TODO: check that the result is of unit type
+  { Anvil.Lang.LetIn ("_", v, body) } // TODO: check that the result is of unit type
 | KEYWORD_WAIT; KEYWORD_SEND; send_pack = send_pack; KEYWORD_THEN; body = expr
-  { Lang.Wait (`Send send_pack, body) }
+  { Anvil.Lang.Wait (`Send send_pack, body) }
 | KEYWORD_WAIT; KEYWORD_RECV; recv_pack = recv_pack; KEYWORD_THEN; body = expr
-  { Lang.Wait (`Recv recv_pack, body) }
+  { Anvil.Lang.Wait (`Recv recv_pack, body) }
 | KEYWORD_CYCLE; SHARP n = INT; KEYWORD_THEN; body = expr
-  { Lang.Wait (`Cycles n, body) }
+  { Anvil.Lang.Wait (`Cycles n, body) }
 | KEYWORD_CYCLE; KEYWORD_THEN; body = expr
-  { Lang.Wait (Lang.delay_single_cycle, body) }
+  { Anvil.Lang.Wait (Anvil.Lang.delay_single_cycle, body) }
 | KEYWORD_IF; cond = expr; KEYWORD_THEN; then_v = expr; KEYWORD_ELSE; else_v = expr
-  { Lang.IfExpr (cond, then_v, else_v) }
+  { Anvil.Lang.IfExpr (cond, then_v, else_v) }
 | KEYWORD_TRY; KEYWORD_SEND; send_pack = send_pack; KEYWORD_THEN;
   succ_expr = expr; KEYWORD_ELSE; fail_expr = expr
-  { Lang.TrySend (send_pack, succ_expr, fail_expr) }
+  { Anvil.Lang.TrySend (send_pack, succ_expr, fail_expr) }
 | KEYWORD_TRY; KEYWORD_RECV; recv_pack = recv_pack; KEYWORD_THEN;
   succ_expr = expr; KEYWORD_ELSE; fail_expr = expr
   {
-    Lang.TryRecv (recv_pack, succ_expr, fail_expr)
+    Anvil.Lang.TryRecv (recv_pack, succ_expr, fail_expr)
   }
 | e = expr; LEFT_BRACKET; ind = index; RIGHT_BRACKET
-  { Lang.Index (e, ind) }
+  { Anvil.Lang.Index (e, ind) }
 | e = expr; PERIOD; fieldname = IDENT
-  { Lang.Indirect (e, fieldname) }
+  { Anvil.Lang.Indirect (e, fieldname) }
 | LEFT_BRACE; components = separated_list(COMMA, expr); RIGHT_BRACE
-  { Lang.Concat components }
+  { Anvil.Lang.Concat components }
 | KEYWORD_MATCH; e = expr; KEYWORD_WITH; match_arm_list = match_arm+; KEYWORD_DONE
-  { Lang.Match (e, match_arm_list) }
+  { Anvil.Lang.Match (e, match_arm_list) }
 | EXCL; reg_ident = IDENT
-  { Lang.Read reg_ident }
+  { Anvil.Lang.Read reg_ident }
 | constructor_spec = constructor_spec; e = ioption(expr)
-  { Lang.Construct (constructor_spec, e) } %prec CONSTRUCT
+  { Anvil.Lang.Construct (constructor_spec, e) } %prec CONSTRUCT
 ;
 
 constructor_spec:
   ty = IDENT; DOUBLE_COLON; variant = IDENT
-  { let open Lang in {variant_ty_name = ty; variant} }
+  { let open Anvil.Lang in {variant_ty_name = ty; variant} }
 ;
 
 send_pack:
@@ -281,8 +281,8 @@ send_pack:
   LEFT_PAREN; data = expr; RIGHT_PAREN
   {
     {
-      Lang.send_msg_spec = msg_specifier;
-      Lang.send_data = data;
+      Anvil.Lang.send_msg_spec = msg_specifier;
+      Anvil.Lang.send_data = data;
     }
   }
 ;
@@ -292,68 +292,68 @@ recv_pack:
   msg_specifier = message_specifier
   {
     {
-      Lang.recv_binds = bindings;
-      Lang.recv_msg_spec = msg_specifier
+      Anvil.Lang.recv_binds = bindings;
+      Anvil.Lang.recv_msg_spec = msg_specifier
     }
   }
 ;
 
 bin_expr:
 | v1 = expr; DOUBLE_EQ; v2 = expr
-  { Lang.Binop (Lang.Eq, v1, v2) }
+  { Anvil.Lang.Binop (Anvil.Lang.Eq, v1, v2) }
 | v1 = expr; EXCL_EQ; v2 = expr
-  { Lang.Binop (Lang.Neq, v1, v2) }
+  { Anvil.Lang.Binop (Anvil.Lang.Neq, v1, v2) }
 | v1 = expr; DOUBLE_LEFT_ABRACK; v2 = expr
-  { Lang.Binop (Lang.Shl, v1, v2) }
+  { Anvil.Lang.Binop (Anvil.Lang.Shl, v1, v2) }
 | v1 = expr; DOUBLE_RIGHT_ABRACK; v2 = expr
-  { Lang.Binop (Lang.Shr, v1, v2) }
+  { Anvil.Lang.Binop (Anvil.Lang.Shr, v1, v2) }
 | v1 = expr; LEFT_ABRACK; v2 = expr
-  { Lang.Binop (Lang.Lt, v1, v2) }
+  { Anvil.Lang.Binop (Anvil.Lang.Lt, v1, v2) }
 | v1 = expr; RIGHT_ABRACK; v2 = expr
-  { Lang.Binop (Lang.Gt, v1, v2) }
+  { Anvil.Lang.Binop (Anvil.Lang.Gt, v1, v2) }
 | v1 = expr; LEFT_ABRACK_EQ; v2 = expr
-  { Lang.Binop (Lang.Lte, v1, v2) }
+  { Anvil.Lang.Binop (Anvil.Lang.Lte, v1, v2) }
 | v1 = expr; RIGHT_ABRACK_EQ; v2 = expr
-  { Lang.Binop (Lang.Gte, v1, v2) }
+  { Anvil.Lang.Binop (Anvil.Lang.Gte, v1, v2) }
 | v1 = expr; PLUS; v2 = expr
-  { Lang.Binop (Lang.Add, v1, v2) }
+  { Anvil.Lang.Binop (Anvil.Lang.Add, v1, v2) }
 | v1 = expr; MINUS; v2 = expr
-  { Lang.Binop (Lang.Sub, v1, v2) }
+  { Anvil.Lang.Binop (Anvil.Lang.Sub, v1, v2) }
 | v1 = expr; XOR; v2 = expr
-  { Lang.Binop (Lang.Xor, v1, v2) }
+  { Anvil.Lang.Binop (Anvil.Lang.Xor, v1, v2) }
 | v1 = expr; AND; v2 = expr
-  { Lang.Binop (Lang.And, v1, v2) }
+  { Anvil.Lang.Binop (Anvil.Lang.And, v1, v2) }
 | v1 = expr; OR; v2 = expr
-  { Lang.Binop (Lang.Or, v1, v2) }
+  { Anvil.Lang.Binop (Anvil.Lang.Or, v1, v2) }
 ;
 
 un_expr:
 | MINUS; e = expr
-  { Lang.Unop (Lang.Neg, e) } %prec UMINUS
+  { Anvil.Lang.Unop (Anvil.Lang.Neg, e) } %prec UMINUS
 | TILDE; e = expr
-  { Lang.Unop (Lang.Not, e) }
+  { Anvil.Lang.Unop (Anvil.Lang.Not, e) }
 | AND; e = expr
-  { Lang.Unop (Lang.AndAll, e) } %prec UAND
+  { Anvil.Lang.Unop (Anvil.Lang.AndAll, e) } %prec UAND
 | OR; e = expr
-  { Lang.Unop (Lang.OrAll, e) } %prec UOR
+  { Anvil.Lang.Unop (Anvil.Lang.OrAll, e) } %prec UOR
 ;
 
 lvalue:
 | regname = IDENT
-  { Lang.Reg regname }
+  { Anvil.Lang.Reg regname }
 | lval = lvalue; LEFT_BRACKET; ind = index; RIGHT_BRACKET
-  { Lang.Indexed (lval, ind) }
+  { Anvil.Lang.Indexed (lval, ind) }
 | lval = lvalue; PERIOD; fieldname = IDENT
-  { Lang.Indirected (lval, fieldname) }
+  { Anvil.Lang.Indirected (lval, fieldname) }
 | LEFT_PAREN; lval = lvalue; RIGHT_PAREN
   { lval }
 ;
 
 index:
 | i = expr
-  { Lang.Single i }
+  { Anvil.Lang.Single i }
 | le = expr; COLON; ri = expr
-  { Lang.Range (le, ri) }
+  { Anvil.Lang.Range (le, ri) }
 ;
 
 match_arm:
@@ -364,7 +364,7 @@ match_arm:
 match_pattern:
   cstr = IDENT; bind_name_opt = IDENT?
   {
-    { cstr; bind_name = bind_name_opt } : Lang.match_pattern
+    { cstr; bind_name = bind_name_opt } : Anvil.Lang.match_pattern
   }
 ;
 
@@ -378,15 +378,15 @@ message_def:
   send_sync_mode_opt = message_sync_mode_spec?;
   recv_sync_mode_opt = recv_message_sync_mode_spec?
   {
-    let send_sync_mode = Option.value ~default:Lang.Dynamic send_sync_mode_opt
-    and recv_sync_mode = Option.value ~default:Lang.Dynamic recv_sync_mode_opt in
+    let send_sync_mode = Option.value ~default:Anvil.Lang.Dynamic send_sync_mode_opt
+    and recv_sync_mode = Option.value ~default:Anvil.Lang.Dynamic recv_sync_mode_opt in
     {
       name = ident;
       dir = dir;
       send_sync = send_sync_mode;
       recv_sync = recv_sync_mode;
       sig_types = data;
-    } : Lang.message_def
+    } : Anvil.Lang.message_def
   }
 ;
 
@@ -398,40 +398,40 @@ recv_message_sync_mode_spec:
 message_sync_mode_spec:
 | AT; t = timestamp_chan_local
   {
-    Lang.Dependent t
+    Anvil.Lang.Dependent t
   }
 | AT; KEYWORD_DYN
   {
-    Lang.Dynamic
+    Anvil.Lang.Dynamic
   }
 ;
 
 message_direction:
 | KEYWORD_LEFT
-  { Lang.In }
+  { Anvil.Lang.In }
 | KEYWORD_RIGHT
-  { Lang.Out }
+  { Anvil.Lang.Out }
 ;
 
 sig_type:
   dtype = data_type; AT; lifetime_opt = lifetime_spec?
   {
-    let lifetime = Option.value ~default:Lang.sig_lifetime_this_cycle lifetime_opt in
+    let lifetime = Option.value ~default:Anvil.Lang.sig_lifetime_this_cycle lifetime_opt in
     {
       dtype = dtype;
       lifetime = lifetime;
-    } : Lang.sig_type
+    } : Anvil.Lang.sig_type
   }
 ;
 
 sig_type_chan_local:
   dtype = data_type; AT; lifetime_opt = lifetime_spec_chan_local?
   {
-    let lifetime = Option.value ~default:Lang.sig_lifetime_this_cycle_chan_local lifetime_opt in
+    let lifetime = Option.value ~default:Anvil.Lang.sig_lifetime_this_cycle_chan_local lifetime_opt in
     {
       dtype = dtype;
       lifetime = lifetime;
-    } : Lang.sig_type_chan_local
+    } : Anvil.Lang.sig_type_chan_local
   }
 ;
 
@@ -471,7 +471,7 @@ lifetime_spec:
     {
       b = b_time;
       e = e_time;
-    } : Lang.sig_lifetime
+    } : Anvil.Lang.sig_lifetime
   }
 ;
 
@@ -481,7 +481,7 @@ lifetime_spec_chan_local:
     {
       b = b_time;
       e = e_time;
-    } : Lang.sig_lifetime_chan_local
+    } : Anvil.Lang.sig_lifetime_chan_local
   }
 ;
 
@@ -510,6 +510,6 @@ message_specifier:
     {
       endpoint = endpoint;
       msg = msg;
-    } : Lang.message_specifier
+    } : Anvil.Lang.message_specifier
   }
 ;
