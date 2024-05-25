@@ -1,0 +1,1 @@
+proc top() = cycle then 1'b0
