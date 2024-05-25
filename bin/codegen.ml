@@ -129,30 +129,50 @@ module BorrowEnv = struct
   }
 
   type t = {
-    bindings: wire_def string_map;
+    bindings: (wire_def * int) string_map; (* wire and version number *)
+    retired_bindings: wire_def string_map; (* name$version -> wire *)
     borrows: borrow_info list ref;
   }
 
+  type binding_version_map = int string_map
+
   let merge (a : t) (b : t) : t =
     let bindings_merge _idx op1 op2 =
-      match op1, op2 with
-      | Some u, Some v ->
-          Some (Wire.merge u v)
-      | _ -> raise (BorrowEnvException "Invalid arguments for merging borrowing environment!")
-      in
-    let new_bindings = StringMap.merge bindings_merge (a.bindings) (b.bindings) in
+      ( match op1, op2 with
+        | Some (u, u_ver), Some (v, v_ver) ->
+            assert (u_ver = v_ver);
+            Some (Wire.merge u v, u_ver)
+        | _ -> raise (BorrowEnvException "Invalid arguments for merging borrowing environment!")
+      )
+    and retired_merge _idx op1 op2 =
+      (
+        match op1, op2 with
+        | Some u, Some v ->
+            Some (Wire.merge u v)
+        | _ -> raise (BorrowEnvException "Invalid arguments for merging borrowing environment!")
+      )
+    in
+    let new_bindings = StringMap.merge bindings_merge a.bindings b.bindings
+    and new_retired = StringMap.merge retired_merge a.retired_bindings b.retired_bindings in
     let new_borrows = !(a.borrows) @ !(b.borrows) in
-    {bindings = new_bindings; borrows = ref new_borrows}
+    {bindings = new_bindings; retired_bindings = new_retired; borrows = ref new_borrows}
 
   let assign (env : t) (other : t) : unit =
-    let update_binding s (w : wire_def) =
-      let o = StringMap.find s other.bindings in
-      w.ty <- o.ty
+    let update_binding s ((w, v) : (wire_def * int)) =
+      let (ow, ov) = StringMap.find s other.bindings in
+      assert (v = ov);
+      w.ty <- ow.ty
     in
     StringMap.iter update_binding env.bindings;
+    let update_retired s (w : wire_def) =
+      let ow = StringMap.find s other.retired_bindings in
+      w.ty <- ow.ty
+    in
+    StringMap.iter update_retired env.retired_bindings;
     env.borrows := !(other.borrows)
 
-  let empty () : t = {bindings = StringMap.empty; borrows = ref []}
+  let empty () : t = {bindings = StringMap.empty;
+    retired_bindings = StringMap.empty; borrows = ref []}
 
   (** Checks if it is okay to mutate the register now.
     If so, adjust the binding lifetimes accordingly.
@@ -163,18 +183,22 @@ module BorrowEnv = struct
     in
     let borrow_ok = not @@ List.exists check_borrow !(env.borrows) in
     if borrow_ok then
-      let adjust_binding_lifetime _ (w : wire_def) =
+      let adjust_binding_lifetime _ ((w, _) : wire_def * int) =
         w.ty <- {w.ty with lifetime = sig_lifetime_null}
-      in StringMap.iter adjust_binding_lifetime env.bindings
+      in StringMap.iter adjust_binding_lifetime env.bindings;
+      let adjust_retired_binding_lifetime s w = adjust_binding_lifetime s (w, 0) in
+      StringMap.iter adjust_retired_binding_lifetime env.retired_bindings
     else ();
     borrow_ok
 
   (** Transit in-place. *)
   let transit (env : t) (d: Lifetime.event) : unit =
-    let adjust_binding_lifetime _ (w : wire_def) =
+    let adjust_binding_lifetime _ ((w, _) : wire_def * int) =
       w.ty <- {w.ty with lifetime = Lifetime.consume_lifetime_must_live d w.ty.lifetime}
     in
+    let adjust_retired_binding_lifetime a b = adjust_binding_lifetime a (b, 0) in
     StringMap.iter adjust_binding_lifetime env.bindings;
+    StringMap.iter adjust_retired_binding_lifetime env.retired_bindings;
     let adjust_borrow_lifetime (b : borrow_info) =
       {b with duration = Lifetime.consume_lifetime_might_live d b.duration}
     in
@@ -182,21 +206,35 @@ module BorrowEnv = struct
 
   (** Create a clone of the environment. The borrows and bindings are all cloned. *)
   let clone (env : t) : t =
-    let new_bindings = StringMap.map (fun x -> Wire.clone x) env.bindings in
-    {bindings = new_bindings; borrows = ref !(env.borrows)}
+    let new_bindings = StringMap.map (fun (x, v) -> (Wire.clone x, v)) env.bindings
+    and new_retired = StringMap.map (fun x -> Wire.clone x) env.retired_bindings in
+    {bindings = new_bindings; retired_bindings = new_retired; borrows = ref !(env.borrows)}
 
-  let add_bindings (env : t) (bindings : wire_def string_map) : t =
-    let add _ a b =
-      match a, b with
-      | Some _, Some _ -> raise (BorrowEnvException "Duplicate bindings are not allowed!")
-      | Some _, _ -> a
-      | _ -> b
-    in {env with bindings = StringMap.merge add env.bindings bindings}
+  let add_bindings (ver_map: binding_version_map ref) (env : t) (bindings : wire_def string_map) : t =
+    let new_retired = ref env.retired_bindings in
+    let add s a b =
+      match b with
+      | Some w ->
+          (* retire the existing binding if any *)
+          (
+            match a with
+            | Some (ow, ov) ->
+                let retired_name = Printf.sprintf "%s$%d" s ov in
+                new_retired := StringMap.add retired_name ow !new_retired
+            | None -> ()
+          );
+          let new_v = (StringMap.find_opt s !ver_map |> Option.value ~default:0) + 1 in
+          ver_map := StringMap.add s new_v !ver_map;
+          Some (w, new_v)
+      | _ -> a
+    in
+    let new_bindings = StringMap.merge add env.bindings bindings in
+    {env with bindings = new_bindings; retired_bindings = !new_retired}
 
   let add_borrows (env : t) (borrows : borrow_info list) : unit =
     env.borrows := borrows @ !(env.borrows)
 
-  let name_resolve (env : t) (name : identifier) : wire_def option = StringMap.find_opt name env.bindings
+  let name_resolve (env : t) (name : identifier) : wire_def option = StringMap.find_opt name env.bindings |> Option.map fst
 
   let debug_dump (env : t) (config : Config.compile_config) : unit =
     if config.verbose then begin
@@ -204,8 +242,11 @@ module BorrowEnv = struct
       List.map (fun x -> Printf.sprintf "%s@%s" x.reg (string_of_lifetime x.duration)) !(env.borrows) |> String.concat ", "
         |> Printf.sprintf "- Borrows = %s" |> Config.debug_println config;
       StringMap.to_seq env.bindings |> Seq.map
+        (fun ((s, (w, v)) : (borrow_source * (wire_def * int))) -> Printf.sprintf "%s$%d@%s" s v (string_of_lifetime w.ty.lifetime))
+        |> List.of_seq |> String.concat ", " |> Printf.sprintf "- Bindings = %s" |> Config.debug_println config;
+      StringMap.to_seq env.retired_bindings |> Seq.map
         (fun ((s, w) : (borrow_source * wire_def)) -> Printf.sprintf "%s@%s" s (string_of_lifetime w.ty.lifetime))
-        |> List.of_seq |> String.concat ", " |> Printf.sprintf "- Bindings = %s" |> Config.debug_println config
+        |> List.of_seq |> String.concat ", " |> Printf.sprintf "- Retired = %s" |> Config.debug_println config
     end else ()
 end
 
@@ -253,6 +294,7 @@ type codegen_context = {
   mutable in_cf_node: ControlFlowGraph.node option;
   mutable out_cf_node: ControlFlowGraph.node option;
   mutable out_borrows: BorrowEnv.borrow_info list;
+  binding_versions: BorrowEnv.binding_version_map ref;
   cunit: compilation_unit;
   config: Config.compile_config;
 }
@@ -619,7 +661,7 @@ let rec codegen_expr (ctx : codegen_context) (proc : proc_def)
       in
       if has_valid then
         let valid_w = message_valid_wirename ctx proc recv_pack.recv_msg_spec
-        and succ_env = BorrowEnv.add_bindings (BorrowEnv.clone env) succ_bindings
+        and succ_env = BorrowEnv.add_bindings ctx.binding_versions (BorrowEnv.clone env) succ_bindings
         and fail_env = BorrowEnv.clone env
         and succ_in_cf_node = ControlFlowGraph.new_node (`Recv recv_pack)
         and fail_in_cf_node = ControlFlowGraph.new_node delay_immediate in
@@ -634,7 +676,7 @@ let rec codegen_expr (ctx : codegen_context) (proc : proc_def)
           out_cf_node = ControlFlowGraph.join_nodes [succ_res.out_cf_node; fail_res.out_cf_node]}
       else
         (* TODO: static checks *)
-        let succ_env = BorrowEnv.add_bindings env succ_bindings
+        let succ_env = BorrowEnv.add_bindings ctx.binding_versions env succ_bindings
         and succ_in_cf_node = ControlFlowGraph.new_node (`Recv recv_pack) in
         ControlFlowGraph.add_successors in_cf_node [succ_in_cf_node];
         codegen_expr ctx proc cur_cycles succ_in_cf_node succ_env in_delay e_succ
@@ -661,28 +703,30 @@ let rec codegen_expr (ctx : codegen_context) (proc : proc_def)
         | _ -> raise (TypeError "Invalid types for binary operation!")
       end
   | Unop (unop, e') ->
-    let e_res = codegen_expr ctx proc cur_cycles in_cf_node env in_delay e' in
-    let w = List.hd e_res.v in
-    let new_dtype =
-      match unop with
-      | Neg | Not -> w.ty.dtype
-      | AndAll | OrAll -> `Logic
-    in
-    let w' = codegen_context_new_wire ctx {w.ty with dtype = new_dtype} w.borrow_src in
-    let expr_str = Printf.sprintf "%s%s" (string_of_unop unop) w.name in
-    codegen_context_new_assign ctx {wire = w'.name; expr_str = expr_str};
-    {e_res with v = [w']}
-  | Tuple _elist -> raise (UnimplementedError "Tuple expression unimplemented!")
+      let e_res = codegen_expr ctx proc cur_cycles in_cf_node env in_delay e' in
+      let w = List.hd e_res.v in
+      let new_dtype =
+        match unop with
+        | Neg | Not -> w.ty.dtype
+        | AndAll | OrAll -> `Logic
+      in
+      let w' = codegen_context_new_wire ctx {w.ty with dtype = new_dtype} w.borrow_src in
+      let expr_str = Printf.sprintf "%s%s" (string_of_unop unop) w.name in
+      codegen_context_new_assign ctx {wire = w'.name; expr_str = expr_str};
+      {e_res with v = [w']}
+  | Tuple _expr_list ->
+      raise (UnimplementedError "Tuple expression unimplemented!")
   | LetIn (ident, v_expr, body_expr) ->
       let v_res = codegen_expr ctx proc cur_cycles in_cf_node env in_delay v_expr in
       let in_cf_node' = v_res.out_cf_node in
       let new_bindings =
-        if ident = "_" then env.bindings
+        if ident = "_" then StringMap.empty
         else
           let w = List.hd v_res.v in
-          StringMap.add ident w env.bindings
+          StringMap.add ident w StringMap.empty
       in
-      codegen_expr ctx proc v_res.superpos in_cf_node' {env with bindings = new_bindings} in_delay body_expr
+      let new_env = BorrowEnv.add_bindings ctx.binding_versions env new_bindings in
+      codegen_expr ctx proc v_res.superpos in_cf_node' new_env in_delay body_expr
   | IfExpr (cond_expr, e1, e2) ->
       let cond_res = codegen_expr ctx proc cur_cycles in_cf_node env in_delay cond_expr in
       let cond_w = List.hd cond_res.v
@@ -803,7 +847,7 @@ let rec codegen_expr (ctx : codegen_context) (proc : proc_def)
                       StringMap.add bind_name arm_vw StringMap.empty
                   | _ -> raise (TypeError "Pattern matching incompatible with type definition!")
                 in
-                let arm_env = BorrowEnv.add_bindings (BorrowEnv.clone env) new_bindings
+                let arm_env = BorrowEnv.add_bindings ctx.binding_versions (BorrowEnv.clone env) new_bindings
                 and arm_in_cf_node = ControlFlowGraph.new_node delay_immediate in
                 ControlFlowGraph.add_successors in_cf_node' [arm_in_cf_node];
                 let arm_res = codegen_expr ctx proc
@@ -883,7 +927,7 @@ let rec codegen_expr (ctx : codegen_context) (proc : proc_def)
         | _ -> superpos
       in
       codegen_expr ctx proc superpos' in_cf_node_body
-        (BorrowEnv.add_bindings env init_bindings) false body
+        (BorrowEnv.add_bindings ctx.binding_versions env init_bindings) false body
 
 let codegen_post_declare (ctx : codegen_context) (_proc : proc_def)=
   (* wire declarations *)
@@ -1176,6 +1220,7 @@ let codegen (cunit : compilation_unit) (config : Config.compile_config)=
     out_cf_node = None;
     out_borrows = [];
     local_messages = [];
+    binding_versions = ref StringMap.empty;
     config;
   } in
   codegen_with_context ctx cunit.procs
