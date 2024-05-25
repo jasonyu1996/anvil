@@ -999,7 +999,7 @@ let codegen_state_machine (ctx : codegen_context) (proc : proc_def) =
   (* state definition *)
   let state_cnt = List.length ctx.cycles in
   (* need to make it at least 1 bit wide *)
-  let state_width = Utils.int_log2 (state_cnt - 1) |> max 1 in
+  let state_width = Utils.int_log2 state_cnt |> max 1 in
     begin
       if state_cnt > 1 then begin
         Printf.printf "  typedef enum logic[%d:0] {\n" (state_width - 1);
@@ -1193,6 +1193,12 @@ let codegen_proc ctx (proc : proc_def) =
   ctx.in_cf_node <- Some init_cf_node;
   ctx.out_cf_node <- Some body_res.out_cf_node;
   ctx.out_borrows <- !(init_env.borrows);
+  (* output generated code *)
+  codegen_channels ctx proc.body.channels;
+  codegen_endpoints ctx;
+  ctx.local_messages <- gather_local_messages ctx proc;
+  codegen_spawns ctx proc;
+  codegen_state_machine ctx proc;
   let regs = if List.length ctx.cycles > 1 then
     ({name = "_st"; dtype = `Opaque "_state_t"; init = Some (format_statename ctx.first_cycle)}::proc.body.regs)
   else proc.body.regs in
@@ -1200,11 +1206,6 @@ let codegen_proc ctx (proc : proc_def) =
     codegen_regs_declare ctx regs;
     codegen_state_transition regs
   end;
-  codegen_channels ctx proc.body.channels;
-  codegen_endpoints ctx;
-  ctx.local_messages <- gather_local_messages ctx proc;
-  codegen_spawns ctx proc;
-  codegen_state_machine ctx proc;
   codegen_post_declare ctx proc;
 
   print_endline "endmodule"

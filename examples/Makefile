@@ -1,4 +1,4 @@
-MODULE_NAME = top
+MODULE_NAME ?= top
 
 TEST_DRIVER = sim_main.cpp
 
