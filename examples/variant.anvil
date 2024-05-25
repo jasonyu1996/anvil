@@ -6,6 +6,6 @@ type result = [
 proc demo() =
     reg res : result
     cycle then
-    let _ = set res := result::good 32'b1 in
+    set res := result::good 32'b1;
     cycle then
     set res := result::bad 64'b0

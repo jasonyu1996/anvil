@@ -66,7 +66,7 @@
 %right LEFT_ABRACK RIGHT_ABRACK LEFT_ABRACK_EQ RIGHT_ABRACK_EQ
 %right DOUBLE_LEFT_ABRACK DOUBLE_RIGHT_ABRACK
 %right EXCL_EQ DOUBLE_EQ
-%right KEYWORD_THEN KEYWORD_IN KEYWORD_ELSE
+%right KEYWORD_THEN KEYWORD_IN KEYWORD_ELSE SEMICOLON
 %right COLON_EQ
 %right CONSTRUCT
 %left LEFT_BRACKET XOR AND OR PLUS MINUS
@@ -237,6 +237,8 @@ expr:
   { e }
 | KEYWORD_LET; binding = IDENT; EQUAL; v = expr; KEYWORD_IN; body = expr
   { Lang.LetIn (binding, v, body) }
+| v = expr; SEMICOLON; body = expr
+  { Lang.LetIn ("_", v, body) } // TODO: check that the result is of unit type
 | KEYWORD_WAIT; KEYWORD_SEND; send_pack = send_pack; KEYWORD_THEN; body = expr
   { Lang.Wait (`Send send_pack, body) }
 | KEYWORD_WAIT; KEYWORD_RECV; recv_pack = recv_pack; KEYWORD_THEN; body = expr

@@ -18,7 +18,7 @@ chan alu_chan = {
 proc alu(i : left alu_chan) =
     reg res : logic[64]
     cycle then
-    let _ = set res := 1'b1 in
+    set res := 1'b1;
     wait recv r_i = i::req then
     cycle then
     try send i::resp (!res) then 1'b0
