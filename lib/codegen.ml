@@ -625,6 +625,7 @@ let expr_debug_dump (e : expr) (config : Config.compile_config) : unit =
       | Wait (delay, _) -> Printf.sprintf "delay(%s)" (string_of_delay delay)
       | IfExpr _ -> "if"
       | Construct _ -> "cons"
+      | Record _ -> "record"
       | Index _ -> "index"
       | Indirect (_, ident) -> Printf.sprintf "indirect(%s)" ident
       | Concat _ -> "concat"
@@ -871,6 +872,39 @@ and codegen_expr (ctx : codegen_context) (proc : proc_def)
               | _ -> raise (TypeError "Invalid constructor argument!")
           )
         | _ -> raise (TypeError "Invalid constructor!")
+      )
+  | Record (record_ty_name, field_exprs) ->
+      let dtype = data_type_name_resolve ctx.cunit.type_defs @@ `Named record_ty_name |> Option.get in
+      (
+        match dtype with
+        | `Record record_fields ->
+            let expr_reordered_opt = Utils.list_match_reorder (List.map fst record_fields) field_exprs in
+            (
+              match expr_reordered_opt with
+              | Some expr_reordered ->
+                  let (res, superpos, out_cf_node) = codegen_expr_list ctx proc cur_cycles
+                                        in_cf_node env in_delay expr_reordered in
+                  let ws = List.map (fun {v; _} -> List.hd v) res in
+                  let lifetime = List.map (fun ({ty; _} : wire_def) -> ty.lifetime) ws |>
+                                List.fold_left Lifetime.lifetime_merge_tight sig_lifetime_const
+                  and borrows = List.concat_map (fun ({borrow_src; _} : wire_def) -> borrow_src) ws in
+                  let cur_offset = ref 0
+                  and w = codegen_context_new_wire ctx {dtype; lifetime} borrows in
+                  let assign_field (_, field_dtype) (value_w : wire_def) =
+                    let dtype_size = data_type_size ctx.cunit.type_defs field_dtype in
+                    codegen_context_new_assign ctx
+                      {
+                        wire = Printf.sprintf "%s[%d:%d]" w.name (!cur_offset + dtype_size - 1) !cur_offset;
+                        expr_str = Printf.sprintf "%s" value_w.name ;
+                      };
+                    cur_offset := !cur_offset + dtype_size;
+                  in
+                  List.iter2 assign_field record_fields ws;
+                  { v = [w]; superpos; out_cf_node }
+              | _ -> raise (TypeError "Invalid record-type value!")
+            )
+
+        | _ -> raise (TypeError "Invalid record type name!")
       )
   | Index (e', ind) ->
       let expr_res = codegen_expr ctx proc cur_cycles in_cf_node env in_delay e' in

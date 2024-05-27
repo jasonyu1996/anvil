@@ -1,0 +1,18 @@
+type op = [
+    | Add
+    | Sub
+    | Or
+    | And
+    | Xor
+]
+
+type data = {
+    a : logic[64];
+    b : logic[64];
+    op : op
+}
+
+proc record () =
+    cycle then
+    let v = data::{a = 64'b0; op = op::And; b = 64'b1} in
+    1'b0

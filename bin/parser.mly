@@ -272,6 +272,10 @@ expr:
   { Anvil.Lang.Read reg_ident }
 | constructor_spec = constructor_spec; e = ioption(expr)
   { Anvil.Lang.Construct (constructor_spec, e) } %prec CONSTRUCT
+| record_name = IDENT; DOUBLE_COLON; LEFT_BRACE;
+  record_fields = separated_nonempty_list(SEMICOLON, record_field_constr);
+  RIGHT_BRACE
+  { Anvil.Lang.Record (record_name, record_fields) }
   (* debug operations *)
 | KEYWORD_DPRINT; s = STR_LITERAL; LEFT_PAREN; v = separated_list(COMMA, expr); RIGHT_PAREN
   { Anvil.Lang.Debug (Anvil.Lang.DebugPrint (s, v)) }
@@ -282,6 +286,11 @@ expr:
 constructor_spec:
   ty = IDENT; DOUBLE_COLON; variant = IDENT
   { let open Anvil.Lang in {variant_ty_name = ty; variant} }
+;
+
+%inline record_field_constr:
+  field_name = IDENT; EQUAL; field_value = expr
+  { (field_name, field_value) }
 ;
 
 send_pack:

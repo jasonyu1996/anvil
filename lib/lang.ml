@@ -292,6 +292,7 @@ and expr =
   | IfExpr of expr * expr * expr
   (* construct a variant type value with a constructor *)
   | Construct of constructor_spec * expr option
+  | Record of identifier * (identifier * expr) list
   | Index of expr * index
   | Indirect of expr * identifier
   | Concat of expr list
