@@ -534,7 +534,7 @@ let get_identifier_dtype (_ctx : codegen_context) (proc : proc_def) (ident : ide
 (* TODO: here we should use mux instead direct assigns *)
 
 let assign_message_data (ctx : codegen_context) (proc : proc_def) (env : borrow_env)
-                        (_in_delay : bool) (msg_spec : message_specifier) (data_ws : wire_def list) =
+                        (msg_spec : message_specifier) (data_ws : wire_def list) =
   gather_data_wires_from_msg ctx proc msg_spec |>
     (* data_wire is not a real wire with lifetimes and borrows, res_wire is the actual data *)
     List.iter2 (fun (res_wire : wire_def) ((data_wire, lt) : (wire_def * sig_lifetime)) ->
@@ -640,13 +640,13 @@ let rec codegen_expr_list (ctx : codegen_context) (proc : proc_def)
                      (cur_cycles : superposition) (* possible cycles the start of the expression is in *)
                      (in_cf_node : ControlFlowGraph.node)
                      (env : borrow_env)
-                     (in_delay : bool) (elist : expr list)
+                     (elist : expr list)
                      : expr_result list * superposition * ControlFlowGraph.node  =
   let cur_superpos = ref cur_cycles
   and cur_in_cf_node = ref in_cf_node in
   let comp_res = List.map (
     fun x ->
-    let v = codegen_expr ctx proc !cur_superpos !cur_in_cf_node env in_delay x in
+    let v = codegen_expr ctx proc !cur_superpos !cur_in_cf_node env x in
     cur_superpos := v.superpos;
     cur_in_cf_node := v.out_cf_node;
     v) elist in
@@ -655,7 +655,7 @@ and codegen_expr (ctx : codegen_context) (proc : proc_def)
                      (cur_cycles : superposition) (* possible cycles the start of the expression is in *)
                      (in_cf_node : ControlFlowGraph.node)
                      (env : borrow_env)
-                     (in_delay : bool) (e : expr) : expr_result =
+                     (e : expr) : expr_result =
   BorrowEnv.debug_dump env ctx.config;
   expr_debug_dump e ctx.config;
   let first_cycle_nonempty = ctx.first_cycle_nonempty in
@@ -678,8 +678,8 @@ and codegen_expr (ctx : codegen_context) (proc : proc_def)
         leaf_expression_result cur_cycles in_cf_node [w]
   | Function _  -> raise (UnimplementedError "Function expression unimplemented!")
   | TrySend (send_pack, e_succ, e_fail) ->
-      let data_res = codegen_expr ctx proc cur_cycles in_cf_node env in_delay send_pack.send_data in
-      assign_message_data ctx proc env in_delay send_pack.send_msg_spec data_res.v;
+      let data_res = codegen_expr ctx proc cur_cycles in_cf_node env send_pack.send_data in
+      assign_message_data ctx proc env send_pack.send_msg_spec data_res.v;
       let in_cf_node' = data_res.out_cf_node in
       let has_ack = lookup_message_def_by_msg ctx proc send_pack.send_msg_spec |> Option.get |> message_has_ack_port in
       if has_ack then
@@ -689,8 +689,8 @@ and codegen_expr (ctx : codegen_context) (proc : proc_def)
         and succ_in_cf_node = ControlFlowGraph.new_node (`Send send_pack)
         and fail_in_cf_node = ControlFlowGraph.new_node delay_immediate in
         ControlFlowGraph.add_successors in_cf_node' [succ_in_cf_node; fail_in_cf_node];
-        let succ_res = codegen_expr ctx proc (superposition_extra_conds data_res.superpos [{w = ack_w; neg = false}]) succ_in_cf_node succ_env in_delay e_succ
-        and fail_res = codegen_expr ctx proc (superposition_extra_conds data_res.superpos [{w = ack_w; neg = true}]) fail_in_cf_node fail_env in_delay e_fail in
+        let succ_res = codegen_expr ctx proc (superposition_extra_conds data_res.superpos [{w = ack_w; neg = false}]) succ_in_cf_node succ_env e_succ
+        and fail_res = codegen_expr ctx proc (superposition_extra_conds data_res.superpos [{w = ack_w; neg = true}]) fail_in_cf_node fail_env e_fail in
         let succ_w = List.hd succ_res.v and fail_w = List.hd fail_res.v in
         let w = codegen_context_new_wire ctx succ_w.ty (succ_w.borrow_src @ fail_w.borrow_src) in
         let expr_str = Printf.sprintf "(%s) ? %s : %s" ack_w succ_w.name fail_w.name in
@@ -702,7 +702,7 @@ and codegen_expr (ctx : codegen_context) (proc : proc_def)
         (* TODO: static checks *)
         let succ_in_cf_node = ControlFlowGraph.new_node (`Send send_pack) in
         ControlFlowGraph.add_successors in_cf_node [succ_in_cf_node];
-        codegen_expr ctx proc cur_cycles succ_in_cf_node env in_delay e_succ
+        codegen_expr ctx proc cur_cycles succ_in_cf_node env e_succ
   | TryRecv (recv_pack, e_succ, e_fail) ->
       let has_valid = lookup_message_def_by_msg ctx proc recv_pack.recv_msg_spec |> Option.get |> message_has_valid_port in
       let succ_bindings = gather_data_wires_from_msg ctx proc recv_pack.recv_msg_spec |>
@@ -715,8 +715,8 @@ and codegen_expr (ctx : codegen_context) (proc : proc_def)
         and fail_env = BorrowEnv.clone env
         and succ_in_cf_node = ControlFlowGraph.new_node (`Recv recv_pack)
         and fail_in_cf_node = ControlFlowGraph.new_node delay_immediate in
-        let succ_res = codegen_expr ctx proc (superposition_extra_conds cur_cycles [{w = valid_w; neg = false}]) succ_in_cf_node succ_env in_delay e_succ
-        and fail_res = codegen_expr ctx proc (superposition_extra_conds cur_cycles [{w = valid_w; neg = true}]) fail_in_cf_node fail_env in_delay e_fail in
+        let succ_res = codegen_expr ctx proc (superposition_extra_conds cur_cycles [{w = valid_w; neg = false}]) succ_in_cf_node succ_env e_succ
+        and fail_res = codegen_expr ctx proc (superposition_extra_conds cur_cycles [{w = valid_w; neg = true}]) fail_in_cf_node fail_env e_fail in
         let succ_w = List.hd succ_res.v and fail_w = List.hd fail_res.v in
         let w = codegen_context_new_wire ctx succ_w.ty (succ_w.borrow_src @ fail_w.borrow_src) in
         let expr_str = Printf.sprintf "(%s) ? %s : %s" valid_w succ_w.name fail_w.name in
@@ -729,12 +729,12 @@ and codegen_expr (ctx : codegen_context) (proc : proc_def)
         let succ_env = BorrowEnv.add_bindings ctx.binding_versions env succ_bindings
         and succ_in_cf_node = ControlFlowGraph.new_node (`Recv recv_pack) in
         ControlFlowGraph.add_successors in_cf_node [succ_in_cf_node];
-        codegen_expr ctx proc cur_cycles succ_in_cf_node succ_env in_delay e_succ
+        codegen_expr ctx proc cur_cycles succ_in_cf_node succ_env e_succ
   | Apply _ -> raise (UnimplementedError "Application expression unimplemented!")
   | Binop (binop, e1, e2) ->
-      let e1_res = codegen_expr ctx proc cur_cycles in_cf_node env in_delay e1 in
+      let e1_res = codegen_expr ctx proc cur_cycles in_cf_node env e1 in
       let in_cf_node' = e1_res.out_cf_node in
-      let e2_res = codegen_expr ctx proc e1_res.superpos in_cf_node' env in_delay e2 in
+      let e2_res = codegen_expr ctx proc e1_res.superpos in_cf_node' env e2 in
       begin
         match e1_res.v, e2_res.v with
         | [w1], [w2] ->
@@ -753,7 +753,7 @@ and codegen_expr (ctx : codegen_context) (proc : proc_def)
         | _ -> raise (TypeError "Invalid types for binary operation!")
       end
   | Unop (unop, e') ->
-      let e_res = codegen_expr ctx proc cur_cycles in_cf_node env in_delay e' in
+      let e_res = codegen_expr ctx proc cur_cycles in_cf_node env e' in
       let w = List.hd e_res.v in
       let new_dtype =
         match unop with
@@ -767,7 +767,7 @@ and codegen_expr (ctx : codegen_context) (proc : proc_def)
   | Tuple _expr_list ->
       raise (UnimplementedError "Tuple expression unimplemented!")
   | LetIn (ident, v_expr, body_expr) ->
-      let v_res = codegen_expr ctx proc cur_cycles in_cf_node env in_delay v_expr in
+      let v_res = codegen_expr ctx proc cur_cycles in_cf_node env v_expr in
       let in_cf_node' = v_res.out_cf_node in
       let new_bindings =
         if ident = "_" then StringMap.empty
@@ -776,9 +776,9 @@ and codegen_expr (ctx : codegen_context) (proc : proc_def)
           StringMap.add ident w StringMap.empty
       in
       let new_env = BorrowEnv.add_bindings ctx.binding_versions env new_bindings in
-      codegen_expr ctx proc v_res.superpos in_cf_node' new_env in_delay body_expr
+      codegen_expr ctx proc v_res.superpos in_cf_node' new_env body_expr
   | IfExpr (cond_expr, e1, e2) ->
-      let cond_res = codegen_expr ctx proc cur_cycles in_cf_node env in_delay cond_expr in
+      let cond_res = codegen_expr ctx proc cur_cycles in_cf_node env cond_expr in
       let cond_w = List.hd cond_res.v
       and in_cf_node' = cond_res.out_cf_node in
       if not @@ Wire.live_now cond_w then
@@ -789,10 +789,10 @@ and codegen_expr (ctx : codegen_context) (proc : proc_def)
       ControlFlowGraph.add_successors in_cf_node' [e1_in_cf_node; e2_in_cf_node];
       let e1_res = codegen_expr ctx proc
         (superposition_extra_conds cond_res.superpos [{w = cond_w.name; neg = false}])
-        e1_in_cf_node env in_delay e1 in
+        e1_in_cf_node env e1 in
       let e2_res = codegen_expr ctx proc
         (superposition_extra_conds cond_res.superpos [{w = cond_w.name; neg = true}])
-        e2_in_cf_node env in_delay e2 in
+        e2_in_cf_node env e2 in
       (* get the results *)
       let gen_result = fun (w1 : wire_def) (w2 : wire_def) ->
         (* compute new lifetime *)
@@ -806,7 +806,7 @@ and codegen_expr (ctx : codegen_context) (proc : proc_def)
         out_cf_node = ControlFlowGraph.join_nodes [e1_res.out_cf_node; e2_res.out_cf_node]}
   | Assign (lval, e_val) ->
       let lval_eval = evaluate_lvalue ctx proc lval |> Option.get in
-      let expr_res = codegen_expr ctx proc cur_cycles in_cf_node env in_delay e_val in
+      let expr_res = codegen_expr ctx proc cur_cycles in_cf_node env e_val in
       let in_cf_node' = expr_res.out_cf_node in
       if not @@ Wire.live_now (List.hd expr_res.v) then
         raise (BorrowCheckError "Attempting to use a dead signal in an assignment!")
@@ -835,7 +835,7 @@ and codegen_expr (ctx : codegen_context) (proc : proc_def)
             (
               match e_dtype_opt, cstr_expr_opt with
               | Some _e_dtype, Some cstr_expr ->
-                  let res = codegen_expr ctx proc cur_cycles in_cf_node env in_delay cstr_expr in
+                  let res = codegen_expr ctx proc cur_cycles in_cf_node env cstr_expr in
                   let v = List.hd res.v in
                   (* TODO: type check *)
                   let w = codegen_context_new_wire ctx {dtype; lifetime = v.ty.lifetime} v.borrow_src in
@@ -883,7 +883,7 @@ and codegen_expr (ctx : codegen_context) (proc : proc_def)
               match expr_reordered_opt with
               | Some expr_reordered ->
                   let (res, superpos, out_cf_node) = codegen_expr_list ctx proc cur_cycles
-                                        in_cf_node env in_delay expr_reordered in
+                                        in_cf_node env expr_reordered in
                   let ws = List.map (fun {v; _} -> List.hd v) res in
                   let lifetime = List.map (fun ({ty; _} : wire_def) -> ty.lifetime) ws |>
                                 List.fold_left Lifetime.lifetime_merge_tight sig_lifetime_const
@@ -907,7 +907,7 @@ and codegen_expr (ctx : codegen_context) (proc : proc_def)
         | _ -> raise (TypeError "Invalid record type name!")
       )
   | Index (e', ind) ->
-      let expr_res = codegen_expr ctx proc cur_cycles in_cf_node env in_delay e' in
+      let expr_res = codegen_expr ctx proc cur_cycles in_cf_node env e' in
       let w_res = List.hd expr_res.v in
       let (offset_le, offset_ri, new_dtype) = data_type_index ctx.cunit.type_defs w_res.ty.dtype ind |> Option.get in
       let new_w = codegen_context_new_wire ctx {w_res.ty with dtype = new_dtype} w_res.borrow_src in
@@ -916,7 +916,7 @@ and codegen_expr (ctx : codegen_context) (proc : proc_def)
       (* TODO: non-literal index *)
       {expr_res with v = [new_w]}
   | Indirect (e', fieldname) ->
-      let expr_res = codegen_expr ctx proc cur_cycles in_cf_node env in_delay e' in
+      let expr_res = codegen_expr ctx proc cur_cycles in_cf_node env e' in
       let w_res = List.hd expr_res.v in
       let (offset_le, offset_ri, new_dtype) = data_type_indirect ctx.cunit.type_defs w_res.ty.dtype fieldname |> Option.get in
       let new_w = codegen_context_new_wire ctx {w_res.ty with dtype = new_dtype} w_res.borrow_src in
@@ -925,7 +925,7 @@ and codegen_expr (ctx : codegen_context) (proc : proc_def)
       {expr_res with v = [new_w]}
   | Concat components ->
       let (comp_res, cur_superpos, cur_in_cf_node) =
-        codegen_expr_list ctx proc cur_cycles in_cf_node env in_delay components in
+        codegen_expr_list ctx proc cur_cycles in_cf_node env components in
       let wires = List.map (fun x -> List.hd x.v) comp_res in
       let borrow_src = let open Wire in List.concat_map (fun x -> x.borrow_src) wires in
       let (size, lt) = List.fold_left
@@ -936,7 +936,7 @@ and codegen_expr (ctx : codegen_context) (proc : proc_def)
       codegen_context_new_assign ctx {wire = new_w.name; expr_str = expr_str};
       {v = [new_w]; superpos = cur_superpos; out_cf_node = cur_in_cf_node}
   | Match (e', match_arm_list) ->
-      let expr_res = codegen_expr ctx proc cur_cycles in_cf_node env in_delay e' in
+      let expr_res = codegen_expr ctx proc cur_cycles in_cf_node env e' in
       let in_cf_node' = expr_res.out_cf_node in
       let w = List.hd expr_res.v in
       if not @@ Wire.live_now w then
@@ -973,7 +973,7 @@ and codegen_expr (ctx : codegen_context) (proc : proc_def)
                 and arm_in_cf_node = ControlFlowGraph.new_node delay_immediate in
                 ControlFlowGraph.add_successors in_cf_node' [arm_in_cf_node];
                 let arm_res = codegen_expr ctx proc
-                  (superposition_extra_conds expr_res.superpos [{w = cond_str; neg = false}]) arm_in_cf_node arm_env in_delay e_arm in
+                  (superposition_extra_conds expr_res.superpos [{w = cond_str; neg = false}]) arm_in_cf_node arm_env e_arm in
                 arm_conds := [];
                 Some (new_cond, arm_res, arm_env)
               in
@@ -1006,10 +1006,10 @@ and codegen_expr (ctx : codegen_context) (proc : proc_def)
           let in_cf_node_wait = ControlFlowGraph.new_node (`Cycles 1) in
           ControlFlowGraph.add_successors in_cf_node [in_cf_node_wait];
           (* gather the data to send *)
-          let expr_res = codegen_expr ctx proc [] in_cf_node env true expr in
+          let expr_res = codegen_expr ctx proc [] in_cf_node env expr in
           let in_cf_node_wait = expr_res.out_cf_node in
           BorrowEnv.transit env (delay :> Lifetime.event);
-          assign_message_data ctx proc env true msg_specifier expr_res.v;
+          assign_message_data ctx proc env msg_specifier expr_res.v;
           (StringMap.empty, in_cf_node_wait, delay)
       | `Recv {recv_binds = idents; recv_msg_spec = msg_specifier} ->
           BorrowEnv.transit env (`Cycles 1);
@@ -1049,13 +1049,13 @@ and codegen_expr (ctx : codegen_context) (proc : proc_def)
         | _ -> superpos
       in
       codegen_expr ctx proc superpos' in_cf_node_body
-        (BorrowEnv.add_bindings ctx.binding_versions env init_bindings) false body
+        (BorrowEnv.add_bindings ctx.binding_versions env init_bindings) body
   | Debug debug_op ->
       (
         match debug_op with
         | DebugPrint (fmt, vlist) ->
             let (comp_res, cur_superpos, cur_in_cf_node) =
-              codegen_expr_list ctx proc cur_cycles in_cf_node env in_delay vlist in
+              codegen_expr_list ctx proc cur_cycles in_cf_node env vlist in
             let wires = List.map (fun x -> List.hd x.v) comp_res in
             if List.exists (fun x -> not @@ Wire.live_now x) wires then
               raise (BorrowCheckError "Attempting to print dead signal!")
@@ -1284,7 +1284,7 @@ let codegen_proc ctx (proc : proc_def) =
   let init_cf_node = ControlFlowGraph.new_node delay_immediate
   and init_env = BorrowEnv.empty () in
   let body_res = codegen_expr ctx proc [([], init_cycle)]
-    init_cf_node init_env false proc.body.prog in
+    init_cf_node init_env proc.body.prog in
   connect_cycles body_res.superpos init_cycle.id;
   ctx.in_cf_node <- Some init_cf_node;
   ctx.out_cf_node <- Some body_res.out_cf_node;
