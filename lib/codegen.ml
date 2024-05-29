@@ -1029,6 +1029,7 @@ and codegen_expr (ctx : codegen_context) (proc : proc_def)
         end
   | Wait (delay, body) ->
       let (init_bindings, in_cf_node_wait, first_delay) = match delay with
+      (* FIXME: the superposition in which the data is sent is not quite correct *)
       | `Send {send_msg_spec = msg_specifier; send_data = expr} ->
           BorrowEnv.transit env (`Cycles 1);
           let in_cf_node_wait = ControlFlowGraph.new_node (`Cycles 1) in
@@ -1119,12 +1120,12 @@ let codegen_post_declare (ctx : codegen_context) (proc : proc_def) =
           print_assign {wire = data_wire.name; expr_str = res_wire}) ws data_wires
     | _ ->
         (* need to use mux *)
-        let ws_bufs = List.map (fun ((w, _) : (wire_def * _)) -> Printf.sprintf "  assign %s = " w.name |>
+        let ws_bufs = List.map (fun ((w, _) : (wire_def * _)) -> Printf.sprintf "  assign %s =" w.name |>
           String.to_seq |> Buffer.of_seq) data_wires
         and cur_idx = ref @@ List.length select in
         List.iter (fun ws ->
           cur_idx := !cur_idx - 1;
-          List.iter2 (fun buf w -> Buffer.add_string buf @@ Printf.sprintf " %s_mux_n == %d ? %s :"
+          List.iter2 (fun buf w -> Buffer.add_string buf @@ Printf.sprintf " (%s_mux_n == %d) ? %s :"
               msg_prefix !cur_idx w) ws_bufs ws) select;
         List.iter (fun (buf : Buffer.t) -> Printf.printf "%s '0;\n" @@ Buffer.contents buf) ws_bufs
   ) ctx.sends
@@ -1165,7 +1166,7 @@ let codegen_state_machine (ctx : codegen_context) (proc : proc_def) =
         let si_count = List.length si.select in
         if si_count > 1 then
           begin
-            Printf.printf "  logic[%d:0] %s_mux_q, %s_mux_n;\n" (Utils.int_log2 si_count) s s;
+            Printf.printf "  logic[%d:0] %s_mux_q, %s_mux_n;\n" ((Utils.int_log2 si_count) - 1) s s;
             ctx.mux_state_regs <- StringSet.add s ctx.mux_state_regs
           end
         else ()
@@ -1201,6 +1202,7 @@ let codegen_state_machine (ctx : codegen_context) (proc : proc_def) =
             if conds = [] then
               Printf.printf "       %s_mux_n = %d;\n" s send_id
             else
+              (* TODO: it might not be necessary to add conditions *)
               Printf.printf "       if (%s) %s_mux_n = %d;\n"
                 (format_condition_list conds) s send_id
           end
