@@ -99,6 +99,7 @@ end
 type cycle_node = {
   id: cycle_id;
   delay: delay_def;
+  mutable sends : (condition list * message_specifier * int) list;
   mutable next_switch: (string * cycle_id) list;
   mutable debug_statements: string list;
 }
@@ -278,6 +279,11 @@ let type_check_binop (type_defs : type_def_map) binop dtype1 dtype2 =
   | Lt | Gt | Lte | Gte | Eq | Neq -> Some `Logic
   | Shl | Shr -> Some dtype1_resolved
 
+type send_info = {
+  msg_spec: message_specifier;
+  mutable select: identifier list list;
+}
+
 type codegen_context = {
   (* temp wires only *)
   mutable wires: wire_def list;
@@ -295,6 +301,8 @@ type codegen_context = {
   mutable in_cf_node: ControlFlowGraph.node option;
   mutable out_cf_node: ControlFlowGraph.node option;
   mutable out_borrows: BorrowEnv.borrow_info list;
+  mutable sends: send_info string_map;
+  mutable mux_state_regs : string_set;
   binding_versions: BorrowEnv.binding_version_map ref;
   cunit: compilation_unit;
   config: Config.compile_config;
@@ -318,6 +326,8 @@ let codegen_context_proc_clear (ctx : codegen_context) =
   ctx.cycles <- [];
   ctx.cycles_n <- 0;
   ctx.assigns <- [];
+  ctx.sends <- StringMap.empty;
+  ctx.mux_state_regs <- StringSet.empty;
   ctx.reg_assigns <- [];
   ctx.first_cycle_nonempty <- false
 
@@ -336,6 +346,7 @@ let codegen_context_new_cycle (ctx : codegen_context) (delay : delay_def) : cycl
     delay = delay;
     next_switch = [];
     debug_statements = [];
+    sends = [];
   } in
   ctx.cycles_n <- ctx.cycles_n + 1;
   ctx.cycles <- new_cycle::ctx.cycles;
@@ -375,6 +386,9 @@ let endpoint_canonical_name (endpoint: endpoint_def) : identifier =
 
 let lookup_channel_class (ctx : codegen_context) (name : identifier) : channel_class_def option =
   List.find_opt (fun (cc : channel_class_def) -> cc.name = name) ctx.cunit.channel_classes
+
+let format_msg_prefix (endpoint_name : identifier) (message_name : identifier) : identifier =
+  Printf.sprintf "_%s_%s" endpoint_name message_name
 
 let format_msg_data_signal_name (endpoint_name : identifier) (message_name : identifier) (data_idx : int) : string =
   Printf.sprintf "_%s_%s_%d" endpoint_name message_name data_idx
@@ -482,6 +496,7 @@ let codegen_state_transition (ctx : codegen_context) (regs : reg_def list) =
       let init_val_str = Option.value ~default:"'0" r.init in
       Printf.printf "      %s <= %s;\n" (format_regname_current r.name) init_val_str
     in List.iter codegen_reg_reset regs;
+    StringSet.iter (Printf.printf "      %s_mux_q <= '0;\n") ctx.mux_state_regs;
     print_endline "    end else begin";
 
     (* print out debug statements *)
@@ -506,6 +521,7 @@ let codegen_state_transition (ctx : codegen_context) (regs : reg_def list) =
       Printf.printf "      %s <= %s;\n"
         (format_regname_current r.name) (format_regname_next r.name)
     in List.iter codegen_reg_next regs;
+    StringSet.iter (fun x -> Printf.printf "      %s_mux_q <= %s_mux_n;\n" x x) ctx.mux_state_regs;
     print_endline "    end";
     print_endline "  end"
 
@@ -533,11 +549,13 @@ let get_identifier_dtype (_ctx : codegen_context) (proc : proc_def) (ident : ide
   List.find_map m proc.body.regs
 (* TODO: here we should use mux instead direct assigns *)
 
-let assign_message_data (ctx : codegen_context) (proc : proc_def) (env : borrow_env)
+let assign_message_data (ctx : codegen_context) (proc : proc_def) (cur_cycles : superposition) (env : borrow_env)
                         (msg_spec : message_specifier) (data_ws : wire_def list) =
+
+  (* type checks and borrow checks *)
   gather_data_wires_from_msg ctx proc msg_spec |>
     (* data_wire is not a real wire with lifetimes and borrows, res_wire is the actual data *)
-    List.iter2 (fun (res_wire : wire_def) ((data_wire, lt) : (wire_def * sig_lifetime)) ->
+    List.iter2 (fun (res_wire : wire_def) ((_, lt) : (wire_def * sig_lifetime)) ->
         let open BorrowEnv in
         if not @@ Wire.live_now res_wire then
           raise (BorrowCheckError "Attempting to send a dead signal!")
@@ -546,8 +564,18 @@ let assign_message_data (ctx : codegen_context) (proc : proc_def) (env : borrow_
           raise (BorrowCheckError "Attempting to send a signal that does not live long enough!")
         else ();
         let borrows = List.map (fun x -> {reg = x; duration = lt}) res_wire.borrow_src in
-        add_borrows env borrows;
-        codegen_context_new_assign ctx {wire = data_wire.name; expr_str = res_wire.name}) data_ws
+        add_borrows env borrows) data_ws;
+        (* codegen_context_new_assign ctx {wire = data_wire.name; expr_str = res_wire.name}) data_ws *)
+
+  let msg_str = format_msg_prefix msg_spec.endpoint msg_spec.msg in
+  let send_info = StringMap.find_opt msg_str ctx.sends |> Option.value ~default:{msg_spec; select = []} in
+  let send_id = List.length send_info.select in
+  send_info.select <- (List.map (fun (w : wire_def) -> w.name) data_ws)::send_info.select;
+  let add_send_to_cycle ((conds, cycle) : condition list * cycle_node)=
+    cycle.sends <- (conds, msg_spec, send_id)::cycle.sends
+  in
+  List.iter add_send_to_cycle cur_cycles;
+  ctx.sends <- StringMap.add msg_str send_info ctx.sends
 
 let message_ack_wirename (ctx : codegen_context) (proc : proc_def) (msg_spec : message_specifier) : string =
   canonicalise ctx proc format_msg_ack_signal_name msg_spec.endpoint msg_spec.msg
@@ -679,7 +707,7 @@ and codegen_expr (ctx : codegen_context) (proc : proc_def)
   | Function _  -> raise (UnimplementedError "Function expression unimplemented!")
   | TrySend (send_pack, e_succ, e_fail) ->
       let data_res = codegen_expr ctx proc cur_cycles in_cf_node env send_pack.send_data in
-      assign_message_data ctx proc env send_pack.send_msg_spec data_res.v;
+      assign_message_data ctx proc cur_cycles env send_pack.send_msg_spec data_res.v;
       let in_cf_node' = data_res.out_cf_node in
       let has_ack = lookup_message_def_by_msg ctx proc send_pack.send_msg_spec |> Option.get |> message_has_ack_port in
       if has_ack then
@@ -1009,7 +1037,7 @@ and codegen_expr (ctx : codegen_context) (proc : proc_def)
           let expr_res = codegen_expr ctx proc [] in_cf_node env expr in
           let in_cf_node_wait = expr_res.out_cf_node in
           BorrowEnv.transit env (delay :> Lifetime.event);
-          assign_message_data ctx proc env msg_specifier expr_res.v;
+          assign_message_data ctx proc cur_cycles env msg_specifier expr_res.v;
           (StringMap.empty, in_cf_node_wait, delay)
       | `Recv {recv_binds = idents; recv_msg_spec = msg_specifier} ->
           BorrowEnv.transit env (`Cycles 1);
@@ -1073,13 +1101,33 @@ and codegen_expr (ctx : codegen_context) (proc : proc_def)
             {v = []; superpos = cur_cycles; out_cf_node = in_cf_node}
       )
 
-let codegen_post_declare (ctx : codegen_context) (_proc : proc_def)=
+let codegen_post_declare (ctx : codegen_context) (proc : proc_def) =
   (* wire declarations *)
   let codegen_wire = fun (w: wire_def) ->
     Printf.printf "  %s %s;\n" (format_dtype ctx w.ty.dtype) w.name
   in List.iter codegen_wire ctx.wires;
   (* wire assignments *)
-  List.iter print_assign ctx.assigns
+  List.iter print_assign ctx.assigns;
+  (* set send signals *)
+  StringMap.iter (fun _ {msg_spec; select} ->
+    let data_wires = gather_data_wires_from_msg ctx proc msg_spec
+    and msg_prefix = format_msg_prefix msg_spec.endpoint msg_spec.msg in
+    match select with
+    | [ws] ->
+        (* just assign without mux *)
+        List.iter2 (fun (res_wire : identifier) ((data_wire, _) : (wire_def * _)) ->
+          print_assign {wire = data_wire.name; expr_str = res_wire}) ws data_wires
+    | _ ->
+        (* need to use mux *)
+        let ws_bufs = List.map (fun ((w, _) : (wire_def * _)) -> Printf.sprintf "  assign %s = " w.name |>
+          String.to_seq |> Buffer.of_seq) data_wires
+        and cur_idx = ref @@ List.length select in
+        List.iter (fun ws ->
+          cur_idx := !cur_idx - 1;
+          List.iter2 (fun buf w -> Buffer.add_string buf @@ Printf.sprintf " %s_mux_n == %d ? %s :"
+              msg_prefix !cur_idx w) ws_bufs ws) select;
+        List.iter (fun (buf : Buffer.t) -> Printf.printf "%s '0;\n" @@ Buffer.contents buf) ws_bufs
+  ) ctx.sends
 
 let gather_out_indicators (ctx : codegen_context) : identifier list =
   let msg_map = fun ((endpoint, msg, msg_dir) : endpoint_def * message_def * message_direction) ->
@@ -1110,12 +1158,29 @@ let codegen_state_machine (ctx : codegen_context) (proc : proc_def) =
         in List.iteri codegen_state_def ctx.cycles;
         print_endline "\n  } _state_t;"
       end else ();
+
+      (* generate the send mux states *)
+      ctx.mux_state_regs <- StringSet.empty;
+      let print_mux_state s si =
+        let si_count = List.length si.select in
+        if si_count > 1 then
+          begin
+            Printf.printf "  logic[%d:0] %s_mux_q, %s_mux_n;\n" (Utils.int_log2 si_count) s s;
+            ctx.mux_state_regs <- StringSet.add s ctx.mux_state_regs
+          end
+        else ()
+      in
+      StringMap.iter print_mux_state ctx.sends;
+
       print_endline "  always_comb begin : state_machine";
 
       (* default next reg values *)
       let assign_reg_default = fun (r: reg_def) ->
         Printf.printf "    %s = %s;\n" (format_regname_next r.name) (format_regname_current r.name)
       in List.iter assign_reg_default proc.body.regs;
+
+      (* default mux states *)
+      StringSet.iter (fun s -> Printf.printf "    %s_mux_n = %s_mux_q;\n" s s ) ctx.mux_state_regs;
 
       (* default output indicators, we need to know which messages are local-sent/received *)
       List.iter (Printf.printf "    %s = '0;\n") (gather_out_indicators ctx);
@@ -1127,6 +1192,20 @@ let codegen_state_machine (ctx : codegen_context) (proc : proc_def) =
         if state_cnt > 1 then
           Printf.printf "      %s: begin\n" (format_statename cycle.id)
         else ();
+
+        (* print out the mux state change *)
+        let print_mux_state_change (conds, msg_spec, send_id) =
+          let s = format_msg_prefix msg_spec.endpoint msg_spec.msg in
+          if StringSet.find_opt s ctx.mux_state_regs |> Option.is_none then ()
+          else begin
+            if conds = [] then
+              Printf.printf "       %s_mux_n = %d;\n" s send_id
+            else
+              Printf.printf "       if (%s) %s_mux_n = %d;\n"
+                (format_condition_list conds) s send_id
+          end
+        in
+        List.iter print_mux_state_change cycle.sends;
 
         (* if has blocking send, set the valid indicator *)
         let transition_cond = match cycle.delay with
@@ -1361,8 +1440,10 @@ let codegen (cunit : compilation_unit) (config : Config.compile_config)=
     in_cf_node = None;
     out_cf_node = None;
     out_borrows = [];
+    sends = StringMap.empty;
+    mux_state_regs = StringSet.empty;
     local_messages = [];
-    binding_versions = ref StringMap.empty;
+    binding_versions = ref StringMap.empty; (* TODO: check if this is correct *)
     config;
   } in
   codegen_with_context ctx cunit.procs
