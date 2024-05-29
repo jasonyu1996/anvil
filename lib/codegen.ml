@@ -98,7 +98,7 @@ end
 
 type cycle_node = {
   id: cycle_id;
-  delay: delay_def;
+  mutable delay: delay_def;
   mutable sends : (condition list * message_specifier * int) list;
   mutable next_switch: (string * cycle_id) list;
   mutable debug_statements: string list;
@@ -571,7 +571,7 @@ let assign_message_data (ctx : codegen_context) (proc : proc_def) (cur_cycles : 
   let send_info = StringMap.find_opt msg_str ctx.sends |> Option.value ~default:{msg_spec; select = []} in
   let send_id = List.length send_info.select in
   send_info.select <- (List.map (fun (w : wire_def) -> w.name) data_ws)::send_info.select;
-  let add_send_to_cycle ((conds, cycle) : condition list * cycle_node)=
+  let add_send_to_cycle ((conds, cycle) : condition list * cycle_node) =
     cycle.sends <- (conds, msg_spec, send_id)::cycle.sends
   in
   List.iter add_send_to_cycle cur_cycles;
@@ -1028,18 +1028,17 @@ and codegen_expr (ctx : codegen_context) (proc : proc_def)
         | None -> raise (TypeError "Illegal match: value is not of a variant type!")
         end
   | Wait (delay, body) ->
-      let (init_bindings, in_cf_node_wait, first_delay) = match delay with
-      (* FIXME: the superposition in which the data is sent is not quite correct *)
+      let (init_bindings, in_cf_node_wait, first_delay, msg_data_assign) = match delay with
       | `Send {send_msg_spec = msg_specifier; send_data = expr} ->
           BorrowEnv.transit env (`Cycles 1);
           let in_cf_node_wait = ControlFlowGraph.new_node (`Cycles 1) in
           ControlFlowGraph.add_successors in_cf_node [in_cf_node_wait];
           (* gather the data to send *)
+          (* HACK: consider not allowing timing operations in arguments? *)
           let expr_res = codegen_expr ctx proc [] in_cf_node env expr in
           let in_cf_node_wait = expr_res.out_cf_node in
           BorrowEnv.transit env (delay :> Lifetime.event);
-          assign_message_data ctx proc cur_cycles env msg_specifier expr_res.v;
-          (StringMap.empty, in_cf_node_wait, delay)
+          (StringMap.empty, in_cf_node_wait, delay, Some (msg_specifier, expr_res.v))
       | `Recv {recv_binds = idents; recv_msg_spec = msg_specifier} ->
           BorrowEnv.transit env (`Cycles 1);
           let in_cf_node_wait = ControlFlowGraph.new_node (`Cycles 1) in
@@ -1048,11 +1047,11 @@ and codegen_expr (ctx : codegen_context) (proc : proc_def)
           let env = gather_data_wires_from_msg ctx proc msg_specifier |>
             List.map fst |>
             List.combine idents |> map_of_list in
-          (env, in_cf_node_wait, delay)
+          (env, in_cf_node_wait, delay, None)
       | `Cycles 0 -> raise (TypeError "Invalid delay: #0 (n must be > 0 in #n)!")
       | _ ->
           BorrowEnv.transit env (delay :> Lifetime.event);
-          (StringMap.empty, in_cf_node, `Cycles 1)
+          (StringMap.empty, in_cf_node, `Cycles 1, None)
       in
       let in_cf_node_body = ControlFlowGraph.new_node delay in
       ControlFlowGraph.add_successors in_cf_node_wait [in_cf_node_body];
@@ -1061,9 +1060,10 @@ and codegen_expr (ctx : codegen_context) (proc : proc_def)
         (* connect cycles *)
         connect_cycles cur_cycles new_cycle.id;
         [([], new_cycle)]
-      else
+      else begin
+        List.iter (fun (_, c) -> c.delay <- first_delay) cur_cycles;
         cur_cycles
-      in
+      end in
       let superpos' =
         match delay with
         | `Cycles n ->
@@ -1077,6 +1077,12 @@ and codegen_expr (ctx : codegen_context) (proc : proc_def)
           !cur_cycles
         | _ -> superpos
       in
+      begin
+        match msg_data_assign with
+        | Some (message_specifier, wires) ->
+            assign_message_data ctx proc superpos' env message_specifier wires
+        | None -> ()
+      end;
       codegen_expr ctx proc superpos' in_cf_node_body
         (BorrowEnv.add_bindings ctx.binding_versions env init_bindings) body
   | Debug debug_op ->
@@ -1200,10 +1206,10 @@ let codegen_state_machine (ctx : codegen_context) (proc : proc_def) =
           if StringSet.find_opt s ctx.mux_state_regs |> Option.is_none then ()
           else begin
             if conds = [] then
-              Printf.printf "       %s_mux_n = %d;\n" s send_id
+              Printf.printf "        %s_mux_n = %d;\n" s send_id
             else
               (* TODO: it might not be necessary to add conditions *)
-              Printf.printf "       if (%s) %s_mux_n = %d;\n"
+              Printf.printf "        if (%s) %s_mux_n = %d;\n"
                 (format_condition_list conds) s send_id
           end
         in
