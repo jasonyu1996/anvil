@@ -55,6 +55,7 @@ let lifetime_covered_by (lt1 : lifetime) (lt2 : lifetime) : bool =
 let future_earlier_of (t1 : future) (t2 : future) : future =
   match t1, t2 with
   | `Cycles n, `Cycles m -> `Cycles (min n m)
+  | _, `Eternal -> t1
   | _ when t1 = t2 -> t1
   | _ -> `Cycles 0
 

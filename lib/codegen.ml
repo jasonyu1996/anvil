@@ -186,7 +186,8 @@ module BorrowEnv = struct
     let borrow_ok = not @@ List.exists check_borrow !(env.borrows) in
     if borrow_ok then
       let adjust_binding_lifetime _ ((w, _) : wire_def * int) =
-        w.ty <- {w.ty with lifetime = sig_lifetime_null}
+        (* now the register value can only be used in this cycle *)
+        w.ty <- {w.ty with lifetime = sig_lifetime_this_cycle}
       in StringMap.iter adjust_binding_lifetime env.bindings;
       let adjust_retired_binding_lifetime s w = adjust_binding_lifetime s (w, 0) in
       StringMap.iter adjust_retired_binding_lifetime env.retired_bindings
@@ -487,43 +488,40 @@ let format_lval_next (lval : lvalue_evaluated) : string =
   in (format_regname_next lval.ident) ^ ind_str
 
 let codegen_state_transition (ctx : codegen_context) (regs : reg_def list) =
-  match regs with
-  | [] -> ()
-  | _ ->
-    print_endline "  always_ff @(posedge clk_i or negedge rst_ni) begin: state_transition";
-    print_endline "    if (~rst_ni) begin";
-    let codegen_reg_reset = fun (r: reg_def) ->
-      let init_val_str = Option.value ~default:"'0" r.init in
-      Printf.printf "      %s <= %s;\n" (format_regname_current r.name) init_val_str
-    in List.iter codegen_reg_reset regs;
-    StringSet.iter (Printf.printf "      %s_mux_q <= '0;\n") ctx.mux_state_regs;
-    print_endline "    end else begin";
+  print_endline "  always_ff @(posedge clk_i or negedge rst_ni) begin: state_transition";
+  print_endline "    if (~rst_ni) begin";
+  let codegen_reg_reset = fun (r: reg_def) ->
+    let init_val_str = Option.value ~default:"'0" r.init in
+    Printf.printf "      %s <= %s;\n" (format_regname_current r.name) init_val_str
+  in List.iter codegen_reg_reset regs;
+  StringSet.iter (Printf.printf "      %s_mux_q <= '0;\n") ctx.mux_state_regs;
+  print_endline "    end else begin";
 
-    (* print out debug statements *)
+  (* print out debug statements *)
+  if ctx.cycles_n > 1 then
+    Printf.printf "      unique case (_st_q)\n"
+  else ();
+  let print_cycle_debug_statements (cycle : cycle_node) =
     if ctx.cycles_n > 1 then
-      Printf.printf "      unique case (_st_q)\n"
+      Printf.printf "        %s: begin\n" @@ format_statename cycle.id
     else ();
-    let print_cycle_debug_statements (cycle : cycle_node) =
-      if ctx.cycles_n > 1 then
-        Printf.printf "        %s: begin\n" @@ format_statename cycle.id
-      else ();
-      List.iter (Printf.printf "          %s\n") cycle.debug_statements;
-      if ctx.cycles_n > 1 then
-        Printf.printf "        end\n"
-      else ()
-    in
-    List.iter print_cycle_debug_statements ctx.cycles;
+    List.iter (Printf.printf "          %s\n") cycle.debug_statements;
     if ctx.cycles_n > 1 then
-      Printf.printf "      endcase\n"
-    else ();
+      Printf.printf "        end\n"
+    else ()
+  in
+  List.iter print_cycle_debug_statements ctx.cycles;
+  if ctx.cycles_n > 1 then
+    Printf.printf "      endcase\n"
+  else ();
 
-    let codegen_reg_next = fun (r: reg_def) ->
-      Printf.printf "      %s <= %s;\n"
-        (format_regname_current r.name) (format_regname_next r.name)
-    in List.iter codegen_reg_next regs;
-    StringSet.iter (fun x -> Printf.printf "      %s_mux_q <= %s_mux_n;\n" x x) ctx.mux_state_regs;
-    print_endline "    end";
-    print_endline "  end"
+  let codegen_reg_next = fun (r: reg_def) ->
+    Printf.printf "      %s <= %s;\n"
+      (format_regname_current r.name) (format_regname_next r.name)
+  in List.iter codegen_reg_next regs;
+  StringSet.iter (fun x -> Printf.printf "      %s_mux_q <= %s_mux_n;\n" x x) ctx.mux_state_regs;
+  print_endline "    end";
+  print_endline "  end"
 
 
 
@@ -1363,6 +1361,9 @@ let codegen_proc ctx (proc : proc_def) =
   codegen_ports ctx proc.args;
   print_endline ");";
 
+  codegen_channels ctx proc.body.channels;
+  ctx.local_messages <- gather_local_messages ctx proc;
+
   (* implicit state *)
   (* let first_cycle_op = codegen_proc_body_list ctx proc proc.body None in *)
   (* Option.iter (fun c -> ctx.first_cycle <- c) first_cycle_op; *)
@@ -1377,9 +1378,7 @@ let codegen_proc ctx (proc : proc_def) =
   ctx.out_cf_node <- Some body_res.out_cf_node;
   ctx.out_borrows <- !(init_env.borrows);
   (* output generated code *)
-  codegen_channels ctx proc.body.channels;
   codegen_endpoints ctx;
-  ctx.local_messages <- gather_local_messages ctx proc;
   codegen_spawns ctx proc;
   codegen_state_machine ctx proc;
   let regs = if List.length ctx.cycles > 1 then

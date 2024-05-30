@@ -1,0 +1,23 @@
+chan counter_ifc = {
+    right result : (logic[4]@#0-#1) @#1 - @#1
+}
+
+proc counter_impl(i : left counter_ifc) =
+    reg cnt : logic[4]
+    cycle then
+    let cur_cnt = !cnt in
+    set cnt := cur_cnt + 4'b1;
+    try send i::result (cur_cnt) then 1'b0 else 1'b0
+
+proc counter() =
+    chan foreign counter_le -- counter_ri : counter_ifc
+    spawn counter_impl(counter_le)
+    cycle then
+    try recv res = counter_ri::result then (
+        dprint "Counter = %d" (res);
+        if res == 4'b1111 then
+            dfinish; 1'b0
+        else
+            1'b0
+    ) else
+        1'b0
