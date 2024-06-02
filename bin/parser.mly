@@ -234,14 +234,18 @@ expr:
   { e }
 | e = bin_expr
   { e }
-// | LEFT_PAREN; tuple = separated_list(COMMA, expr); RIGHT_PAREN
-//   { Anvil.Lang.Tuple tuple }
+| LEFT_PAREN; first_expr = expr; COMMA; tuple = separated_list(COMMA, expr); RIGHT_PAREN
+  { Anvil.Lang.Tuple (first_expr::tuple) }
+| LEFT_PAREN; RIGHT_PAREN
+  { Anvil.Lang.Tuple ([]) }
 | LEFT_PAREN; e = expr; RIGHT_PAREN
   { e }
 | KEYWORD_LET; binding = IDENT; EQUAL; v = expr; KEYWORD_IN; body = expr
-  { Anvil.Lang.LetIn (binding, v, body) }
+  { Anvil.Lang.LetIn ([binding], v, body) }
+| KEYWORD_LET; LEFT_PAREN; bindings = separated_list(COMMA, IDENT); RIGHT_PAREN; EQUAL; v = expr; KEYWORD_IN; body = expr
+  { Anvil.Lang.LetIn (bindings, v, body) }
 | v = expr; SEMICOLON; body = expr
-  { Anvil.Lang.LetIn ("_", v, body) } // TODO: check that the result is of unit type
+  { Anvil.Lang.LetIn ([], v, body) }
 | KEYWORD_WAIT; KEYWORD_SEND; send_pack = send_pack; KEYWORD_THEN; body = expr
   { Anvil.Lang.Wait (`Send send_pack, body) }
 | KEYWORD_WAIT; KEYWORD_RECV; recv_pack = recv_pack; KEYWORD_THEN; body = expr

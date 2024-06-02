@@ -287,7 +287,7 @@ and expr =
   | Binop of binop * expr * expr
   | Unop of unop * expr
   | Tuple of expr list
-  | LetIn of identifier * expr * expr
+  | LetIn of identifier list * expr * expr
   | Wait of delay_def * expr
   | IfExpr of expr * expr * expr
   (* construct a variant type value with a constructor *)

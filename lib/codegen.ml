@@ -647,7 +647,7 @@ let expr_debug_dump (e : expr) (config : Config.compile_config) : unit =
       | Apply _ -> "apply"
       | Binop _ -> "binop"
       | Unop _ -> "unop"
-      | LetIn (ident, _, _) -> Printf.sprintf "let(%s)" ident
+      | LetIn (idents, _, _) -> Printf.sprintf "let(%s)" @@ String.concat ", " idents
       | Wait (delay, _) -> Printf.sprintf "delay(%s)" (string_of_delay delay)
       | IfExpr _ -> "if"
       | Construct _ -> "cons"
@@ -790,18 +790,20 @@ and codegen_expr (ctx : codegen_context) (proc : proc_def)
       let expr_str = Printf.sprintf "%s%s" (string_of_unop unop) w.name in
       codegen_context_new_assign ctx {wire = w'.name; expr_str = expr_str};
       {e_res with v = [w']}
-  | Tuple _expr_list ->
-      raise (UnimplementedError "Tuple expression unimplemented!")
-  | LetIn (ident, v_expr, body_expr) ->
+  | Tuple expr_list ->
+      let (w_res, superpos, out_cf_node) = codegen_expr_list ctx proc cur_cycles in_cf_node env expr_list in
+      {v = List.map (fun x -> List.hd x.v) w_res; superpos; out_cf_node}
+  | LetIn (idents, v_expr, body_expr) ->
       let v_res = codegen_expr ctx proc cur_cycles in_cf_node env v_expr in
       let in_cf_node' = v_res.out_cf_node in
-      let new_bindings =
-        if ident = "_" then StringMap.empty
-        else
-          let w = List.hd v_res.v in
-          StringMap.add ident w StringMap.empty
-      in
-      let new_env = BorrowEnv.add_bindings ctx.binding_versions env new_bindings in
+      let new_bindings = ref StringMap.empty in
+      begin
+        try
+          List.iter2 (fun i w -> new_bindings := StringMap.add i w !new_bindings) idents v_res.v
+        with
+        | Invalid_argument _ -> raise (TypeError "Invalid let binding expression!")
+      end;
+      let new_env = BorrowEnv.add_bindings ctx.binding_versions env !new_bindings in
       codegen_expr ctx proc v_res.superpos in_cf_node' new_env body_expr
   | IfExpr (cond_expr, e1, e2) ->
       let cond_res = codegen_expr ctx proc cur_cycles in_cf_node env cond_expr in
@@ -1373,6 +1375,9 @@ let codegen_proc ctx (proc : proc_def) =
   and init_env = BorrowEnv.empty () in
   let body_res = codegen_expr ctx proc [([], init_cycle)]
     init_cf_node init_env proc.body.prog in
+  if body_res.v <> [] then
+    raise (TypeError "Process body does not evaluate to ()!")
+  else ();
   connect_cycles body_res.superpos init_cycle.id;
   ctx.in_cf_node <- Some init_cf_node;
   ctx.out_cf_node <- Some body_res.out_cf_node;

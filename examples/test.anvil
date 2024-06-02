@@ -26,4 +26,4 @@ proc top() =
     chan foreign master_p -- foreign slave_p : pack
     spawn master(master_p)
     spawn slave(slave_p)
-    cycle then 1'b0
+    cycle then ()

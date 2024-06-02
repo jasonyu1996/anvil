@@ -7,7 +7,7 @@ proc counter_impl(i : left counter_ifc) =
     cycle then
     let cur_cnt = !cnt in
     set cnt := cur_cnt + 4'b1;
-    try send i::result (cur_cnt) then 1'b0 else 1'b0
+    try send i::result (cur_cnt) then () else ()
 
 proc counter() =
     chan foreign counter_le -- counter_ri : counter_ifc
@@ -16,8 +16,6 @@ proc counter() =
     try recv res = counter_ri::result then (
         dprint "Counter = %d" (res);
         if res == 4'b1111 then
-            dfinish; 1'b0
-        else
-            1'b0
-    ) else
-        1'b0
+            dfinish
+        else ()
+    ) else ()

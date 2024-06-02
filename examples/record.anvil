@@ -14,5 +14,4 @@ type data = {
 
 proc record () =
     cycle then
-    let v = data::{a = 64'b0; op = op::And; b = 64'b1} in
-    1'b0
+    let v = data::{a = 64'b0; op = op::And; b = 64'b1} in ()
