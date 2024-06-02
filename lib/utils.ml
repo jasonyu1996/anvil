@@ -19,6 +19,7 @@ let map_of_list (l : (string * 'a) list) : 'a string_map =
   List.fold_left folder StringMap.empty l
 
 
+(* TODO: better error messages *)
 let list_match_reorder (order : string list)
                        (data : (string * 'a) list) : 'a list option =
   if (List.length order) <> (List.length data) then

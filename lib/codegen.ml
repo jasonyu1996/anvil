@@ -695,7 +695,11 @@ and codegen_expr (ctx : codegen_context) (proc : proc_def)
       leaf_expression_result cur_cycles in_cf_node [w]
   | Identifier ident ->
       (* only supports registers for now *)
-      let w = BorrowEnv.name_resolve env ident |> Option.get in leaf_expression_result cur_cycles in_cf_node [w]
+      let w =
+        try
+          BorrowEnv.name_resolve env ident |> Option.get
+        with Invalid_argument _ -> raise (TypeError (Printf.sprintf "Identifier %s is not bound!" ident))
+      in leaf_expression_result cur_cycles in_cf_node [w]
   | Read reg_ident ->
       let dtype = Option.get (get_identifier_dtype ctx proc reg_ident) in
       (* this lifetime is bounded by when the register gets mutated next *)
