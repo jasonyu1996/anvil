@@ -1358,11 +1358,6 @@ let codegen_spawns (ctx: codegen_context) (proc: proc_def) =
 
 
 let codegen_proc ctx (proc : proc_def) =
-  (* generate ports *)
-  Printf.printf "module %s (\n" proc.name;
-  codegen_ports ctx proc.args;
-  print_endline ");";
-
   codegen_channels ctx proc.body.channels;
   ctx.local_messages <- gather_local_messages ctx proc;
 
@@ -1382,7 +1377,14 @@ let codegen_proc ctx (proc : proc_def) =
   ctx.in_cf_node <- Some init_cf_node;
   ctx.out_cf_node <- Some body_res.out_cf_node;
   ctx.out_borrows <- !(init_env.borrows);
+
   (* output generated code *)
+
+  (* generate ports *)
+  Printf.printf "module %s (\n" proc.name;
+  codegen_ports ctx proc.args;
+  print_endline ");";
+
   codegen_endpoints ctx;
   codegen_spawns ctx proc;
   codegen_state_machine ctx proc;
