@@ -1,0 +1,55 @@
+
+type fifo_req = [
+    | Push of logic
+    | Pop
+]
+
+type fifo_resp = [
+    | Succ of logic
+    | Fail
+]
+
+chan fifo_ifc = {
+    left req : (fifo_req@#0-#1) @#1 - @#1,
+    right resp : (fifo_resp@#0-#1) @req - @req
+}
+
+proc fifo_impl (i: left fifo_ifc) =
+    reg fifo : logic[8]
+    reg cnt : logic[4]
+    cycle then
+    recv req = i::req then
+    let resp =
+        match req with
+        |> Push data ->
+            if !cnt == 4'd8 then
+                fifo_resp::Fail
+            else (
+                set cnt := (!cnt) + 4'b1;
+                set fifo := (!fifo) | ({7'b0, data} << !cnt);
+                fifo_resp::Succ data
+            )
+        |> Pop ->
+            if !cnt == 4'd0 then
+                fifo_resp::Fail
+            else (
+                set cnt := (!cnt) - 4'b1;
+                fifo_resp::Succ 1'b1
+            )
+        done
+    in
+    send i::resp (resp) then ()
+
+proc fifo () =
+    chan foreign le -- ri : fifo_ifc
+    spawn fifo_impl (le)
+    cycle then
+    send ri::req (fifo_req::Pop) then
+    recv r = ri::resp then
+    let _ = match r with
+    |> Succ data -> dprint "Success %d" (data); 1'b0
+    |> Fail -> dprint "Fail" (1'b0); 1'b0
+    done
+    in
+    dfinish
+

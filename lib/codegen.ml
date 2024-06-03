@@ -995,7 +995,9 @@ and codegen_expr (ctx : codegen_context) (proc : proc_def)
                   match range_opt, pattern.bind_name with
                   | None, None -> StringMap.empty
                   | Some range, Some bind_name ->
-                      let arm_vw = codegen_context_new_wire ctx {w.ty with dtype} w.borrow_src in
+                      let arm_vw = codegen_context_new_wire ctx
+                        {w.ty with dtype = `Array (`Logic, range.ri - range.le + 1)}
+                        w.borrow_src in
                       let arm_v_expr_str = Printf.sprintf "%s[%d:%d]" w.name range.ri range.le in
                       codegen_context_new_assign ctx {wire = arm_vw.name; expr_str = arm_v_expr_str};
                       StringMap.add bind_name arm_vw StringMap.empty
@@ -1013,6 +1015,7 @@ and codegen_expr (ctx : codegen_context) (proc : proc_def)
               let arm_res_list = List.filter_map process_arm match_arm_list in
               let new_env = ref (BorrowEnv.empty ())
               and first_arm = ref true in
+              (* FIXME: support unit type *)
               let arm_expr_str = List.map (fun ((c, r, e) : (identifier * expr_result * borrow_env)) ->
                 if !first_arm then begin
                   new_env := e;
@@ -1091,6 +1094,7 @@ and codegen_expr (ctx : codegen_context) (proc : proc_def)
       codegen_expr ctx proc superpos' in_cf_node_body
         (BorrowEnv.add_bindings ctx.binding_versions env init_bindings) body
   | Debug debug_op ->
+      (* TODO: support print without arguments *)
       (
         match debug_op with
         | DebugPrint (fmt, vlist) ->
