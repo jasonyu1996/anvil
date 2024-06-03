@@ -1001,13 +1001,14 @@ and codegen_expr (ctx : codegen_context) (proc : proc_def)
                       StringMap.add bind_name arm_vw StringMap.empty
                   | _ -> raise (TypeError "Pattern matching incompatible with type definition!")
                 in
-                let arm_env = BorrowEnv.add_bindings ctx.binding_versions (BorrowEnv.clone env) new_bindings
+                let arm_env_pre = BorrowEnv.clone env in
+                let arm_env = BorrowEnv.add_bindings ctx.binding_versions arm_env_pre new_bindings
                 and arm_in_cf_node = ControlFlowGraph.new_node delay_immediate in
                 ControlFlowGraph.add_successors in_cf_node' [arm_in_cf_node];
                 let arm_res = codegen_expr ctx proc
                   (superposition_extra_conds expr_res.superpos [{w = cond_str; neg = false}]) arm_in_cf_node arm_env e_arm in
                 arm_conds := [];
-                Some (new_cond, arm_res, arm_env)
+                Some (new_cond, arm_res, arm_env_pre)
               in
               let arm_res_list = List.filter_map process_arm match_arm_list in
               let new_env = ref (BorrowEnv.empty ())

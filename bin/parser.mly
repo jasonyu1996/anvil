@@ -21,6 +21,7 @@
 %token DOUBLE_RIGHT_ABRACK  (* << *)
 %token DOUBLE_EQ            (* == *)
 %token EXCL_EQ              (* != *)
+%token OR_GT                (* |> *)
 %token EXCL                 (* ! *)
 %token PLUS                 (* + *)
 %token MINUS                (* - *)
@@ -382,19 +383,19 @@ index:
 ;
 
 match_arm:
-| OR; pattern = match_pattern; body_opt = match_arm_body?
+| OR_GT; pattern = match_pattern; body_opt = match_arm_body?
   { (pattern, body_opt) }
 ;
 
-match_pattern:
+%inline match_pattern:
   cstr = IDENT; bind_name_opt = IDENT?
   {
     { cstr; bind_name = bind_name_opt } : Anvil.Lang.match_pattern
   }
 ;
 
-match_arm_body:
-  POINT_TO; e = expr; SEMICOLON
+%inline match_arm_body:
+  POINT_TO; e = expr
   { e }
 ;
 

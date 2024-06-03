@@ -14,7 +14,7 @@ chan pack = {
 proc slave(p : right pack) =
     reg st: logic
     reg g : variant
-    cycle then 1'b0
+    cycle then ()
 
 proc master(p : left pack) =
     reg counter: logic[10]

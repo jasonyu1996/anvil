@@ -47,6 +47,7 @@ rule read =
   | ">>"      { DOUBLE_RIGHT_ABRACK }
   | "=="      { DOUBLE_EQ }
   | "!="      { EXCL_EQ }
+  | "|>"      { OR_GT }
   | "!"       { EXCL }
   | "proc"    { KEYWORD_PROC }
   | "chan"    { KEYWORD_CHAN }

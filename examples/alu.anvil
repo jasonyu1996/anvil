@@ -22,10 +22,9 @@ proc alu(i : left alu_chan) =
     wait recv r_i = i::req then
     cycle then
     try send i::resp (!res) then ()
-    else ()
- /*       set res := //1'b0
-            match r_i.op with
-            | Add -> r_i.a + r_i.b;
-            | Sub -> r_i.a - r_i.b;
-            done
-    else 1'b0 */
+    else
+       set res :=
+        match r_i.op with
+        |> Add -> r_i.a + r_i.b
+        |> Sub -> r_i.a - r_i.b
+        done
