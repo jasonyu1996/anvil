@@ -12,6 +12,7 @@ bug-reports: "https://github.com/jasonyu1996/anvil/issues"
 depends: [
   "ocaml"
   "dune" {>= "3.8"}
+  "menhir"
   "odoc" {with-doc}
 ]
 build: [
