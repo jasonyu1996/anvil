@@ -90,12 +90,13 @@ rule read =
   | _         { raise (SyntaxError (Lexing.lexeme lexbuf |> Printf.sprintf "Unknown character: %s"))}
 and skip_comments =
   parse
+  | newline   { Lexing.new_line lexbuf; skip_comments lexbuf }
   | "*/"      { read lexbuf }
   | _         { skip_comments lexbuf }
   | eof       { raise (SyntaxError "Missing */") }
 and skip_inline_comments =
   parse
-  | newline  { Lexing.new_line lexbuf; read lexbuf }
+  | newline   { Lexing.new_line lexbuf; read lexbuf }
   | _         { skip_inline_comments lexbuf }
   | eof       { EOF }
 and read_string buf =

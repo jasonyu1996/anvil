@@ -53,10 +53,10 @@ proc fifo () =
         else (
             send ri::req (fifo_req::Pop) then
             recv r = ri::resp then
-            let _ = match r with
-            |> Succ data -> dprint "Success = %d" (data); 1'b0
-            |> Fail -> dprint "Failed" (1'b0); 1'b0
-            done in ()
+            match r with
+            |> Succ data -> dprint "Success = %d" (data)
+            |> Fail -> dprint "Failed" ()
+            done
         )
     else (
         set cnt := !cnt + 4'b1;
@@ -66,10 +66,10 @@ proc fifo () =
             let v = 8'b10110101 in
             send ri::req (fifo_req::Push (v >> !cnt)[0]) then
             recv r = ri::resp then
-            let _ = match r with
-            |> Succ data -> dprint "Success = %d" (data); 1'b0
-            |> Fail -> dprint "Failed" (1'b0); 1'b0
-            done in ()
+            match r with
+            |> Succ data -> dprint "Success = %d" (data)
+            |> Fail -> dprint "Failed" ()
+            done
         )
     )
 

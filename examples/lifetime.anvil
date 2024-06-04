@@ -5,7 +5,8 @@ proc demo() =
     let _ = if 1'b1 then
         let n = 1'b1 in
         cycle then
-        let _ = set r := 1'b0 in 1'b1
+        set r := 1'b0;
+        64'b0
     else n
     in
     set r := n

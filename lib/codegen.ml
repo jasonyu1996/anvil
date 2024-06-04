@@ -1015,20 +1015,27 @@ and codegen_expr (ctx : codegen_context) (proc : proc_def)
               let arm_res_list = List.filter_map process_arm match_arm_list in
               let new_env = ref (BorrowEnv.empty ())
               and first_arm = ref true in
-              (* FIXME: support unit type *)
-              let arm_expr_str = List.map (fun ((c, r, e) : (identifier * expr_result * borrow_env)) ->
-                if !first_arm then begin
-                  new_env := e;
-                  first_arm := false
-                end else new_env := BorrowEnv.merge !new_env e;
-                Printf.sprintf "(%s) ? %s" c (List.hd r.v).name) arm_res_list |> String.concat " : " |> Printf.sprintf "%s : '0" in
-              let new_dtype = (List.hd arm_res_list |> (fun (_, x, _) -> x) |>  (fun (x : expr_result) -> x.v) |> List.hd).ty in
-              let new_w = codegen_context_new_wire ctx new_dtype (List.concat_map
-                (fun ((_, x, _) : (identifier * expr_result * borrow_env)) -> (List.hd x.v).borrow_src) arm_res_list) in
-              codegen_context_new_assign ctx {wire = new_w.name; expr_str = arm_expr_str};
+              List.iter (fun ((_, _, e) : (identifier * expr_result * borrow_env)) ->
+                    if !first_arm then begin
+                      new_env := e;
+                      first_arm := false
+                    end else new_env := BorrowEnv.merge !new_env e) arm_res_list;
+              let v = List.hd arm_res_list |> (fun (_, x, _) -> x) |>  (fun (x : expr_result) -> x.v) |>
+                function
+                | [] -> []
+                | w::_ ->
+                  let lt = ref sig_lifetime_const in
+                  let arm_expr_str = List.map (fun ((c, r, _) : (identifier * expr_result * borrow_env)) ->
+                    let cw = List.hd r.v in
+                    lt := Lifetime.lifetime_merge_tight !lt cw.ty.lifetime;
+                    Printf.sprintf "(%s) ? %s" c (List.hd r.v).name) arm_res_list |> String.concat " : " |> Printf.sprintf "%s : '0" in
+                  let new_w = codegen_context_new_wire ctx {w.ty with lifetime = !lt} (List.concat_map
+                    (fun ((_, x, _) : (identifier * expr_result * borrow_env)) -> (List.hd x.v).borrow_src) arm_res_list) in
+                  codegen_context_new_assign ctx {wire = new_w.name; expr_str = arm_expr_str};
+                  [new_w]
+              in
               BorrowEnv.assign env !new_env;
-              {v = [new_w];
-              superpos = List.concat_map (fun ((_, x, _) : (identifier * expr_result * borrow_env)) -> x.superpos) arm_res_list;
+              {v; superpos = List.concat_map (fun ((_, x, _) : (identifier * expr_result * borrow_env)) -> x.superpos) arm_res_list;
               out_cf_node = List.map (fun ((_, x, _) : (identifier * expr_result * borrow_env)) -> x.out_cf_node) arm_res_list
                 |> ControlFlowGraph.join_nodes}
             | _ ->  raise (TypeError "Illegal match: value is not of a variant type!")
@@ -1094,7 +1101,6 @@ and codegen_expr (ctx : codegen_context) (proc : proc_def)
       codegen_expr ctx proc superpos' in_cf_node_body
         (BorrowEnv.add_bindings ctx.binding_versions env init_bindings) body
   | Debug debug_op ->
-      (* TODO: support print without arguments *)
       (
         match debug_op with
         | DebugPrint (fmt, vlist) ->
