@@ -1188,15 +1188,48 @@ let codegen_state_machine (ctx : codegen_context) (proc : proc_def) =
       in
       StringMap.iter print_mux_state ctx.sends;
 
-      print_endline "  always_comb begin : state_machine";
+      (* send mux. We have to generate this in a separate always_comb to make Verilator happy *)
+      (* https://verilator.org/guide/latest/warnings.html#cmdoption-arg-UNOPTFLAT *)
+      Printf.printf "  always_comb begin : send_mux\n";
+      (* default mux states *)
+      StringSet.iter (fun s -> Printf.printf "    %s_mux_n = %s_mux_q;\n" s s ) ctx.mux_state_regs;
+      if state_cnt > 1 then
+        Printf.printf "    unique case (_st_q)\n"
+      else ();
+      let codegen_cycle cycle =
+        (* print out the mux state change *)
+        if state_cnt > 1 then
+          Printf.printf "      %s: begin\n" (format_statename cycle.id)
+        else ();
+        let print_mux_state_change (conds, msg_spec, send_id) =
+          let s = format_msg_prefix msg_spec.endpoint msg_spec.msg in
+          if StringSet.find_opt s ctx.mux_state_regs |> Option.is_none then ()
+          else begin
+            if conds = [] then
+              Printf.printf "        %s_mux_n = %d;\n" s send_id
+            else
+              Printf.printf "        if (%s) %s_mux_n = %d;\n"
+                (format_condition_list conds) s send_id
+          end
+        in
+        List.iter print_mux_state_change cycle.sends;
+        if state_cnt > 1 then
+          Printf.printf "      end\n"
+        else ();
+      in
+      List.iter codegen_cycle ctx.cycles;
+      if state_cnt > 1 then
+        Printf.printf "    endcase\n"
+      else ();
+      Printf.printf "  end\n";
+
+      (* state machine *)
+      Printf.printf "  always_comb begin : state_machine\n";
 
       (* default next reg values *)
       let assign_reg_default = fun (r: reg_def) ->
         Printf.printf "    %s = %s;\n" (format_regname_next r.name) (format_regname_current r.name)
       in List.iter assign_reg_default proc.body.regs;
-
-      (* default mux states *)
-      StringSet.iter (fun s -> Printf.printf "    %s_mux_n = %s_mux_q;\n" s s ) ctx.mux_state_regs;
 
       (* default output indicators, we need to know which messages are local-sent/received *)
       List.iter (Printf.printf "    %s = '0;\n") (gather_out_indicators ctx);
@@ -1208,21 +1241,6 @@ let codegen_state_machine (ctx : codegen_context) (proc : proc_def) =
         if state_cnt > 1 then
           Printf.printf "      %s: begin\n" (format_statename cycle.id)
         else ();
-
-        (* print out the mux state change *)
-        let print_mux_state_change (conds, msg_spec, send_id) =
-          let s = format_msg_prefix msg_spec.endpoint msg_spec.msg in
-          if StringSet.find_opt s ctx.mux_state_regs |> Option.is_none then ()
-          else begin
-            if conds = [] then
-              Printf.printf "        %s_mux_n = %d;\n" s send_id
-            else
-              (* TODO: it might not be necessary to add conditions *)
-              Printf.printf "        if (%s) %s_mux_n = %d;\n"
-                (format_condition_list conds) s send_id
-          end
-        in
-        List.iter print_mux_state_change cycle.sends;
 
         (* if has blocking send, set the valid indicator *)
         let transition_cond = match cycle.delay with

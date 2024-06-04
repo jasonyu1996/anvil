@@ -68,7 +68,6 @@
 %token <string>HEX_LITERAL  (* hexadecimal literal *)
 %token <string>STR_LITERAL
 %right LEFT_ABRACK RIGHT_ABRACK LEFT_ABRACK_EQ RIGHT_ABRACK_EQ
-%right DOUBLE_LEFT_ABRACK DOUBLE_RIGHT_ABRACK
 %right EXCL_EQ DOUBLE_EQ
 %right DELAY KEYWORD_IN
 %right SEMICOLON KEYWORD_THEN
@@ -76,6 +75,7 @@
 %right COLON_EQ
 %right CONSTRUCT
 %left LEFT_BRACKET XOR AND OR PLUS MINUS
+%left DOUBLE_LEFT_ABRACK DOUBLE_RIGHT_ABRACK
 %left PERIOD
 %nonassoc TILDE UMINUS UAND UOR
 %start <Anvil.Lang.compilation_unit> cunit

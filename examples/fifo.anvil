@@ -34,7 +34,8 @@ proc fifo_impl (i: left fifo_ifc) =
                 fifo_resp::Fail
             else (
                 set cnt := (!cnt) - 4'b1;
-                fifo_resp::Succ 1'b1
+                set fifo := (!fifo) >> 1'b1;
+                fifo_resp::Succ (!fifo)[0]
             )
         done
     in
@@ -43,13 +44,32 @@ proc fifo_impl (i: left fifo_ifc) =
 proc fifo () =
     chan foreign le -- ri : fifo_ifc
     spawn fifo_impl (le)
+    reg cnt : logic[4]
+    reg filled : logic
     cycle then
-    send ri::req (fifo_req::Pop) then
-    recv r = ri::resp then
-    let _ = match r with
-    |> Succ data -> dprint "Success %d" (data); 1'b0
-    |> Fail -> dprint "Fail" (1'b0); 1'b0
-    done
-    in
-    dfinish
+    if !filled then
+        set cnt := !cnt - 4'b1;
+        if !cnt == 4'd1 then dfinish
+        else (
+            send ri::req (fifo_req::Pop) then
+            recv r = ri::resp then
+            let _ = match r with
+            |> Succ data -> dprint "Success = %d" (data); 1'b0
+            |> Fail -> dprint "Failed" (1'b0); 1'b0
+            done in ()
+        )
+    else (
+        set cnt := !cnt + 4'b1;
+        if !cnt == 4'd7 then
+            set filled := 1'b1
+        else (
+            let v = 8'b10110101 in
+            send ri::req (fifo_req::Push (v >> !cnt)[0]) then
+            recv r = ri::resp then
+            let _ = match r with
+            |> Succ data -> dprint "Success = %d" (data); 1'b0
+            |> Fail -> dprint "Failed" (1'b0); 1'b0
+            done in ()
+        )
+    )
 
