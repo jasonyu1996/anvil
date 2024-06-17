@@ -47,21 +47,27 @@ let sig_lifetime_const : sig_lifetime =
   { b = `Cycles 0; e = `Eternal }
 
 (* type definition *)
-type data_type = [
+type 'a data_type_generic_no_named = [
   | `Logic
-  | `Array of data_type * int
-  | `Named of identifier (* named type *)
-  | `Variant of (identifier * data_type option) list
-  | `Record of (identifier * data_type) list
-  | `Tuple of data_type list
+  | `Array of 'a * int
+  | `Variant of (identifier * 'a option) list
+  | `Record of (identifier * 'a) list
+  | `Tuple of 'a list
   | `Opaque of identifier (* reserved named type *)
 ]
+
+type 'a data_type_generic = [
+  | `Named of identifier (* named type *)
+  | 'a data_type_generic_no_named
+]
+
+type resolved_data_type = resolved_data_type data_type_generic_no_named
+type data_type = data_type data_type_generic
+
 and type_def = {
   name: identifier;
   body: data_type;
 }
-
-type type_def_map = type_def Utils.string_map
 
 let variant_tag_size (v: [< `Variant of (identifier * data_type option) list]) : int =
   match v with
@@ -83,28 +89,6 @@ let variant_lookup_index (v: [< `Variant of (identifier * data_type option) list
           else ()
         end else ()) vlist;
   !res
-
-let rec data_type_size (type_defs : type_def_map) (dtype : data_type) : int =
-  match dtype with
-  | `Logic -> 1
-  | `Array (dtype', n) -> (data_type_size type_defs dtype') * n
-  | `Named type_name ->
-      let type_def = Utils.StringMap.find type_name type_defs in
-      data_type_size type_defs type_def.body
-  | `Variant vlist as var ->
-      let mx_data_size = List.fold_left (fun m n -> max m (
-        let inner_dtype_op = snd n in
-        match inner_dtype_op with
-        | None -> 0
-        | Some inner_dtype -> data_type_size type_defs inner_dtype
-      )) 0 vlist
-      and tag_size = variant_tag_size var in
-      mx_data_size + tag_size
-  | `Record flist ->
-      List.fold_left (fun m n -> m + (snd n |> data_type_size type_defs)) 0 flist
-  | `Tuple comp_dtype_list ->
-      List.fold_left (fun m n -> m + (data_type_size type_defs n)) 0 comp_dtype_list
-  | `Opaque _ -> raise (TypeError "Opaque data type is unsized!")
 
 type 'a sig_type_general = {
   dtype: data_type;
@@ -233,6 +217,9 @@ let literal_eval (lit : literal) : int =
       List.fold_left (fun n x -> n * 16 + (value_of_digit x)) 0 h
   | NoLength v -> v
 
+let dtype_of_literal (lit : literal) : resolved_data_type =
+  let n = literal_bit_len lit |> Option.get in
+  `Array (`Logic, n)
 
 type binop = Add | Sub | Xor | And | Or | Lt | Gt | Lte | Gte |
              Shl | Shr | Eq | Neq
@@ -320,54 +307,6 @@ type delay = [
 let delay_immediate = `Cycles 0
 let delay_single_cycle = `Cycles 1
 
-let data_type_name_resolve (type_defs : type_def_map) (dtype : data_type) : data_type option =
-  match dtype with
-  | `Named type_name -> Utils.StringMap.find_opt type_name type_defs |> Option.map (fun x -> x.body)
-  | _ -> Some dtype
-
-let data_type_indirect (type_defs : type_def_map) (dtype : data_type) (fieldname : identifier) : (int * int * data_type) option =
-  let ( let* ) = Option.bind in
-  let* dtype' = data_type_name_resolve type_defs dtype in
-  match dtype' with
-  | `Record flist ->
-      (* find the field by fieldname *)
-      let found : data_type option ref = ref None
-      and offset = ref 0 in
-      let lookup = fun ((field, field_type) : identifier * data_type) ->
-        if Option.is_none !found then begin
-          if field = fieldname then
-            found := Some field_type
-          else
-            offset := !offset + (data_type_size type_defs field_type)
-        end else ()
-      in
-      List.iter lookup flist;
-      let* found_d = !found in
-      Some (!offset, !offset + (data_type_size type_defs found_d), found_d)
-  | _ -> None
-
-let data_type_index (type_defs : type_def_map) (dtype : data_type) (ind : index) : (int * int * data_type) option =
-  let ( let* ) = Option.bind in
-  let* dtype' = data_type_name_resolve type_defs dtype in
-  match dtype' with
-  | `Array (base_type, n) ->
-      let base_size = data_type_size type_defs base_type in
-      begin
-        (* TODO: we only support literals as indices for now *)
-        match ind with
-        | Single Literal lit ->
-            let lit_val = literal_eval lit in
-            if lit_val < 0 || lit_val >= n then None else
-              Some (base_size * lit_val, base_size * (lit_val + 1), base_type)
-        | Range (Literal lit_le, Literal lit_ri) ->
-            let le = literal_eval lit_le
-            and ri = literal_eval lit_ri in
-            if le < 0 || ri >= n || le > ri then None else
-              Some (base_size * le, base_size * (ri + 1), `Array (base_type, ri - le + 1))
-        | _ -> None
-      end
-  | _ -> None
-
 type sig_def = {
   name: identifier;
   stype: sig_type;
@@ -415,19 +354,19 @@ type proc_def = {
 
 type compilation_unit = {
   channel_classes: channel_class_def list;
-  type_defs: type_def_map;
+  type_defs: type_def list;
   procs: proc_def list;
 }
 
 let cunit_empty : compilation_unit =
-  { channel_classes = []; type_defs = Utils.StringMap.empty; procs = [] }
+  { channel_classes = []; type_defs = []; procs = [] }
 
 let cunit_add_channel_class
   (c : compilation_unit) (cc : channel_class_def) : compilation_unit =
   {c with channel_classes = cc::c.channel_classes}
 
 let cunit_add_type_def (c : compilation_unit) (ty : type_def) : compilation_unit =
-  {c with type_defs = Utils.StringMap.add ty.name ty c.type_defs}
+  {c with type_defs = ty::c.type_defs}
 
 let cunit_add_proc
   (c : compilation_unit) (p : proc_def) : compilation_unit =
