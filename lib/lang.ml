@@ -274,21 +274,17 @@ and constructor_spec = {
   variant_ty_name: identifier;
   variant: identifier;
 }
-and delay_def = [ `Cycles of int | `Send of send_pack | `Recv of recv_pack ]
 and expr =
   | Literal of literal
   | Identifier of identifier
-  | Function of identifier * expr
   (* send and recv *)
-  | TrySend of send_pack * expr * expr
-  | TryRecv of recv_pack * expr * expr
   | Assign of lvalue * expr
-  | Apply of expr * expr
   | Binop of binop * expr * expr
   | Unop of unop * expr
   | Tuple of expr list
   | LetIn of identifier list * expr * expr
-  | Wait of delay_def * expr
+  | Wait of expr * expr
+  | Cycle of int
   | IfExpr of expr * expr * expr
   (* construct a variant type value with a constructor *)
   | Construct of constructor_spec * expr option
@@ -314,12 +310,13 @@ and debug_op =
   | DebugPrint of string * expr list
   | DebugFinish
 
-let string_of_delay (delay : delay_def) : string =
-  match delay with
-  | `Cycles n -> Printf.sprintf "#%d" n
-  | `Send send_pack -> Printf.sprintf "send(%s)" (string_of_msg_spec send_pack.send_msg_spec)
-  | `Recv recv_pack -> Printf.sprintf "recv(%s)" (string_of_msg_spec recv_pack.recv_msg_spec)
-
+type delay = [
+  | `Ever
+  | `Cycles of int
+  | `Later of delay * delay
+  | `Earlier of delay * delay
+  | `Seq of delay * delay
+]
 let delay_immediate = `Cycles 0
 let delay_single_cycle = `Cycles 1
 

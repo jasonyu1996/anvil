@@ -20,6 +20,7 @@
 %token DOUBLE_LEFT_ABRACK   (* << *)
 %token DOUBLE_RIGHT_ABRACK  (* << *)
 %token DOUBLE_EQ            (* == *)
+%token EQ_GT                (* => *)
 %token EXCL_EQ              (* != *)
 %token OR_GT                (* |> *)
 %token EXCL                 (* ! *)
@@ -69,8 +70,8 @@
 %token <string>STR_LITERAL
 %right LEFT_ABRACK RIGHT_ABRACK LEFT_ABRACK_EQ RIGHT_ABRACK_EQ
 %right EXCL_EQ DOUBLE_EQ
-%right DELAY KEYWORD_IN
-%right SEMICOLON KEYWORD_THEN
+%right KEYWORD_IN
+%right EQ_GT SEMICOLON
 %right KEYWORD_ELSE
 %right COLON_EQ
 %right CONSTRUCT
@@ -249,26 +250,28 @@ expr:
   { Anvil.Lang.LetIn (bindings, v, body) }
 | v = expr; SEMICOLON; body = expr
   { Anvil.Lang.LetIn ([], v, body) }
-| KEYWORD_WAIT; KEYWORD_SEND; send_pack = send_pack; KEYWORD_THEN; body = expr
-  { Anvil.Lang.Wait (`Send send_pack, body) } %prec DELAY
-| KEYWORD_WAIT; KEYWORD_RECV; recv_pack = recv_pack; KEYWORD_THEN; body = expr
-  { Anvil.Lang.Wait (`Recv recv_pack, body) } %prec DELAY
-| KEYWORD_CYCLE; SHARP n = INT; KEYWORD_THEN; body = expr
-  { Anvil.Lang.Wait (`Cycles n, body) } %prec DELAY
-| KEYWORD_CYCLE; KEYWORD_THEN; body = expr
-  { Anvil.Lang.Wait (Anvil.Lang.delay_single_cycle, body) } %prec DELAY
+// | KEYWORD_WAIT; KEYWORD_SEND; send_pack = send_pack; KEYWORD_THEN; body = expr
+//   { Anvil.Lang.Wait (`Send send_pack, body) } %prec DELAY
+// | KEYWORD_WAIT; KEYWORD_RECV; recv_pack = recv_pack; KEYWORD_THEN; body = expr
+//   { Anvil.Lang.Wait (`Recv recv_pack, body) } %prec DELAY
+// | KEYWORD_CYCLE; SHARP n = INT; KEYWORD_THEN; body = expr
+//   { Anvil.Lang.Wait (`Cycles n, body) } %prec DELAY
+// | KEYWORD_CYCLE; KEYWORD_THEN; body = expr
+//   { Anvil.Lang.Wait (Anvil.Lang.delay_single_cycle, body) } %prec DELAY
+| v = expr; EQ_GT; body = expr
+  { Anvil.Lang.Wait (v, body) }
 | KEYWORD_IF; cond = expr; KEYWORD_THEN; then_v = expr; KEYWORD_ELSE; else_v = expr
   { Anvil.Lang.IfExpr (cond, then_v, else_v) }
-| KEYWORD_TRY; KEYWORD_SEND; send_pack = send_pack; KEYWORD_THEN;
-  succ_expr = expr; KEYWORD_ELSE; fail_expr = expr
-  { Anvil.Lang.TrySend (send_pack, succ_expr, fail_expr) }
-| KEYWORD_TRY; KEYWORD_RECV; recv_pack = recv_pack; KEYWORD_THEN;
-  succ_expr = expr; KEYWORD_ELSE; fail_expr = expr
-  { Anvil.Lang.TryRecv (recv_pack, succ_expr, fail_expr) }
-| KEYWORD_SEND; send_pack = send_pack; KEYWORD_THEN; succ_expr = expr
-  { Anvil.Lang.TrySend (send_pack, succ_expr, Anvil.Lang.Tuple []) }
-| KEYWORD_RECV; recv_pack = recv_pack; KEYWORD_THEN; succ_expr = expr
-  { Anvil.Lang.TryRecv (recv_pack, succ_expr, Anvil.Lang.Tuple []) }
+// | KEYWORD_TRY; KEYWORD_SEND; send_pack = send_pack; KEYWORD_THEN;
+//   succ_expr = expr; KEYWORD_ELSE; fail_expr = expr
+//   { Anvil.Lang.TrySend (send_pack, succ_expr, fail_expr) }
+// | KEYWORD_TRY; KEYWORD_RECV; recv_pack = recv_pack; KEYWORD_THEN;
+//   succ_expr = expr; KEYWORD_ELSE; fail_expr = expr
+//   { Anvil.Lang.TryRecv (recv_pack, succ_expr, fail_expr) }
+// | KEYWORD_SEND; send_pack = send_pack; KEYWORD_THEN; succ_expr = expr
+//   { Anvil.Lang.TrySend (send_pack, succ_expr, Anvil.Lang.Tuple []) }
+// | KEYWORD_RECV; recv_pack = recv_pack; KEYWORD_THEN; succ_expr = expr
+//   { Anvil.Lang.TryRecv (recv_pack, succ_expr, Anvil.Lang.Tuple []) }
 | e = expr; LEFT_BRACKET; ind = index; RIGHT_BRACKET
   { Anvil.Lang.Index (e, ind) }
 | e = expr; PERIOD; fieldname = IDENT

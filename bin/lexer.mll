@@ -43,6 +43,7 @@ rule read =
   | ">"       { RIGHT_ABRACK }
   | "<="      { LEFT_ABRACK_EQ }
   | ">="      { RIGHT_ABRACK_EQ }
+  | "=>"      { EQ_GT }
   | "<<"      { DOUBLE_LEFT_ABRACK }
   | ">>"      { DOUBLE_RIGHT_ABRACK }
   | "=="      { DOUBLE_EQ }
