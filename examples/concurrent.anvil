@@ -1,0 +1,4 @@
+/* This is for the redesigned Anvil language */
+proc concurrent() =
+    let a = 4'b1 in
+    cycle 1 => a + a

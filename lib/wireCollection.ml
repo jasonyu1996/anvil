@@ -14,6 +14,7 @@ module Wire = struct
     | Literal of Lang.literal
     | Binary of Lang.binop * t * t
     | Unary of Lang.unop * t
+    | Switch of (t * t) list * t (* (cond, val) list, default *)
 
   let new_literal id lit =
     {
@@ -54,6 +55,8 @@ end
 type wire = Wire.t
 
 type t = wire list
+
+let empty : t = []
 
 let add_literal (lit : Lang.literal) (wc : t) : t * wire =
   let id = List.length wc in

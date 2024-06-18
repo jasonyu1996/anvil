@@ -272,6 +272,8 @@ expr:
 //   { Anvil.Lang.TrySend (send_pack, succ_expr, Anvil.Lang.Tuple []) }
 // | KEYWORD_RECV; recv_pack = recv_pack; KEYWORD_THEN; succ_expr = expr
 //   { Anvil.Lang.TryRecv (recv_pack, succ_expr, Anvil.Lang.Tuple []) }
+| KEYWORD_CYCLE; n = INT
+  { Anvil.Lang.Cycle n }
 | e = expr; LEFT_BRACKET; ind = index; RIGHT_BRACKET
   { Anvil.Lang.Index (e, ind) }
 | e = expr; PERIOD; fieldname = IDENT
