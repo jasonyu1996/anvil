@@ -10,21 +10,20 @@ let () =
     Printf.eprintf "Error: a file name must be supplied!\n";
     exit 1
   end else begin
-    (* let open Anvil.Codegen in *)
     let in_channel = List.hd config.input_filenames |> open_in in
     let lexbuf = Lexing.from_channel in_channel in
-    let _cunit =
+    let cunit =
       try Parser.cunit Lexer.read lexbuf
       with
       | Lexer.SyntaxError msg -> handle_syntax_error lexbuf (Some msg)
       | _ -> handle_syntax_error lexbuf None
     in
-    close_in in_channel
-    (* try
-      codegen cunit config
+    close_in in_channel;
+    try
+      let event_graphs = Anvil.EventGraph.build cunit in
+      Anvil.Codegen.generate stdout event_graphs
     with
-    | Anvil.Codegen.BorrowCheckError msg -> Printf.eprintf "Borrow checking failed: %s\n" msg; exit 1
-    | Anvil.Lang.TypeError msg -> Printf.eprintf "Type error: %s\n" msg; exit 1
-    | Anvil.Codegen.CodegenError msg -> Printf.eprintf "Error during code generation: %s\n" msg; exit 1
-    ; *)
+    | Anvil.Except.BorrowCheckError msg -> Printf.eprintf "Borrow checking failed: %s\n" msg; exit 1
+    | Anvil.Except.TypeError msg -> Printf.eprintf "Type error: %s\n" msg; exit 1
+    | Anvil.Except.UnimplementedError msg -> Printf.eprintf "Unimplemented error: %s\n" msg; exit 1
   end

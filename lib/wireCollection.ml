@@ -50,6 +50,14 @@ module Wire = struct
       borrow_src = ow.borrow_src;
     }
 
+  let new_switch id _typedefs sw def =
+    {
+      id;
+      source = Switch (sw, def);
+      dtype = def.dtype;
+      borrow_src = def.borrow_src @ (List.concat_map (fun (_, x) -> x.borrow_src) sw);
+    }
+
 end
 
 type wire = Wire.t
@@ -73,4 +81,10 @@ let add_unary (typedefs : TypedefMap.t) (op : Lang.unop)
               (ow : wire) (wc : t) : t * wire =
   let id = List.length wc in
   let w = Wire.new_unary id typedefs op ow in
+  (w::wc, w)
+
+let add_switch (typedefs : TypedefMap.t) (sw : (wire * wire) list)
+              (default : wire) (wc : t) : t * wire =
+  let id = List.length wc in
+  let w = Wire.new_switch id typedefs sw default in
   (w::wc, w)

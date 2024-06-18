@@ -1,4 +1,5 @@
 open Lang
+open Except
 
 type t = type_def Utils.string_map
 

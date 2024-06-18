@@ -1,5 +1,3 @@
-exception TypeError of string
-
 type identifier = string
 
 type message_specifier = {
@@ -302,8 +300,6 @@ type delay = [
   | `Cycles of int
   | `Later of delay * delay
   | `Earlier of delay * delay
-  | `ExceptLate of delay * delay (* ExceptLate (a, b) is triggered with c iff a is guaranteed to be triggered by b => c *)
-  | `ExceptEarly of delay * delay (* ExceptEarly (a, b) is triggered with c iff a has a chance to be triggered by b => c *)
   | `Seq of delay * delay
 ]
 let delay_immediate = `Cycles 0
