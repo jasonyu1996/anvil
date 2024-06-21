@@ -21,7 +21,7 @@ let () =
     close_in in_channel;
     try
       let event_graphs = Anvil.EventGraph.build cunit in
-      Anvil.Codegen.generate stdout event_graphs
+      Anvil.Codegen.generate stdout config event_graphs
     with
     | Anvil.Except.BorrowCheckError msg -> Printf.eprintf "Borrow checking failed: %s\n" msg; exit 1
     | Anvil.Except.TypeError msg -> Printf.eprintf "Type error: %s\n" msg; exit 1
