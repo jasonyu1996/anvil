@@ -65,6 +65,15 @@ module Format = struct
     | `Logic -> "logic"
     | `Opaque typename -> typename
     | _ -> (TypedefMap.data_type_size typedefs dtype) - 1 |> Printf.sprintf "logic[%d:0]"
+
+  let format_literal = function
+    | Binary (len, b) -> Printf.sprintf "%d'b%s" len (List.map string_of_digit b |> List.rev |> String.concat "")
+    | Decimal (len, d) -> Printf.sprintf "%d'd%s" len (List.map string_of_digit d |> List.rev |> String.concat "")
+    | Hexadecimal (len, h) -> Printf.sprintf "%d'h%s" len (List.map string_of_digit h |> List.rev |> String.concat "")
+    | NoLength n -> string_of_int n
+
+  let format_binop = string_of_binop
+  let format_unop = string_of_unop
 end
 
 
@@ -170,7 +179,7 @@ let codegen_spawns out (ctx: codegen_context) (graphs : event_graph_collection) 
         end
       in List.iter print_msg_con cc.messages
     in List.iter2 connect_endpoints proc_other.args spawn.params;
-    Printf.printf "\n  );\n"
+    Printf.fprintf out "\n  );\n"
   in List.iteri gen_spawn g.spawns
 
 let codegen_endpoints out (ctx: codegen_context) (graphs : event_graph_collection) =
@@ -181,13 +190,39 @@ let codegen_endpoints out (ctx: codegen_context) (graphs : event_graph_collectio
   Port.gather_ports graphs.channel_classes |>
   List.iter print_port_signal_decl
 
-let codegen_post_declare (_ctx : codegen_context) (graphs : event_graph_collection) (g : event_graph) =
+let codegen_wire_assignment out (w : WireCollection.wire) =
+  let expr =
+    match w.source with
+    | Literal lit -> Format.format_literal lit
+    | Binary (binop, w1, w2) ->
+      Printf.sprintf "%s %s %s"
+        (Format.format_wirename w1.id)
+        (Format.format_binop binop)
+        (Format.format_wirename w2.id)
+    | Unary (unop, w') ->
+      Printf.sprintf "%s%s"
+        (Format.format_unop unop)
+        (Format.format_wirename w'.id)
+    | Switch (sw, d) ->
+      let conds = List.map
+        (fun ((cond, v) : WireCollection.wire * WireCollection.wire) ->
+          Printf.sprintf "(%s) ? %s : "
+            (Format.format_wirename cond.id)
+            (Format.format_wirename v.id)
+        )
+        sw
+      |> String.concat "" in
+      Printf.sprintf "%s%s" conds (Format.format_wirename d.id)
+  in
+  Printf.fprintf out "  assign %s = %s;\n" (Format.format_wirename w.id) expr
+
+
+let codegen_post_declare out (_ctx : codegen_context) (graphs : event_graph_collection) (g : event_graph) =
   (* wire declarations *)
-  let codegen_wire = fun (w: WireCollection.wire) ->
-    Printf.printf "  %s %s;\n" (Format.format_dtype graphs.typedefs w.dtype) @@ Format.format_wirename w.id
-  in List.iter codegen_wire g.wires
-  (* wire assignments *)
-  (* List.iter print_assign ctx.assigns; *)
+  let codegen_wire_decl = fun (w: WireCollection.wire) ->
+    Printf.fprintf out "  %s %s;\n" (Format.format_dtype graphs.typedefs w.dtype) @@ Format.format_wirename w.id
+  in List.iter codegen_wire_decl g.wires;
+  List.iter (codegen_wire_assignment out) g.wires
   (* set send signals *)
   (* StringMap.iter (fun _ {msg_spec; select} ->
     let data_wires = gather_data_wires_from_msg ctx proc msg_spec
@@ -221,6 +256,7 @@ let codegen_proc out (graphs : EventGraph.event_graph_collection) (g : event_gra
 
   codegen_endpoints out ctx graphs;
   codegen_spawns out ctx graphs g;
+  codegen_post_declare out ctx graphs g;
 
   Printf.fprintf out "endmodule\n"
 
