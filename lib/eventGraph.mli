@@ -5,14 +5,15 @@ type action =
   | DebugFinish
 
 type event = {
+  id : int;
   mutable actions: action list;
   source: event_source;
 }
 and event_source = [
-  | `Cycles of int
+  | `Root
   | `Later of event * event
   | `Earlier of event * event
-  | `Seq of event * Lang.delay
+  | `Seq of event * Lang.atomic_delay
 ]
 type event_graph = {
   name : Lang.identifier;

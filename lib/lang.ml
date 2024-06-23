@@ -302,6 +302,11 @@ type delay = [
   | `Earlier of delay * delay
   | `Seq of delay * delay
 ]
+
+type atomic_delay = [
+  | `Cycles of int
+]
+
 let delay_immediate = `Cycles 0
 let delay_single_cycle = `Cycles 1
 

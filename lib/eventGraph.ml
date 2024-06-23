@@ -14,14 +14,15 @@ type action =
   | DebugFinish
 
 type event = {
+  id : int;
   mutable actions: action list;
   source: event_source;
 }
 and event_source = [
-  | `Cycles of int
+  | `Root
   | `Later of event * event
   | `Earlier of event * event
-  | `Seq of event * delay
+  | `Seq of event * atomic_delay
 ]
 
 type event_graph = {
@@ -51,7 +52,7 @@ module Typing = struct
   }
 
   let event_create g source =
-    let n = {actions = []; source} in
+    let n = {actions = []; source; id = List.length g.events} in
     g.events <- n::g.events;
     n
 
@@ -82,13 +83,11 @@ module Typing = struct
     type t = build_context
     let create_empty g : t = {
       typing_ctx = context_empty;
-      current = event_create g (`Cycles 1)
+      current = event_create g `Root
     }
 
     let add_binding (ctx : t) (v : identifier) (d : timed_data) : t =
       {ctx with typing_ctx = context_add ctx.typing_ctx v d}
-    let _temporal_progress g (ctx : t) (by : delay) : t =
-      {ctx with current = event_create g (`Seq (ctx.current, by))}
     let wait g (ctx : t) (other : event) : t =
       {ctx with current = event_create g (`Later (ctx.current, other))}
   end
@@ -156,6 +155,21 @@ let rec visit_expr (graph : event_graph) (ci : cunit_info)
         graph.wires <- wires';
         {w = Some w; lt}
       | _ -> raise (TypeError "Invalid if expression!")
+    )
+  | Debug op ->
+    (
+      match op with
+      | DebugPrint (s, e_list) ->
+        let timed_ws = List.map (visit_expr graph ci ctx) e_list in
+        let ws = List.map (fun (x : Typing.timed_data) -> Option.get x.w)
+          timed_ws
+        in
+        ctx.current.actions <- (DebugPrint (s, ws))::ctx.current.actions;
+        (* TODO: incorrect lifetime *)
+        {w = None; lt = Typing.lifetime_const ctx.current}
+      | DebugFinish ->
+        ctx.current.actions <- DebugFinish::ctx.current.actions;
+        {w = None; lt = Typing.lifetime_const ctx.current}
     )
   | _ -> raise (UnimplementedError "Unimplemented expression!")
 

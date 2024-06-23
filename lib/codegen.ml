@@ -5,38 +5,7 @@ type codegen_context = CodegenContext.t
 type event_graph = EventGraph.event_graph
 type event_graph_collection = EventGraph.event_graph_collection
 
-module Format = struct
-  let format_msg_prefix (endpoint_name : identifier) (message_name : identifier) : identifier =
-    Printf.sprintf "_%s_%s" endpoint_name message_name
-
-  let format_msg_data_signal_name (endpoint_name : identifier) (message_name : identifier) (data_idx : int) : string =
-    Printf.sprintf "_%s_%s_%d" endpoint_name message_name data_idx
-
-  let format_msg_valid_signal_name (endpoint_name : identifier) (message_name : identifier) : string =
-    Printf.sprintf "_%s_%s_valid" endpoint_name message_name
-
-  let format_msg_ack_signal_name (endpoint_name : identifier) (message_name : identifier) : string =
-    Printf.sprintf "_%s_%s_ack" endpoint_name message_name
-
-
-  let format_wirename (id : int) : string = Printf.sprintf "_wire$%d" id
-
-  let format_dtype (typedefs : TypedefMap.t) (dtype : data_type) =
-    match dtype with
-    | `Logic -> "logic"
-    | `Opaque typename -> typename
-    | _ -> (TypedefMap.data_type_size typedefs dtype) - 1 |> Printf.sprintf "logic[%d:0]"
-
-  let format_literal = function
-    | Binary (len, b) -> Printf.sprintf "%d'b%s" len (List.map string_of_digit b |> List.rev |> String.concat "")
-    | Decimal (len, d) -> Printf.sprintf "%d'd%s" len (List.map string_of_digit d |> List.rev |> String.concat "")
-    | Hexadecimal (len, h) -> Printf.sprintf "%d'h%s" len (List.map string_of_digit h |> List.rev |> String.concat "")
-    | NoLength n -> string_of_int n
-
-  let format_binop = string_of_binop
-  let format_unop = string_of_unop
-end
-
+module Format = CodegenFormat
 
 module Port = struct
   type t = {
@@ -218,12 +187,16 @@ let codegen_proc out (graphs : EventGraph.event_graph_collection) (g : event_gra
   codegen_endpoints out ctx graphs;
   codegen_spawns out ctx graphs g;
   codegen_post_declare out ctx graphs g;
+  CodegenStates.codegen_states out ctx graphs g;
 
   Printf.fprintf out "endmodule\n"
 
+let codegen_preamble out =
+  Printf.fprintf out "/* verilator lint_off UNOPTFLAT */\n"
 
 let generate (out : out_channel)
              (_config : Config.compile_config)
              (graphs : EventGraph.event_graph_collection) : unit =
+  codegen_preamble out;
   List.iter (codegen_proc out graphs) graphs.event_graphs
 
