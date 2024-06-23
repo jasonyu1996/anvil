@@ -1,6 +1,19 @@
-type event = Lang.delay
 type wire = WireCollection.wire
 type wire_collection = WireCollection.t
+type action =
+  | DebugPrint of string * wire list
+  | DebugFinish
+
+type event = {
+  mutable actions: action list;
+  source: event_source;
+}
+and event_source = [
+  | `Cycles of int
+  | `Later of event * event
+  | `Earlier of event * event
+  | `Seq of event * Lang.delay
+]
 type event_graph = {
   name : Lang.identifier;
   mutable events : event list;
