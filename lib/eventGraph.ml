@@ -13,6 +13,11 @@ type action =
   | DebugPrint of string * wire list
   | DebugFinish
 
+type condition = {
+  w : wire;
+  neg : bool;
+}
+
 type event = {
   id : int;
   mutable actions: action list;
@@ -23,6 +28,7 @@ and event_source = [
   | `Later of event * event
   | `Earlier of event * event
   | `Seq of event * atomic_delay
+  | `Branch of condition * event
 ]
 
 type event_graph = {
@@ -90,6 +96,11 @@ module Typing = struct
       {ctx with typing_ctx = context_add ctx.typing_ctx v d}
     let wait g (ctx : t) (other : event) : t =
       {ctx with current = event_create g (`Later (ctx.current, other))}
+    let branch g (ctx : t) (w : wire) : t * t =
+      (
+        {ctx with current = event_create g (`Branch ({w; neg = false}, ctx.current))},
+        {ctx with current = event_create g (`Branch ({w; neg = true}, ctx.current))}
+      )
   end
 
 
@@ -140,11 +151,14 @@ let rec visit_expr (graph : event_graph) (ci : cunit_info)
   | Cycle n -> Typing.cycles_data graph n ctx.current
   | IfExpr (e1, e2, e3) ->
     let td1 = visit_expr graph ci ctx e1 in
-    let ctx' = BuildContext.wait graph ctx td1.lt.live in
-    let td2 = visit_expr graph ci ctx' e2
-    and td3 = visit_expr graph ci ctx' e3 in
     (* TODO: type checking *)
     let w1 = Option.get td1.w in
+    let (ctx_true, ctx_false) =
+      let ctx' = BuildContext.wait graph ctx td1.lt.live in
+      BuildContext.branch graph ctx' w1
+    in
+    let td2 = visit_expr graph ci ctx_true e2
+    and td3 = visit_expr graph ci ctx_false e3 in
     let lt = let open Typing in {live = Typing.event_create graph (`Later (td2.lt.live, td3.lt.live));
       _dead = `Earlier (td1.lt._dead, `Earlier (td2.lt._dead, td3.lt._dead))} in
     (

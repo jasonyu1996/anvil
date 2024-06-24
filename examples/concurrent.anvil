@@ -2,7 +2,7 @@
 proc concurrent() =
     let a = 4'b1 in
     cycle 1 =>
-    let b = if (1'b1) then a + a else a in
+    let b = if (1'b1) then (dprint "Hello true" (); a + a) else (dprint "Hello false" (); a) in
     dprint "Value a = %d, b = %d" (a, b);
     cycle 1 =>
     dfinish

@@ -4,6 +4,11 @@ type action =
   | DebugPrint of string * wire list
   | DebugFinish
 
+type condition = {
+  w : wire;
+  neg : bool;
+}
+
 type event = {
   id : int;
   mutable actions: action list;
@@ -14,6 +19,7 @@ and event_source = [
   | `Later of event * event
   | `Earlier of event * event
   | `Seq of event * Lang.atomic_delay
+  | `Branch of condition * event
 ]
 type event_graph = {
   name : Lang.identifier;

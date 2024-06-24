@@ -1,12 +1,22 @@
 type context = CodegenContext.t
 
+let event_is_reg (e : EventGraph.event) =
+  match e.source with
+  | `Seq _ | `Root -> true
+  | _ -> false
+
 let codegen_decl out (g : EventGraph.event_graph) =
-  Printf.fprintf out "  typedef enum logic[1:0] {\n";
-  Printf.fprintf out "    UNREACHED, CURRENT, REACHED\n";
-  Printf.fprintf out "  } _state_t;\n";
   let st_count = List.length g.events in
-  Printf.fprintf out "  _state_t[%d:0] _event_st_q;\n" (st_count - 1);
-  Printf.fprintf out "  logic[%d:0] _event_next;\n" (st_count - 1)
+  Printf.fprintf out "  logic[%d:0] _event_reached;\n" (st_count - 1);
+  for i = 0 to st_count - 1 do
+    Printf.fprintf out "  logic _event_current%d;\n" i
+  done;
+  let print_next_signal (e : EventGraph.event) =
+    if event_is_reg e then
+      Printf.fprintf out "  logic _event_next%d;\n" e.id
+    else ()
+  in
+  List.iter print_next_signal g.events
 
 (* generate the next-cycle signals*)
 let codegen_next out (g : EventGraph.event_graph) =
@@ -15,20 +25,30 @@ let codegen_next out (g : EventGraph.event_graph) =
     | `Seq (e', d) ->
       (
         match d with
-        | `Cycles 1 -> Printf.fprintf out "  assign _event_next[%d] = _event_st_q[%d] == CURRENT;\n"
+        | `Cycles 1 -> Printf.fprintf out "  assign _event_next%d = _event_current%d;\n"
           e.id e'.id
         | `Cycles _ ->
           raise (Except.UnimplementedError "Codegen states for multi cycle event unimplemented!")
       )
     | `Earlier (e1, e2) ->
-      Printf.fprintf out "  assign _event_next[%d] = _event_st_q[%d] == UNREACHED && (_event_next[%d] || _event_next[%d]);\n"
+      Printf.fprintf out "  assign _event_current%d = !_event_reached[%d] && (_event_current%d || _event_current%d);\n"
         e.id e.id e1.id e2.id
     | `Later (e1, e2) ->
-      Printf.fprintf out "  assign _event_next[%d] = _event_st_q[%d] == UNREACHED &&
-    (_event_next[%d] || _event_st_q[%d] != UNREACHED) && (_event_next[%d] || _event_st_q[%d] != UNREACHED);\n"
+      Printf.fprintf out "  assign _event_current%d = !_event_reached[%d] &&
+    (_event_reached[%d] || _event_current%d) && (_event_reached[%d] || _event_current%d);\n"
         e.id e.id e1.id e1.id e2.id e2.id
     | `Root ->
-      Printf.fprintf out "  assign _event_next[%d] = 1'b0;\n" e.id
+      Printf.fprintf out "  assign _event_next%d = 1'b0;\n" e.id
+    | `Branch (cond, e') ->
+      let print =
+        if cond.neg then
+          Printf.fprintf out "  assign _event_current%d = _event_current%d && !%s;\n"
+            e.id e'.id
+        else
+          Printf.fprintf out "  assign _event_current%d = _event_current%d && %s;\n"
+            e.id e'.id
+      in
+      print @@ CodegenFormat.format_wirename cond.w.id
   in
   List.iter print_compute_next g.events
 
@@ -36,7 +56,7 @@ let codegen_actions out (g : EventGraph.event_graph) =
   let open EventGraph in
   let print_event_actions (e : event) =
     if e.actions <> [] then begin
-      Printf.fprintf out "      if (_event_st_q[%d] == CURRENT) begin\n" e.id;
+      Printf.fprintf out "      if (_event_current%d) begin\n" e.id;
       let print_action = function
         | DebugPrint (s, ws) ->
           Printf.fprintf out "        $display(\"%s\"%s);\n"
@@ -54,32 +74,32 @@ let codegen_actions out (g : EventGraph.event_graph) =
 
 
 let codegen_transition out (g : EventGraph.event_graph) =
-  let st_count = List.length g.events in
   let root_id =
     List.find_map (fun (x : EventGraph.event) -> if x.source = `Root then Some x.id else None) g.events |> Option.get in
   Printf.fprintf out
 "  always_ff @(posedge clk_i or negedge rst_ni) begin : st_transition
     if (~rst_ni) begin
-      for (int i = 0; i < %d; i ++) begin
-        if (i == %d)
-          _event_st_q[i] <= CURRENT;
-        else
-          _event_st_q[i] <= UNREACHED;
-      end
-    end else begin\n" st_count root_id;
+      _event_reached <= '0;\n";
+  List.iter (fun (e : EventGraph.event) -> if event_is_reg e then begin
+    if e.id = root_id then
+      Printf.fprintf out "      _event_current%d <= 1'b1;\n" e.id
+    else
+      Printf.fprintf out "      _event_current%d <= 1'b0;\n" e.id
+    end else ()
+  ) g.events;
+  Printf.fprintf out
+"    end else begin\n";
   (* actions *)
   codegen_actions out g;
-  Printf.fprintf out
-"      for (int i = 0; i < %d; i ++) begin
-        if (_event_next[i])
-          _event_st_q[i] <= CURRENT;
-        else if (_event_st_q[i] == CURRENT) begin
-          _event_st_q[i] <= REACHED;
-        end
-      end
-    end
-  end\n"
-    st_count
+  List.iter (fun (e : EventGraph.event) ->
+    Printf.fprintf out
+"      if (_event_current%d)
+        _event_reached[%d] <= 1'b1;\n" e.id e.id;
+    if event_is_reg e then
+      Printf.fprintf out "      _event_current%d <= _event_next%d;\n" e.id e.id
+    else ()
+  ) g.events;
+  Printf.fprintf out "      end\n    end\n"
 
 let codegen_states out _ctx
   (_graphs : EventGraph.event_graph_collection)
