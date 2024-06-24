@@ -3,6 +3,7 @@ type wire_collection = WireCollection.t
 type action =
   | DebugPrint of string * wire list
   | DebugFinish
+  | RegAssign of string * wire
 
 type condition = {
   w : wire;
@@ -28,6 +29,7 @@ type event_graph = {
   channels : Lang.channel_def list;
   args : Lang.endpoint_def list;
   spawns : Lang.spawn_def list;
+  regs: Lang.reg_def list;
 }
 
 type event_graph_collection = {

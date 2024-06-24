@@ -12,6 +12,7 @@ type cunit_info = {
 type action =
   | DebugPrint of string * wire list
   | DebugFinish
+  | RegAssign of string * wire
 
 type condition = {
   w : wire;
@@ -38,6 +39,7 @@ type event_graph = {
   channels: channel_def list;
   args: endpoint_def list;
   spawns: spawn_def list;
+  regs: reg_def list;
 }
 
 module Typing = struct
@@ -118,7 +120,18 @@ let rec visit_expr (graph : event_graph) (ci : cunit_info)
     graph.wires <- wires';
     Typing.const_data graph (Some w) ctx.current
   | Identifier ident -> Typing.context_lookup ctx.typing_ctx ident |> Option.get
-  | Assign _ -> raise (UnimplementedError "Assign expression unimplemented!")
+  | Assign (lval, e') ->
+    let td = visit_expr graph ci ctx e' in
+    let w' = Option.get td.w in
+    let reg_ident = (
+      let open Lang in
+      match lval with
+      | Reg ident ->
+        ident
+      | _ -> raise (UnimplementedError "Lval with indexing/indirection unimplemented!")
+    ) in
+    ctx.current.actions <- (RegAssign (reg_ident, w'))::ctx.current.actions;
+    Typing.cycles_data graph 1 ctx.current
   | Binop (binop, e1, e2) ->
     let td1 = visit_expr graph ci ctx e1
     and td2 = visit_expr graph ci ctx e2 in
@@ -170,6 +183,11 @@ let rec visit_expr (graph : event_graph) (ci : cunit_info)
         {w = Some w; lt}
       | _ -> raise (TypeError "Invalid if expression!")
     )
+  | Read reg_ident ->
+    let r = List.find (fun (r : Lang.reg_def) -> r.name = reg_ident) graph.regs in
+    let (wires', w) = WireCollection.add_reg_read ci.typedefs r graph.wires in
+    graph.wires <- wires';
+    {w = Some w; lt = Typing.lifetime_const ctx.current}
   | Debug op ->
     (
       match op with
@@ -195,6 +213,7 @@ let build_proc (ci : cunit_info) (proc : proc_def) =
     channels = proc.body.channels;
     args = proc.args;
     spawns = proc.body.spawns;
+    regs = proc.body.regs;
   } in
   let _ = visit_expr graph ci (BuildContext.create_empty graph) proc.body.prog in
   graph

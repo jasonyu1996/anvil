@@ -55,7 +55,7 @@ module Port = struct
 end
 
 module Endpoint = struct
-  let is_canonical (endpoint: endpoint_def) : bool =
+  let _is_canonical (endpoint: endpoint_def) : bool =
     (Option.is_none endpoint.opp) || (endpoint.dir = Left)
 
   let canonical_name (endpoint: endpoint_def) : identifier =
@@ -143,6 +143,7 @@ let codegen_wire_assignment out (w : WireCollection.wire) =
         sw
       |> String.concat "" in
       Printf.sprintf "%s%s" conds (Format.format_wirename d.id)
+    | RegRead reg_ident -> Format.format_regname_current reg_ident
   in
   Printf.fprintf out "  assign %s = %s;\n" (Format.format_wirename w.id) expr
 
@@ -174,6 +175,16 @@ let codegen_post_declare out (_ctx : codegen_context) (graphs : event_graph_coll
         List.iter (fun (buf : Buffer.t) -> Printf.printf "%s '0;\n" @@ Buffer.contents buf) ws_bufs
   ) ctx.sends *)
 
+let codegen_regs out _ctx (graphs : event_graph_collection) (g : event_graph) =
+  List.iter
+    (
+      fun (r : reg_def) ->
+        let open CodegenFormat in
+        Printf.fprintf out "  %s %s;\n" (format_dtype graphs.typedefs r.dtype)
+          (format_regname_current r.name)
+    )
+    g.regs
+
 let codegen_proc out (graphs : EventGraph.event_graph_collection) (g : event_graph) =
   let ctx = CodegenContext.create () in
   CodegenContext.generate_channels ctx g.channels;
@@ -186,6 +197,7 @@ let codegen_proc out (graphs : EventGraph.event_graph_collection) (g : event_gra
 
   codegen_endpoints out ctx graphs;
   codegen_spawns out ctx graphs g;
+  codegen_regs out ctx graphs g;
   codegen_post_declare out ctx graphs g;
   CodegenStates.codegen_states out ctx graphs g;
 

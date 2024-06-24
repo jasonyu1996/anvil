@@ -15,6 +15,7 @@ module Wire = struct
     | Binary of Lang.binop * t * t
     | Unary of Lang.unop * t
     | Switch of (t * t) list * t (* (cond, val) list, default *)
+    | RegRead of Lang.identifier
 
   let new_literal id lit =
     {
@@ -58,6 +59,13 @@ module Wire = struct
       borrow_src = def.borrow_src @ (List.concat_map (fun (_, x) -> x.borrow_src) sw);
     }
 
+  let new_reg_read id _typedefs (r : Lang.reg_def) =
+    {
+      id;
+      source = RegRead r.name;
+      dtype = r.dtype;
+      borrow_src = [r.name]
+    }
 end
 
 type wire = Wire.t
@@ -87,4 +95,9 @@ let add_switch (typedefs : TypedefMap.t) (sw : (wire * wire) list)
               (default : wire) (wc : t) : t * wire =
   let id = List.length wc in
   let w = Wire.new_switch id typedefs sw default in
+  (w::wc, w)
+
+let add_reg_read (typedefs : TypedefMap.t) (r : Lang.reg_def) (wc : t) : t * wire =
+  let id = List.length wc in
+  let w = Wire.new_reg_read id typedefs r in
   (w::wc, w)

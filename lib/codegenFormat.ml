@@ -29,3 +29,8 @@ let format_literal = function
 
 let format_binop = string_of_binop
 let format_unop = string_of_unop
+
+let format_regname_current (regname : identifier) =
+  Printf.sprintf "%s_q" regname
+let format_regname_next (regname : identifier) =
+  Printf.sprintf "%s_n" regname

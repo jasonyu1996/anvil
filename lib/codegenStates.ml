@@ -1,5 +1,3 @@
-type context = CodegenContext.t
-
 let event_is_reg (e : EventGraph.event) =
   match e.source with
   | `Seq _ | `Root -> true
@@ -65,6 +63,9 @@ let codegen_actions out (g : EventGraph.event_graph) =
             String.concat "")
         | DebugFinish ->
           Printf.fprintf out "        $finish;\n"
+        | RegAssign (reg_ident, w) ->
+          Printf.fprintf out "        %s <= %s;\n"
+            (CodegenFormat.format_regname_current reg_ident) (CodegenFormat.format_wirename w.id)
       in
       List.iter print_action e.actions;
       Printf.fprintf out "      end\n"
@@ -73,10 +74,11 @@ let codegen_actions out (g : EventGraph.event_graph) =
   List.iter print_event_actions g.events
 
 
-let codegen_transition out (g : EventGraph.event_graph) =
+let codegen_transition out (_graphs : EventGraph.event_graph_collection) (g : EventGraph.event_graph) =
   let root_id =
     List.find_map (fun (x : EventGraph.event) -> if x.source = `Root then Some x.id else None) g.events |> Option.get in
   Printf.fprintf out
+  (* reset states *)
 "  always_ff @(posedge clk_i or negedge rst_ni) begin : st_transition
     if (~rst_ni) begin
       _event_reached <= '0;\n";
@@ -87,10 +89,17 @@ let codegen_transition out (g : EventGraph.event_graph) =
       Printf.fprintf out "      _event_current%d <= 1'b0;\n" e.id
     end else ()
   ) g.events;
+  (* register reset *)
+  List.iter (
+    fun (r : Lang.reg_def) ->
+      let open CodegenFormat in
+      Printf.fprintf out "      %s <= '0;\n" (format_regname_current r.name)
+  ) g.regs;
   Printf.fprintf out
 "    end else begin\n";
   (* actions *)
   codegen_actions out g;
+  (* next states *)
   List.iter (fun (e : EventGraph.event) ->
     Printf.fprintf out
 "      if (_event_current%d)
@@ -99,12 +108,12 @@ let codegen_transition out (g : EventGraph.event_graph) =
       Printf.fprintf out "      _event_current%d <= _event_next%d;\n" e.id e.id
     else ()
   ) g.events;
-  Printf.fprintf out "      end\n    end\n"
+  Printf.fprintf out "    end\n  end\n"
 
 let codegen_states out _ctx
-  (_graphs : EventGraph.event_graph_collection)
+  (graphs : EventGraph.event_graph_collection)
   (g : EventGraph.event_graph) =
   codegen_decl out g;
   codegen_next out g;
-  codegen_transition out g
+  codegen_transition out graphs g
 
