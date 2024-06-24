@@ -40,6 +40,9 @@ type event_graph = {
   args: endpoint_def list;
   spawns: spawn_def list;
   regs: reg_def list;
+  (* the id of the last event *)
+  (* the process loops from the start when this event is reached *)
+  mutable last_event_id: int;
 }
 
 module Typing = struct
@@ -146,7 +149,7 @@ let rec visit_expr (graph : event_graph) (ci : cunit_info)
     let (wires', w) = WireCollection.add_unary ci.typedefs unop w' graph.wires in
     graph.wires <- wires';
     Typing.derived_data (Some w) td.lt
-  | Tuple _ -> raise (UnimplementedError "Tuple expression unimplemented!")
+  | Tuple [] -> Typing.const_data graph None ctx.current
   | LetIn (idents, e1, e2) ->
     let td1 = visit_expr graph ci ctx e1 in
     (
@@ -172,7 +175,7 @@ let rec visit_expr (graph : event_graph) (ci : cunit_info)
     in
     let td2 = visit_expr graph ci ctx_true e2
     and td3 = visit_expr graph ci ctx_false e3 in
-    let lt = let open Typing in {live = Typing.event_create graph (`Later (td2.lt.live, td3.lt.live));
+    let lt = let open Typing in {live = Typing.event_create graph (`Earlier (td2.lt.live, td3.lt.live));
       _dead = `Earlier (td1.lt._dead, `Earlier (td2.lt._dead, td3.lt._dead))} in
     (
       match td2.w, td3.w with
@@ -221,8 +224,10 @@ let build_proc (ci : cunit_info) (proc : proc_def) =
     args = proc.args;
     spawns = proc.body.spawns;
     regs = proc.body.regs;
+    last_event_id = 0;
   } in
-  let _ = visit_expr graph ci (BuildContext.create_empty graph) proc.body.prog in
+  let td = visit_expr graph ci (BuildContext.create_empty graph) proc.body.prog in
+  graph.last_event_id <- td.lt.live.id;
   graph
 
 type event_graph_collection = {

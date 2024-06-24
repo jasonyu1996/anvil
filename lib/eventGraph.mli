@@ -30,6 +30,7 @@ type event_graph = {
   args : Lang.endpoint_def list;
   spawns : Lang.spawn_def list;
   regs: Lang.reg_def list;
+  mutable last_event_id: int;
 }
 
 type event_graph_collection = {

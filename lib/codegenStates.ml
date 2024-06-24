@@ -77,18 +77,21 @@ let codegen_actions out (g : EventGraph.event_graph) =
 let codegen_transition out (_graphs : EventGraph.event_graph_collection) (g : EventGraph.event_graph) =
   let root_id =
     List.find_map (fun (x : EventGraph.event) -> if x.source = `Root then Some x.id else None) g.events |> Option.get in
+  let print_reset_states () =
+    Printf.fprintf out "      _event_reached <= '0;\n";
+    List.iter (fun (e : EventGraph.event) -> if event_is_reg e then begin
+      if e.id = root_id then
+        Printf.fprintf out "      _event_current%d <= 1'b1;\n" e.id
+      else
+        Printf.fprintf out "      _event_current%d <= 1'b0;\n" e.id
+      end else ()
+    ) g.events
+  in
   Printf.fprintf out
   (* reset states *)
 "  always_ff @(posedge clk_i or negedge rst_ni) begin : st_transition
-    if (~rst_ni) begin
-      _event_reached <= '0;\n";
-  List.iter (fun (e : EventGraph.event) -> if event_is_reg e then begin
-    if e.id = root_id then
-      Printf.fprintf out "      _event_current%d <= 1'b1;\n" e.id
-    else
-      Printf.fprintf out "      _event_current%d <= 1'b0;\n" e.id
-    end else ()
-  ) g.events;
+    if (~rst_ni) begin\n";
+  print_reset_states ();
   (* register reset *)
   List.iter (
     fun (r : Lang.reg_def) ->
@@ -100,6 +103,11 @@ let codegen_transition out (_graphs : EventGraph.event_graph_collection) (g : Ev
   (* actions *)
   codegen_actions out g;
   (* next states *)
+  (* FIXME: timing is not quite right *)
+  Printf.fprintf out
+"      if (_event_current%d) begin\n" g.last_event_id;
+  print_reset_states ();
+  Printf.fprintf out "      end else begin\n";
   List.iter (fun (e : EventGraph.event) ->
     Printf.fprintf out
 "      if (_event_current%d)
@@ -108,7 +116,7 @@ let codegen_transition out (_graphs : EventGraph.event_graph_collection) (g : Ev
       Printf.fprintf out "      _event_current%d <= _event_next%d;\n" e.id e.id
     else ()
   ) g.events;
-  Printf.fprintf out "    end\n  end\n"
+  Printf.fprintf out "      end\n    end\n  end\n"
 
 let codegen_states out _ctx
   (graphs : EventGraph.event_graph_collection)

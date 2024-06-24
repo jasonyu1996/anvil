@@ -1,8 +1,8 @@
 proc counter2 () =
     reg counter : logic[4]
     set counter := !counter + 4'b1 =>
-    set counter := !counter + 4'b1 =>
-    set counter := !counter + 4'b1 =>
-    set counter := !counter + 4'b1 =>
     dprint "Counter = %d" (!counter);
-    dfinish
+    if !counter == 4'd8 then
+        dfinish
+    else ()
+
