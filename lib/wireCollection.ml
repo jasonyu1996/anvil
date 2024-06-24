@@ -16,6 +16,7 @@ module Wire = struct
     | Unary of Lang.unop * t
     | Switch of (t * t) list * t (* (cond, val) list, default *)
     | RegRead of Lang.identifier
+    | Concat of t list
 
   let new_literal id lit =
     {
@@ -66,6 +67,15 @@ module Wire = struct
       dtype = r.dtype;
       borrow_src = [r.name]
     }
+
+  let new_concat id typedefs ws =
+    let sz = List.fold_left (fun sum w -> sum + (TypedefMap.data_type_size typedefs w.dtype)) 0 ws in
+    {
+      id;
+      source = Concat ws;
+      dtype = `Array (`Logic, sz);
+      borrow_src = List.concat_map (fun w -> w.borrow_src) ws
+    }
 end
 
 type wire = Wire.t
@@ -100,4 +110,9 @@ let add_switch (typedefs : TypedefMap.t) (sw : (wire * wire) list)
 let add_reg_read (typedefs : TypedefMap.t) (r : Lang.reg_def) (wc : t) : t * wire =
   let id = List.length wc in
   let w = Wire.new_reg_read id typedefs r in
+  (w::wc, w)
+
+let add_concat (typedefs : TypedefMap.t) (ws : wire list) (wc : t) : t * wire =
+  let id = List.length wc in
+  let w = Wire.new_concat id typedefs ws in
   (w::wc, w)

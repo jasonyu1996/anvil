@@ -144,6 +144,9 @@ let codegen_wire_assignment out (w : WireCollection.wire) =
       |> String.concat "" in
       Printf.sprintf "%s%s" conds (Format.format_wirename d.id)
     | RegRead reg_ident -> Format.format_regname_current reg_ident
+    | Concat ws ->
+      List.map (fun (w' : WireCollection.wire) -> Format.format_wirename w'.id) ws |>
+        String.concat ", " |> Printf.sprintf "{%s}"
   in
   Printf.fprintf out "  assign %s = %s;\n" (Format.format_wirename w.id) expr
 

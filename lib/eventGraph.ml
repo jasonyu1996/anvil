@@ -183,6 +183,13 @@ let rec visit_expr (graph : event_graph) (ci : cunit_info)
         {w = Some w; lt}
       | _ -> raise (TypeError "Invalid if expression!")
     )
+  | Concat es ->
+    let tds = List.map (visit_expr graph ci ctx) es in
+    let ws = List.map (fun (td : Typing.timed_data) -> Option.get td.w) tds in
+    let (wires', w) = WireCollection.add_concat ci.typedefs ws graph.wires in
+    graph.wires <- wires';
+    (* TODO: incorrect lifetime *)
+    {w = Some w; lt = Typing.lifetime_const ctx.current}
   | Read reg_ident ->
     let r = List.find (fun (r : Lang.reg_def) -> r.name = reg_ident) graph.regs in
     let (wires', w) = WireCollection.add_reg_read ci.typedefs r graph.wires in
