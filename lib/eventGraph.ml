@@ -45,6 +45,39 @@ type event_graph = {
   mutable last_event_id: int;
 }
 
+let string_of_delay (d : delay) : string =
+  let buf = Buffer.create 16 in
+  let rec append_string_of_delay = function
+    | `Ever -> Buffer.add_string buf "oo"
+    | `Cycles n -> Buffer.add_string buf @@ string_of_int n
+    | `Later (d1, d2) ->
+      Buffer.add_char buf '<';
+      append_string_of_delay d1;
+      Buffer.add_string buf ", ";
+      append_string_of_delay d2;
+      Buffer.add_char buf '>'
+    | `Earlier (d1, d2) ->
+      Buffer.add_char buf '[';
+      append_string_of_delay d1;
+      Buffer.add_string buf ", ";
+      append_string_of_delay d2;
+      Buffer.add_char buf ']'
+    | `Seq (d', dd) ->
+      append_string_of_delay d';
+      Buffer.add_string buf " => ";
+      append_string_of_delay (dd :> delay)
+  in
+  append_string_of_delay d;
+  Buffer.contents buf
+
+type plain_lifetime = {
+  live: delay;
+  dead: delay;
+}
+
+let string_of_plain_lifetime (lt : plain_lifetime) : string =
+  Printf.sprintf "{%s, %s}" (string_of_delay lt.live) (string_of_delay lt.dead)
+
 module Typing = struct
   type lifetime = {
     live : event;
@@ -74,6 +107,12 @@ module Typing = struct
     | `Earlier (e1, e2) -> `Earlier (delay_of_event e1, delay_of_event e2)
     | `Seq (e', d) -> `Seq (delay_of_event e', d)
     | `Branch (_, e') -> delay_of_event e'
+
+  let lifetime_plainify (lt : lifetime) : plain_lifetime =
+    {
+      live = delay_of_event lt.live;
+      dead = lt.dead;
+    }
 
   let lifetime_const current = {live = current; dead = `Ever}
   let lifetime_immediate current = {live = current; dead = `Seq (delay_of_event current, `Cycles 1)}
@@ -154,6 +193,7 @@ module Typing = struct
 
 end
 
+exception BorrowCheckError of string * plain_lifetime * plain_lifetime
 
 type build_context = Typing.build_context
 module BuildContext = Typing.BuildContext
@@ -170,7 +210,9 @@ let rec visit_expr (graph : event_graph) (ci : cunit_info)
     let td = visit_expr graph ci ctx e' in
     let w' = Option.get td.w in
     if Typing.lifetime_check td.lt (Typing.lifetime_immediate ctx.current) |> not then
-      raise (Except.BorrowCheckError "Value does not live long enough in assignment!")
+      raise (BorrowCheckError ("Value does not live long enough in assignment!",
+        Typing.lifetime_plainify td.lt,
+        Typing.lifetime_immediate ctx.current |> Typing.lifetime_plainify))
     else ();
     let reg_ident = (
       let open Lang in
@@ -218,7 +260,9 @@ let rec visit_expr (graph : event_graph) (ci : cunit_info)
     let (ctx_true, ctx_false) =
       let ctx' = BuildContext.wait graph ctx td1.lt.live in
       if Typing.lifetime_check td1.lt (Typing.lifetime_immediate ctx.current) |> not then
-        raise (Except.BorrowCheckError "If condition does not live long enough!")
+        raise (BorrowCheckError ("If condition does not live long enough!",
+          Typing.lifetime_plainify td1.lt,
+          Typing.lifetime_immediate ctx.current |> Typing.lifetime_plainify))
       else ();
       BuildContext.branch graph ctx' w1
     in

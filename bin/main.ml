@@ -23,7 +23,11 @@ let () =
       let event_graphs = Anvil.EventGraph.build cunit in
       Anvil.Codegen.generate stdout config event_graphs
     with
-    | Anvil.Except.BorrowCheckError msg -> Printf.eprintf "Borrow checking failed: %s\n" msg; exit 1
+    | Anvil.EventGraph.BorrowCheckError (msg, lt, req) ->
+      Printf.eprintf "Borrow checking failed: %s\n  Lifetime = %s\n  Required = %s\n" msg
+        (Anvil.EventGraph.string_of_plain_lifetime lt)
+        (Anvil.EventGraph.string_of_plain_lifetime req);
+      exit 1
     | Anvil.Except.TypeError msg -> Printf.eprintf "Type error: %s\n" msg; exit 1
     | Anvil.Except.UnimplementedError msg -> Printf.eprintf "Unimplemented error: %s\n" msg; exit 1
   end

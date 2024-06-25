@@ -10,6 +10,13 @@ type condition = {
   neg : bool;
 }
 
+type plain_lifetime = {
+  live: Lang.delay;
+  dead: Lang.delay;
+}
+
+val string_of_plain_lifetime : plain_lifetime -> string
+
 type event = {
   id : int;
   mutable actions: action list;
@@ -40,3 +47,5 @@ type event_graph_collection = {
 }
 
 val build : Lang.compilation_unit -> event_graph_collection
+
+exception BorrowCheckError of string * plain_lifetime * plain_lifetime
