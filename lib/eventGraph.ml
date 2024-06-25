@@ -48,7 +48,7 @@ type event_graph = {
 module Typing = struct
   type lifetime = {
     live : event;
-    _dead : delay;
+    dead : delay;
   }
 
   type timed_data = {
@@ -67,14 +67,23 @@ module Typing = struct
     g.events <- n::g.events;
     n
 
-  let lifetime_const current = {live = current; _dead = `Ever}
+  let rec delay_of_event (e : event) : delay =
+    match e.source with
+    | `Root -> `Cycles 0
+    | `Later (e1, e2) -> `Later (delay_of_event e1, delay_of_event e2)
+    | `Earlier (e1, e2) -> `Earlier (delay_of_event e1, delay_of_event e2)
+    | `Seq (e', d) -> `Seq (delay_of_event e', d)
+    | `Branch (_, e') -> delay_of_event e'
+
+  let lifetime_const current = {live = current; dead = `Ever}
+  let lifetime_immediate current = {live = current; dead = `Seq (delay_of_event current, `Cycles 1)}
   let lifetime_intersect g (a : lifetime) (b : lifetime) =
     {
       live = event_create g (`Later (a.live, b.live));
-      _dead = `Earlier (a._dead, b._dead);
+      dead = `Earlier (a.dead, b.dead);
     }
 
-  let cycles_data g (n : int) (current : event) = {w = None; lt = {live = event_create g (`Seq (current, `Cycles n)); _dead = `Ever}}
+  let cycles_data g (n : int) (current : event) = {w = None; lt = {live = event_create g (`Seq (current, `Cycles n)); dead = `Ever}}
   let const_data _g (w : wire option) (current : event) = {w; lt = lifetime_const current}
   let merged_data g (w : wire option) (current : event) (lts : lifetime list) =
     match lts with
@@ -88,7 +97,41 @@ module Typing = struct
     Utils.StringMap.add v d ctx
   let context_empty : context = Utils.StringMap.empty
   let context_lookup (ctx : context) (v : identifier) = Utils.StringMap.find_opt v ctx
+  (* checks if lt lives at least as long as required *)
 
+  let rec delay_leq_check (a : delay) (b : delay) : bool =
+    match a, b with
+    | _, `Ever -> true
+    | _, `Later (b1, b2) ->
+      (delay_leq_check a b1) || (delay_leq_check a b2)
+    | _, `Earlier (b1, b2) ->
+      (delay_leq_check a b1) && (delay_leq_check a b2)
+    | `Later (a1, a2), _ ->
+      (delay_leq_check a1 b) && (delay_leq_check a2 b)
+    | `Earlier (a1, a2), _ ->
+      (delay_leq_check a1 b) || (delay_leq_check a2 b)
+    (* only both seq or atomic *)
+    | `Cycles na, `Cycles nb -> na <= nb
+    | `Ever, `Cycles _ -> false
+    | `Ever, `Seq (b', _) -> delay_leq_check `Ever b'
+    | `Cycles na, `Seq (b', `Cycles nb) ->
+      na <= nb || (delay_leq_check (`Cycles (na - nb)) b')
+    | `Seq (a', `Cycles na), `Seq (b', `Cycles nb) ->
+      let m = min na nb in
+      if na = m then
+        delay_leq_check a' (`Seq (b', `Cycles (nb - m)))
+      else
+        delay_leq_check (`Seq (a', `Cycles (na - m))) b'
+
+    | `Seq (a', `Cycles na), `Cycles nb ->
+      na <= nb && (delay_leq_check a' (`Cycles (nb - na)))
+
+  let lifetime_check (lt : lifetime) (req : lifetime) : bool =
+    (* requires lt.live <= req.live && lt.dead >= req.dead *)
+    let lt_live_delay = delay_of_event lt.live
+    and req_live_delay = delay_of_event req.live in
+    (delay_leq_check lt_live_delay req_live_delay) &&
+      (delay_leq_check req.dead lt.dead)
 
   module BuildContext = struct
     type t = build_context
@@ -126,6 +169,9 @@ let rec visit_expr (graph : event_graph) (ci : cunit_info)
   | Assign (lval, e') ->
     let td = visit_expr graph ci ctx e' in
     let w' = Option.get td.w in
+    if Typing.lifetime_check td.lt (Typing.lifetime_immediate ctx.current) |> not then
+      raise (Except.BorrowCheckError "Value does not live long enough in assignment!")
+    else ();
     let reg_ident = (
       let open Lang in
       match lval with
@@ -171,12 +217,15 @@ let rec visit_expr (graph : event_graph) (ci : cunit_info)
     let w1 = Option.get td1.w in
     let (ctx_true, ctx_false) =
       let ctx' = BuildContext.wait graph ctx td1.lt.live in
+      if Typing.lifetime_check td1.lt (Typing.lifetime_immediate ctx.current) |> not then
+        raise (Except.BorrowCheckError "If condition does not live long enough!")
+      else ();
       BuildContext.branch graph ctx' w1
     in
     let td2 = visit_expr graph ci ctx_true e2
     and td3 = visit_expr graph ci ctx_false e3 in
     let lt = let open Typing in {live = Typing.event_create graph (`Earlier (td2.lt.live, td3.lt.live));
-      _dead = `Earlier (td1.lt._dead, `Earlier (td2.lt._dead, td3.lt._dead))} in
+      dead = `Earlier (td1.lt.dead, `Earlier (td2.lt.dead, td3.lt.dead))} in
     (
       match td2.w, td3.w with
       | None, None -> {w = None; lt}
@@ -191,8 +240,7 @@ let rec visit_expr (graph : event_graph) (ci : cunit_info)
     let ws = List.map (fun (td : Typing.timed_data) -> Option.get td.w) tds in
     let (wires', w) = WireCollection.add_concat ci.typedefs ws graph.wires in
     graph.wires <- wires';
-    (* TODO: incorrect lifetime *)
-    {w = Some w; lt = Typing.lifetime_const ctx.current}
+    Typing.merged_data graph (Some w) ctx.current (List.map (fun (td : Typing.timed_data) -> td.lt) tds)
   | Read reg_ident ->
     let r = List.find (fun (r : Lang.reg_def) -> r.name = reg_ident) graph.regs in
     let (wires', w) = WireCollection.add_reg_read ci.typedefs r graph.wires in

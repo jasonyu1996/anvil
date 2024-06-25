@@ -295,16 +295,16 @@ and debug_op =
   | DebugPrint of string * expr list
   | DebugFinish
 
+type atomic_delay = [
+  | `Cycles of int
+]
+
 type delay = [
   | `Ever
   | `Cycles of int
   | `Later of delay * delay
   | `Earlier of delay * delay
-  | `Seq of delay * delay
-]
-
-type atomic_delay = [
-  | `Cycles of int
+  | `Seq of delay * atomic_delay
 ]
 
 let delay_immediate = `Cycles 0
