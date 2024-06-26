@@ -2,7 +2,7 @@
 
 ### Dependencies
 
-Development: OCaml 4.13.1
+Development: OCaml 5.2.0
 
 Software simulation tested with Verilator 5.024.
 

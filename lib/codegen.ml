@@ -66,26 +66,28 @@ end
 
 type port_def = Port.t
 
-let codegen_ports out (graphs : event_graph_collection)
+let codegen_ports printer (graphs : event_graph_collection)
                       (endpoints : endpoint_def list) =
   let port_list = Port.gather_ports graphs.channel_classes endpoints in
-  let rec print_port_list out port_list =
+  let rec print_port_list port_list =
   match port_list with
   | [] -> ()
   | port :: [] ->
-      let port_fmt = Port.format graphs.typedefs port in Printf.fprintf out "  %s\n" port_fmt
+      Port.format graphs.typedefs port |> CodegenPrinter.print_line printer
   | port :: port_list' ->
-      let port_fmt = Port.format graphs.typedefs port in Printf.fprintf out "  %s,\n" port_fmt;
-      print_port_list out port_list'
+      Port.format graphs.typedefs port |> Printf.sprintf "%s," |> CodegenPrinter.print_line printer;
+      print_port_list port_list'
   in
-  print_port_list out ([Port.clk; Port.rst] @ port_list)
+  print_port_list ([Port.clk; Port.rst] @ port_list)
 
-let codegen_spawns out (ctx: codegen_context) (graphs : event_graph_collection) (g : event_graph) =
+let codegen_spawns printer (ctx: codegen_context) (graphs : event_graph_collection) (g : event_graph) =
   let gen_connect = fun (dst : string) (src : string) ->
-    Printf.fprintf out ",\n    .%s (%s)" dst src
+    Printf.sprintf ",.%s (%s)" dst src |> CodegenPrinter.print_line printer
   in
   let gen_spawn = fun (idx : int) (spawn : spawn_def) ->
-    Printf.fprintf out "  %s _spawn_%d (\n    .clk_i,\n    .rst_ni" spawn.proc idx;
+    Printf.sprintf "%s _spawn_%d (" spawn.proc idx|> CodegenPrinter.print_line printer ~lvl_delta_post:1;
+    CodegenPrinter.print_line printer ".clk_i,";
+    CodegenPrinter.print_line printer ".rst_ni";
     (* connect the wires *)
     let proc_other = CodegenHelpers.lookup_proc graphs.event_graphs spawn.proc |> Option.get in
     let connect_endpoints = fun (arg_endpoint : endpoint_def) (param_ident : identifier) ->
@@ -109,18 +111,19 @@ let codegen_spawns out (ctx: codegen_context) (graphs : event_graph_collection) 
         end
       in List.iter print_msg_con cc.messages
     in List.iter2 connect_endpoints proc_other.args spawn.params;
-    Printf.fprintf out "\n  );\n"
+    CodegenPrinter.print_line printer ~lvl_delta_pre:(-1) ");"
   in List.iteri gen_spawn g.spawns
 
-let codegen_endpoints out (ctx: codegen_context) (graphs : event_graph_collection) =
+let codegen_endpoints printer (ctx: codegen_context) (graphs : event_graph_collection) =
   let print_port_signal_decl = fun (port : port_def) ->
-    Printf.fprintf out "  %s %s;\n" (Format.format_dtype graphs.typedefs port.dtype) (port.name)
+    Printf.sprintf "%s %s;" (Format.format_dtype graphs.typedefs port.dtype) (port.name) |>
+      CodegenPrinter.print_line printer
   in
   List.filter (fun (p : endpoint_def) -> p.dir = Left) ctx.endpoints |>
   Port.gather_ports graphs.channel_classes |>
   List.iter print_port_signal_decl
 
-let codegen_wire_assignment out (w : WireCollection.wire) =
+let codegen_wire_assignment printer (w : WireCollection.wire) =
   let expr =
     match w.source with
     | Literal lit -> Format.format_literal lit
@@ -148,15 +151,17 @@ let codegen_wire_assignment out (w : WireCollection.wire) =
       List.map (fun (w' : WireCollection.wire) -> Format.format_wirename w'.id) ws |>
         String.concat ", " |> Printf.sprintf "{%s}"
   in
-  Printf.fprintf out "  assign %s = %s;\n" (Format.format_wirename w.id) expr
+  Printf.sprintf "assign %s = %s;" (Format.format_wirename w.id) expr |>
+    CodegenPrinter.print_line printer
 
 
-let codegen_post_declare out (_ctx : codegen_context) (graphs : event_graph_collection) (g : event_graph) =
+let codegen_post_declare printer (_ctx : codegen_context) (graphs : event_graph_collection) (g : event_graph) =
   (* wire declarations *)
   let codegen_wire_decl = fun (w: WireCollection.wire) ->
-    Printf.fprintf out "  %s %s;\n" (Format.format_dtype graphs.typedefs w.dtype) @@ Format.format_wirename w.id
+    Printf.sprintf "%s %s;" (Format.format_dtype graphs.typedefs w.dtype) @@ Format.format_wirename w.id |>
+      CodegenPrinter.print_line printer
   in List.iter codegen_wire_decl g.wires;
-  List.iter (codegen_wire_assignment out) g.wires
+  List.iter (codegen_wire_assignment printer) g.wires
   (* set send signals *)
   (* StringMap.iter (fun _ {msg_spec; select} ->
     let data_wires = gather_data_wires_from_msg ctx proc msg_spec
@@ -178,40 +183,42 @@ let codegen_post_declare out (_ctx : codegen_context) (graphs : event_graph_coll
         List.iter (fun (buf : Buffer.t) -> Printf.printf "%s '0;\n" @@ Buffer.contents buf) ws_bufs
   ) ctx.sends *)
 
-let codegen_regs out _ctx (graphs : event_graph_collection) (g : event_graph) =
+let codegen_regs printer _ctx (graphs : event_graph_collection) (g : event_graph) =
   List.iter
     (
       fun (r : reg_def) ->
         let open CodegenFormat in
-        Printf.fprintf out "  %s %s;\n" (format_dtype graphs.typedefs r.dtype)
-          (format_regname_current r.name)
+        Printf.sprintf "%s %s;" (format_dtype graphs.typedefs r.dtype)
+          (format_regname_current r.name) |>
+          CodegenPrinter.print_line printer
     )
     g.regs
 
-let codegen_proc out (graphs : EventGraph.event_graph_collection) (g : event_graph) =
+let codegen_proc printer (graphs : EventGraph.event_graph_collection) (g : event_graph) =
   let ctx = CodegenContext.create () in
   CodegenContext.generate_channels ctx g.channels;
   CodegenContext.generate_local_messages ctx graphs.channel_classes g.args;
 
   (* generate ports *)
-  Printf.fprintf out "module %s (\n" g.name;
-  codegen_ports out graphs ctx.endpoints;
-  Printf.fprintf out ");\n";
+  Printf.sprintf "module %s (" g.name |> CodegenPrinter.print_line printer ~lvl_delta_post:1;
+  codegen_ports printer graphs ctx.endpoints;
+  CodegenPrinter.print_line printer ~lvl_delta_pre:(-1) ~lvl_delta_post:1 ");";
 
-  codegen_endpoints out ctx graphs;
-  codegen_spawns out ctx graphs g;
-  codegen_regs out ctx graphs g;
-  codegen_post_declare out ctx graphs g;
-  CodegenStates.codegen_states out ctx graphs g;
+  codegen_endpoints printer ctx graphs;
+  codegen_spawns printer ctx graphs g;
+  codegen_regs printer ctx graphs g;
+  codegen_post_declare printer ctx graphs g;
+  CodegenStates.codegen_states printer ctx graphs g;
 
-  Printf.fprintf out "endmodule\n"
+  CodegenPrinter.print_line printer ~lvl_delta_pre:(-1) "endmodule"
 
-let codegen_preamble out =
-  Printf.fprintf out "/* verilator lint_off UNOPTFLAT */\n"
+let codegen_preamble printer =
+  CodegenPrinter.print_line printer "/* verilator lint_off UNOPTFLAT */"
 
 let generate (out : out_channel)
              (_config : Config.compile_config)
              (graphs : EventGraph.event_graph_collection) : unit =
-  codegen_preamble out;
-  List.iter (codegen_proc out graphs) graphs.event_graphs
+  let printer = CodegenPrinter.create out 2 in
+  codegen_preamble printer;
+  List.iter (codegen_proc printer graphs) graphs.event_graphs
 
