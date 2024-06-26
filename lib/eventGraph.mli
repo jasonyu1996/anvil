@@ -5,6 +5,10 @@ type action =
   | DebugFinish
   | RegAssign of string * wire
 
+type sustained_action_type =
+  | Send of Lang.message_specifier * wire
+  | Recv of Lang.message_specifier
+
 type condition = {
   w : wire;
   neg : bool;
@@ -20,7 +24,12 @@ val string_of_plain_lifetime : plain_lifetime -> string
 type event = {
   id : int;
   mutable actions: action list;
+  mutable sustained_actions : sustained_action list;
   source: event_source;
+}
+and sustained_action = {
+  until : event;
+  ty : sustained_action_type;
 }
 and event_source = [
   | `Root
@@ -34,7 +43,7 @@ type event_graph = {
   mutable events : event list;
   mutable wires : wire_collection;
   channels : Lang.channel_def list;
-  args : Lang.endpoint_def list;
+  messages : MessageCollection.t;
   spawns : Lang.spawn_def list;
   regs: Lang.reg_def list;
   mutable last_event_id: int;

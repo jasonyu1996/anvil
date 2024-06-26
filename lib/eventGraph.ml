@@ -6,13 +6,18 @@ type wire_collection = WireCollection.t
 
 
 type cunit_info = {
-  typedefs : TypedefMap.t
+  typedefs : TypedefMap.t;
+  channel_classes : channel_class_def list;
 }
 
 type action =
   | DebugPrint of string * wire list
   | DebugFinish
   | RegAssign of string * wire
+
+type sustained_action_type =
+  | Send of message_specifier * wire
+  | Recv of message_specifier
 
 type condition = {
   w : wire;
@@ -22,6 +27,7 @@ type condition = {
 type event = {
   id : int;
   mutable actions: action list;
+  mutable sustained_actions : sustained_action list;
   source: event_source;
 }
 and event_source = [
@@ -31,13 +37,19 @@ and event_source = [
   | `Seq of event * atomic_delay
   | `Branch of condition * event
 ]
+(* sustained actions are in effect when current is reached and until
+  is not reached *)
+and sustained_action = {
+  until : event;
+  ty : sustained_action_type
+}
 
 type event_graph = {
   name : identifier;
   mutable events: event list;
   mutable wires: wire_collection;
   channels: channel_def list;
-  args: endpoint_def list;
+  messages : MessageCollection.t;
   spawns: spawn_def list;
   regs: reg_def list;
   (* the id of the last event *)
@@ -49,7 +61,11 @@ let string_of_delay (d : delay) : string =
   let buf = Buffer.create 16 in
   let rec append_string_of_delay = function
     | `Ever -> Buffer.add_string buf "oo"
-    | `Cycles n -> Buffer.add_string buf @@ string_of_int n
+    | `Atomic (`Cycles n) -> Buffer.add_string buf @@ string_of_int n
+    | `Atomic (`Send msg) ->
+      Lang.string_of_msg_spec msg |> Printf.sprintf "S(%s)" |> Buffer.add_string buf
+    | `Atomic (`Recv msg) ->
+      Lang.string_of_msg_spec msg |> Printf.sprintf "R(%s)" |> Buffer.add_string buf
     | `Later (d1, d2) ->
       Buffer.add_char buf '<';
       append_string_of_delay d1;
@@ -65,7 +81,7 @@ let string_of_delay (d : delay) : string =
     | `Seq (d', dd) ->
       append_string_of_delay d';
       Buffer.add_string buf " => ";
-      append_string_of_delay (dd :> delay)
+      append_string_of_delay (`Atomic dd)
   in
   append_string_of_delay d;
   Buffer.contents buf
@@ -96,13 +112,13 @@ module Typing = struct
   }
 
   let event_create g source =
-    let n = {actions = []; source; id = List.length g.events} in
+    let n = {actions = []; sustained_actions = []; source; id = List.length g.events} in
     g.events <- n::g.events;
     n
 
   let rec delay_of_event (e : event) : delay =
     match e.source with
-    | `Root -> `Cycles 0
+    | `Root -> `Atomic (`Cycles 0)
     | `Later (e1, e2) -> `Later (delay_of_event e1, delay_of_event e2)
     | `Earlier (e1, e2) -> `Earlier (delay_of_event e1, delay_of_event e2)
     | `Seq (e', d) -> `Seq (delay_of_event e', d)
@@ -131,6 +147,12 @@ module Typing = struct
       let lt' = List.fold_left (lifetime_intersect g) lt lts' in
       {w; lt = lt'}
   let derived_data (w : wire option) (lt : lifetime) = {w; lt}
+  let send_msg_data g (msg : message_specifier) (current : event) =
+    {w = None; lt = {live = event_create g (`Seq (current, `Send msg)); dead = `Ever}}
+  let recv_msg_data g (w : wire option) (msg : message_specifier) (_msg_def : message_def) (current : event) =
+    let event_received = event_create g (`Seq (current, `Recv msg)) in
+    (* FIXME: take into consideration the lifetime signature *)
+    {w; lt = {live = event_received; dead = `Ever}}
 
   let context_add (ctx : context) (v : identifier) (d : timed_data) : context =
     Utils.StringMap.add v d ctx
@@ -150,20 +172,25 @@ module Typing = struct
     | `Earlier (a1, a2), _ ->
       (delay_leq_check a1 b) || (delay_leq_check a2 b)
     (* only both seq or atomic *)
-    | `Cycles na, `Cycles nb -> na <= nb
-    | `Ever, `Cycles _ -> false
     | `Ever, `Seq (b', _) -> delay_leq_check `Ever b'
-    | `Cycles na, `Seq (b', `Cycles nb) ->
-      na <= nb || (delay_leq_check (`Cycles (na - nb)) b')
+    | `Atomic aa, `Atomic ab ->
+      (
+        match aa, ab with
+        | `Cycles na, `Cycles nb -> na <= nb
+        | _ -> aa = ab
+      )
+    | `Ever, `Atomic _ -> false
+    | `Atomic (`Cycles na), `Seq (b', `Cycles nb) ->
+      na <= nb || (delay_leq_check (`Atomic (`Cycles (na - nb))) b')
     | `Seq (a', `Cycles na), `Seq (b', `Cycles nb) ->
       let m = min na nb in
       if na = m then
         delay_leq_check a' (`Seq (b', `Cycles (nb - m)))
       else
         delay_leq_check (`Seq (a', `Cycles (na - m))) b'
-
-    | `Seq (a', `Cycles na), `Cycles nb ->
-      na <= nb && (delay_leq_check a' (`Cycles (nb - na)))
+    | `Seq (a', `Cycles na), `Atomic (`Cycles nb) ->
+      na <= nb && (delay_leq_check a' (`Atomic (`Cycles (nb - na))))
+    | _ -> true (* FIXME: correctly implement this for send/recv *)
 
   let lifetime_check (lt : lifetime) (req : lifetime) : bool =
     (* requires lt.live <= req.live && lt.dead >= req.dead *)
@@ -198,6 +225,11 @@ exception BorrowCheckError of string * plain_lifetime * plain_lifetime
 type build_context = Typing.build_context
 module BuildContext = Typing.BuildContext
 
+let lifetime_check_except lt req emsg =
+  if not @@ Typing.lifetime_check lt req then
+    raise (BorrowCheckError (emsg, Typing.lifetime_plainify lt, Typing.lifetime_plainify req))
+  else ()
+
 let rec visit_expr (graph : event_graph) (ci : cunit_info)
                    (ctx : build_context) (e : expr) : Typing.timed_data =
   match e with
@@ -209,11 +241,7 @@ let rec visit_expr (graph : event_graph) (ci : cunit_info)
   | Assign (lval, e') ->
     let td = visit_expr graph ci ctx e' in
     let w' = Option.get td.w in
-    if Typing.lifetime_check td.lt (Typing.lifetime_immediate ctx.current) |> not then
-      raise (BorrowCheckError ("Value does not live long enough in assignment!",
-        Typing.lifetime_plainify td.lt,
-        Typing.lifetime_immediate ctx.current |> Typing.lifetime_plainify))
-    else ();
+    lifetime_check_except td.lt (Typing.lifetime_immediate ctx.current) "Value does not live long enough in assignment!";
     let reg_ident = (
       let open Lang in
       match lval with
@@ -259,11 +287,7 @@ let rec visit_expr (graph : event_graph) (ci : cunit_info)
     let w1 = Option.get td1.w in
     let (ctx_true, ctx_false) =
       let ctx' = BuildContext.wait graph ctx td1.lt.live in
-      if Typing.lifetime_check td1.lt (Typing.lifetime_immediate ctx.current) |> not then
-        raise (BorrowCheckError ("If condition does not live long enough!",
-          Typing.lifetime_plainify td1.lt,
-          Typing.lifetime_immediate ctx.current |> Typing.lifetime_plainify))
-      else ();
+      lifetime_check_except td1.lt (Typing.lifetime_immediate ctx.current) "If condition does not live long enough!";
       BuildContext.branch graph ctx' w1
     in
     let td2 = visit_expr graph ci ctx_true e2
@@ -305,6 +329,24 @@ let rec visit_expr (graph : event_graph) (ci : cunit_info)
         ctx.current.actions <- DebugFinish::ctx.current.actions;
         {w = None; lt = Typing.lifetime_const ctx.current}
     )
+  | Send send_pack ->
+    let td = visit_expr graph ci ctx send_pack.send_data in
+    let _msg = MessageCollection.lookup_message graph.messages send_pack.send_msg_spec ci.channel_classes |> Option.get in
+    (* TODO: lifetime checking *)
+    let ntd = Typing.send_msg_data graph send_pack.send_msg_spec ctx.current in
+    ctx.current.sustained_actions <-
+      {
+        until = ntd.lt.live;
+        ty = Send (send_pack.send_msg_spec, Option.get td.w)
+      }::ctx.current.sustained_actions;
+    ntd
+  | Recv recv_pack ->
+    let msg = MessageCollection.lookup_message graph.messages recv_pack.recv_msg_spec ci.channel_classes |> Option.get in
+    let (wires', w) = WireCollection.add_msg_port ci.typedefs recv_pack.recv_msg_spec 0 msg graph.wires in
+    graph.wires <- wires';
+    let ntd = Typing.recv_msg_data graph (Some w) recv_pack.recv_msg_spec msg ctx.current in
+    ctx.current.sustained_actions <- {until = ntd.lt.live; ty = Recv recv_pack.recv_msg_spec}::ctx.current.sustained_actions;
+    ntd
   | _ -> raise (UnimplementedError "Unimplemented expression!")
 
 let build_proc (ci : cunit_info) (proc : proc_def) =
@@ -313,7 +355,7 @@ let build_proc (ci : cunit_info) (proc : proc_def) =
     events = [];
     wires = WireCollection.empty;
     channels = proc.body.channels;
-    args = proc.args;
+    messages = MessageCollection.create proc.body.channels proc.args ci.channel_classes;
     spawns = proc.body.spawns;
     regs = proc.body.regs;
     last_event_id = 0;
@@ -330,7 +372,7 @@ type event_graph_collection = {
 
 let build (cunit : compilation_unit) =
   let typedefs = TypedefMap.of_list cunit.type_defs in
-  let ci = { typedefs } in
+  let ci = { typedefs; channel_classes = cunit.channel_classes } in
   let graphs = List.map (build_proc ci) cunit.procs in
   {
     event_graphs = graphs;

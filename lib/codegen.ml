@@ -1,7 +1,5 @@
 open Lang
 
-type codegen_context = CodegenContext.t
-
 type event_graph = EventGraph.event_graph
 type event_graph_collection = EventGraph.event_graph_collection
 
@@ -18,7 +16,7 @@ module Port = struct
   let message_has_ack_port (msg : message_def) : bool = msg.recv_sync = Dynamic
 
   let gather_ports_from_endpoint (channel_classes : channel_class_def list) (endpoint : endpoint_def) : t list =
-    let cc = Option.get (CodegenHelpers.lookup_channel_class channel_classes endpoint.channel_class) in
+    let cc = Option.get (MessageCollection.lookup_channel_class channel_classes endpoint.channel_class) in
     let gen_endpoint_ports = fun (msg : message_def) ->
       let folder_inner = fun fmt msg_dir (n, port_list) (stype : sig_type_chan_local) ->
         let new_port : t = {
@@ -80,7 +78,7 @@ let codegen_ports printer (graphs : event_graph_collection)
   in
   print_port_list ([Port.clk; Port.rst] @ port_list)
 
-let codegen_spawns printer (ctx: codegen_context) (graphs : event_graph_collection) (g : event_graph) =
+let codegen_spawns printer (graphs : event_graph_collection) (g : event_graph) =
   let gen_connect = fun (dst : string) (src : string) ->
     Printf.sprintf ",.%s (%s)" dst src |> CodegenPrinter.print_line printer
   in
@@ -91,9 +89,9 @@ let codegen_spawns printer (ctx: codegen_context) (graphs : event_graph_collecti
     (* connect the wires *)
     let proc_other = CodegenHelpers.lookup_proc graphs.event_graphs spawn.proc |> Option.get in
     let connect_endpoints = fun (arg_endpoint : endpoint_def) (param_ident : identifier) ->
-      let endpoint_local = CodegenHelpers.lookup_endpoint g ctx.endpoints param_ident |> Option.get in
+      let endpoint_local = MessageCollection.lookup_endpoint g.messages param_ident |> Option.get in
       let endpoint_name_local = Endpoint.canonical_name endpoint_local in
-      let cc = CodegenHelpers.lookup_channel_class graphs.channel_classes endpoint_local.channel_class |> Option.get in
+      let cc = MessageCollection.lookup_channel_class graphs.channel_classes endpoint_local.channel_class |> Option.get in
       let print_msg_con = fun (msg : message_def) ->
         if Port.message_has_valid_port msg then
           gen_connect (Format.format_msg_valid_signal_name arg_endpoint.name msg.name)
@@ -110,16 +108,16 @@ let codegen_spawns printer (ctx: codegen_context) (graphs : event_graph_collecti
           List.iteri (print_data_con Format.format_msg_data_signal_name) msg.sig_types;
         end
       in List.iter print_msg_con cc.messages
-    in List.iter2 connect_endpoints proc_other.args spawn.params;
+    in List.iter2 connect_endpoints proc_other.messages.args spawn.params;
     CodegenPrinter.print_line printer ~lvl_delta_pre:(-1) ");"
   in List.iteri gen_spawn g.spawns
 
-let codegen_endpoints printer (ctx: codegen_context) (graphs : event_graph_collection) =
+let codegen_endpoints printer (graphs : event_graph_collection) (g : event_graph) =
   let print_port_signal_decl = fun (port : port_def) ->
     Printf.sprintf "%s %s;" (Format.format_dtype graphs.typedefs port.dtype) (port.name) |>
       CodegenPrinter.print_line printer
   in
-  List.filter (fun (p : endpoint_def) -> p.dir = Left) ctx.endpoints |>
+  List.filter (fun (p : endpoint_def) -> p.dir = Left) g.messages.endpoints |>
   Port.gather_ports graphs.channel_classes |>
   List.iter print_port_signal_decl
 
@@ -150,12 +148,14 @@ let codegen_wire_assignment printer (w : WireCollection.wire) =
     | Concat ws ->
       List.map (fun (w' : WireCollection.wire) -> Format.format_wirename w'.id) ws |>
         String.concat ", " |> Printf.sprintf "{%s}"
+    | MessagePort (msg, idx) ->
+      Format.format_msg_data_signal_name msg.endpoint msg.msg idx
   in
   Printf.sprintf "assign %s = %s;" (Format.format_wirename w.id) expr |>
     CodegenPrinter.print_line printer
 
 
-let codegen_post_declare printer (_ctx : codegen_context) (graphs : event_graph_collection) (g : event_graph) =
+let codegen_post_declare printer (graphs : event_graph_collection) (g : event_graph) =
   (* wire declarations *)
   let codegen_wire_decl = fun (w: WireCollection.wire) ->
     Printf.sprintf "%s %s;" (Format.format_dtype graphs.typedefs w.dtype) @@ Format.format_wirename w.id |>
@@ -183,7 +183,7 @@ let codegen_post_declare printer (_ctx : codegen_context) (graphs : event_graph_
         List.iter (fun (buf : Buffer.t) -> Printf.printf "%s '0;\n" @@ Buffer.contents buf) ws_bufs
   ) ctx.sends *)
 
-let codegen_regs printer _ctx (graphs : event_graph_collection) (g : event_graph) =
+let codegen_regs printer (graphs : event_graph_collection) (g : event_graph) =
   List.iter
     (
       fun (r : reg_def) ->
@@ -195,20 +195,16 @@ let codegen_regs printer _ctx (graphs : event_graph_collection) (g : event_graph
     g.regs
 
 let codegen_proc printer (graphs : EventGraph.event_graph_collection) (g : event_graph) =
-  let ctx = CodegenContext.create () in
-  CodegenContext.generate_channels ctx g.channels;
-  CodegenContext.generate_local_messages ctx graphs.channel_classes g.args;
-
   (* generate ports *)
   Printf.sprintf "module %s (" g.name |> CodegenPrinter.print_line printer ~lvl_delta_post:1;
-  codegen_ports printer graphs ctx.endpoints;
+  codegen_ports printer graphs g.messages.args;
   CodegenPrinter.print_line printer ~lvl_delta_pre:(-1) ~lvl_delta_post:1 ");";
 
-  codegen_endpoints printer ctx graphs;
-  codegen_spawns printer ctx graphs g;
-  codegen_regs printer ctx graphs g;
-  codegen_post_declare printer ctx graphs g;
-  CodegenStates.codegen_states printer ctx graphs g;
+  codegen_endpoints printer graphs g;
+  codegen_spawns printer graphs g;
+  codegen_regs printer graphs g;
+  codegen_post_declare printer graphs g;
+  CodegenStates.codegen_states printer graphs g;
 
   CodegenPrinter.print_line printer ~lvl_delta_pre:(-1) "endmodule"
 

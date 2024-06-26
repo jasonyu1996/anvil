@@ -31,6 +31,18 @@ let codegen_next printer (g : EventGraph.event_graph) =
         | `Cycles 1 -> Printf.sprintf "assign _event_next%d = _event_current%d;" e.id e'.id |> print_line
         | `Cycles _ ->
           raise (Except.UnimplementedError "Codegen states for multi cycle event unimplemented!")
+        | `Send msg ->
+          [
+            Printf.sprintf "assign _event_next%d = !_event_current%d && !_event_reached[%d] &&" e.id e.id e.id;
+            Printf.sprintf "(_event_current%d || _event_reached[%d]) && %s;" e'.id e'.id
+              (CodegenFormat.format_msg_ack_signal_name msg.endpoint msg.msg)
+          ] |> print_lines
+        | `Recv msg ->
+          [
+            Printf.sprintf "assign _event_next%d = !_event_current%d && !_event_reached[%d] &&" e.id e.id e.id;
+            Printf.sprintf "(_event_current%d || _event_reached[%d]) && %s;" e'.id e'.id
+              (CodegenFormat.format_msg_valid_signal_name msg.endpoint msg.msg)
+          ] |> print_lines
       )
     | `Earlier (e1, e2) ->
       Printf.sprintf "assign _event_current%d = !_event_reached[%d] && (_event_current%d || _event_current%d);"
@@ -88,7 +100,7 @@ let codegen_transition printer (_graphs : EventGraph.event_graph_collection) (g 
   let root_id =
     List.find_map (fun (x : EventGraph.event) -> if x.source = `Root then Some x.id else None) g.events |> Option.get in
   let print_reset_states () =
-    print_line " _event_reached <= '0;";
+    print_line "_event_reached <= '0;";
     List.iter (fun (e : EventGraph.event) -> if event_is_reg e then begin
       if e.id = root_id then
         Printf.sprintf "_event_current%d <= 1'b1;" e.id |> print_line
@@ -128,10 +140,35 @@ let codegen_transition printer (_graphs : EventGraph.event_graph_collection) (g 
   print_line ~lvl_delta_pre:(-1) "end";
   print_line ~lvl_delta_pre:(-1) "end"
 
-let codegen_states printer _ctx
+let codegen_sustained_actions printer (g : EventGraph.event_graph) =
+  let print_line = CodegenPrinter.print_line printer in
+  let open Lang in
+  let print_sa_event (e : EventGraph.event) =
+    List.iter (fun (sa : EventGraph.sustained_action) ->
+      let activated = Printf.sprintf "(_event_reached[%d] || _event_current%d) && !_event_reached[%d] && !_event_current%d"
+        e.id e.id sa.until.id sa.until.id in
+      match sa.ty with
+      | Send (msg, w) ->
+        Printf.sprintf "assign %s = %s;"
+          (CodegenFormat.format_msg_valid_signal_name msg.endpoint msg.msg)
+          activated |> print_line;
+        Printf.sprintf "assign %s = %s;"
+          (CodegenFormat.format_msg_data_signal_name msg.endpoint msg.msg 0)
+          (CodegenFormat.format_wirename w.id)
+          |> print_line
+      | Recv msg ->
+        Printf.sprintf "assign %s = %s;"
+          (CodegenFormat.format_msg_ack_signal_name msg.endpoint msg.msg)
+          activated |> print_line
+    ) e.sustained_actions
+  in
+  List.iter print_sa_event g.events
+
+let codegen_states printer
   (graphs : EventGraph.event_graph_collection)
   (g : EventGraph.event_graph) =
   codegen_decl printer g;
   codegen_next printer g;
+  codegen_sustained_actions printer g;
   codegen_transition printer graphs g
 

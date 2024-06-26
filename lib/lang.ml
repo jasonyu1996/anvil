@@ -252,7 +252,6 @@ type send_pack = {
   send_data: expr;
 }
 and recv_pack = {
-  recv_binds: identifier list;
   recv_msg_spec: message_specifier;
 }
 and constructor_spec = {
@@ -280,6 +279,8 @@ and expr =
   | Match of expr * ((match_pattern * expr option) list)
   | Read of identifier
   | Debug of debug_op
+  | Send of send_pack
+  | Recv of recv_pack
 and lvalue =
   | Reg of identifier
   | Indexed of lvalue * index (* lvalue[index] *)
@@ -297,11 +298,13 @@ and debug_op =
 
 type atomic_delay = [
   | `Cycles of int
+  | `Send of message_specifier
+  | `Recv of message_specifier
 ]
 
 type delay = [
+  | `Atomic of atomic_delay
   | `Ever
-  | `Cycles of int
   | `Later of delay * delay
   | `Earlier of delay * delay
   | `Seq of delay * atomic_delay

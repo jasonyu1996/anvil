@@ -1,9 +1,24 @@
 /* This is for the redesigned Anvil language */
+
+chan reg_itfc = {
+    right req : (logic@#0-#1)
+}
+
+proc reggg(e : right reg_itfc) =
+    let a = recv e::req in
+    a =>
+    dprint "Received" (a)
+
 proc concurrent() =
+    chan reg_le -- reg_ri : reg_itfc
+    spawn reggg(reg_ri)
     let a = 4'b1 in
     cycle 1 =>
     let b = if (1'b1) then (dprint "Hello true" (); a + a) else (dprint "Hello false" (); a) in
     dprint "Value a = %d, b = %d" (a, b);
     cycle 1 =>
     dprint "Concat result = %d" ({a, a});
+    send reg_le::req (1'b1) =>
+    dprint "Sent" ();
+    cycle 1 =>
     dfinish

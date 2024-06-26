@@ -250,14 +250,10 @@ expr:
   { Anvil.Lang.LetIn (bindings, v, body) }
 | v = expr; SEMICOLON; body = expr
   { Anvil.Lang.LetIn ([], v, body) }
-// | KEYWORD_WAIT; KEYWORD_SEND; send_pack = send_pack; KEYWORD_THEN; body = expr
-//   { Anvil.Lang.Wait (`Send send_pack, body) } %prec DELAY
-// | KEYWORD_WAIT; KEYWORD_RECV; recv_pack = recv_pack; KEYWORD_THEN; body = expr
-//   { Anvil.Lang.Wait (`Recv recv_pack, body) } %prec DELAY
-// | KEYWORD_CYCLE; SHARP n = INT; KEYWORD_THEN; body = expr
-//   { Anvil.Lang.Wait (`Cycles n, body) } %prec DELAY
-// | KEYWORD_CYCLE; KEYWORD_THEN; body = expr
-//   { Anvil.Lang.Wait (Anvil.Lang.delay_single_cycle, body) } %prec DELAY
+| KEYWORD_SEND; send_pack = send_pack
+  { Anvil.Lang.Send send_pack }
+| KEYWORD_RECV; recv_pack = recv_pack
+  { Anvil.Lang.Recv recv_pack }
 | v = expr; EQ_GT; body = expr
   { Anvil.Lang.Wait (v, body) }
 | KEYWORD_IF; cond = expr; KEYWORD_THEN; then_v = expr; KEYWORD_ELSE; else_v = expr
@@ -319,11 +315,9 @@ send_pack:
 ;
 
 recv_pack:
-  bindings = separated_list(COMMA, IDENT); EQUAL;
   msg_specifier = message_specifier
   {
     {
-      Anvil.Lang.recv_binds = bindings;
       Anvil.Lang.recv_msg_spec = msg_specifier
     }
   }

@@ -16,6 +16,7 @@ module Wire = struct
     | Unary of Lang.unop * t
     | Switch of (t * t) list * t (* (cond, val) list, default *)
     | RegRead of Lang.identifier
+    | MessagePort of Lang.message_specifier * int (* index of the port *)
     | Concat of t list
 
   let new_literal id lit =
@@ -76,6 +77,16 @@ module Wire = struct
       dtype = `Array (`Logic, sz);
       borrow_src = List.concat_map (fun w -> w.borrow_src) ws
     }
+
+  let new_msg_port id _typedefs msg_spec idx msg_def =
+    let open Lang in
+    let t = List.nth msg_def.sig_types idx in
+    {
+      id;
+      source = MessagePort (msg_spec, idx);
+      dtype = t.dtype;
+      borrow_src = [];
+    }
 end
 
 type wire = Wire.t
@@ -115,4 +126,10 @@ let add_reg_read (typedefs : TypedefMap.t) (r : Lang.reg_def) (wc : t) : t * wir
 let add_concat (typedefs : TypedefMap.t) (ws : wire list) (wc : t) : t * wire =
   let id = List.length wc in
   let w = Wire.new_concat id typedefs ws in
+  (w::wc, w)
+
+let add_msg_port (typedefs : TypedefMap.t)
+  (msg_spec : Lang.message_specifier) (idx : int) (msg_def : Lang.message_def) (wc : t) : t * wire =
+  let id = List.length wc in
+  let w = Wire.new_msg_port id typedefs msg_spec idx msg_def in
   (w::wc, w)
