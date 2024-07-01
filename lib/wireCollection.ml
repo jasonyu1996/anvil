@@ -18,6 +18,7 @@ module Wire = struct
     | RegRead of Lang.identifier
     | MessagePort of Lang.message_specifier * int (* index of the port *)
     | Concat of t list
+    | Slice of t * int * int
 
   let new_literal id lit =
     {
@@ -87,6 +88,14 @@ module Wire = struct
       dtype = t.dtype;
       borrow_src = [];
     }
+
+  let new_slice id dtype w base_i end_i =
+    {
+      id;
+      source = Slice (w, base_i, end_i);
+      dtype;
+      borrow_src = w.borrow_src;
+    }
 end
 
 type wire = Wire.t
@@ -132,4 +141,9 @@ let add_msg_port (typedefs : TypedefMap.t)
   (msg_spec : Lang.message_specifier) (idx : int) (msg_def : Lang.message_def) (wc : t) : t * wire =
   let id = List.length wc in
   let w = Wire.new_msg_port id typedefs msg_spec idx msg_def in
+  (w::wc, w)
+
+let add_slice (dtype : Lang.data_type) (w : wire) (base_i : int) (end_i : int) (wc : t) : t * wire =
+  let id = List.length wc in
+  let w = Wire.new_slice id dtype w base_i end_i in
   (w::wc, w)

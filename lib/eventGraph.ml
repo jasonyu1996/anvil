@@ -350,6 +350,26 @@ let rec visit_expr (graph : event_graph) (ci : cunit_info)
     let ntd = Typing.recv_msg_data graph (Some w) recv_pack.recv_msg_spec msg ctx.current in
     ctx.current.sustained_actions <- {until = ntd.lt.live; ty = Recv recv_pack.recv_msg_spec}::ctx.current.sustained_actions;
     ntd
+  | Indirect (e', fieldname) ->
+    let td = visit_expr graph ci ctx e' in
+    let w = Option.get td.w in
+    let (offset_le, offset_ri, new_dtype) = TypedefMap.data_type_indirect ci.typedefs w.dtype fieldname |> Option.get in
+    let (wires', new_w) = WireCollection.add_slice new_dtype w offset_le offset_ri graph.wires in
+    graph.wires <- wires';
+    {
+      td with
+      w = Some new_w
+    }
+  | Index (e', ind) ->
+    let td = visit_expr graph ci ctx e' in
+    let w = Option.get td.w in
+    let (offset_le, offset_ri, new_dtype) = TypedefMap.data_type_index ci.typedefs w.dtype ind |> Option.get in
+    let (wires', new_w) = WireCollection.add_slice new_dtype w offset_le offset_ri graph.wires in
+    graph.wires <- wires';
+    {
+      td with
+      w = Some new_w
+    }
   | _ -> raise (UnimplementedError "Unimplemented expression!")
 
 let build_proc (ci : cunit_info) (proc : proc_def) =

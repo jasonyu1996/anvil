@@ -150,6 +150,8 @@ let codegen_wire_assignment printer (w : WireCollection.wire) =
         String.concat ", " |> Printf.sprintf "{%s}"
     | MessagePort (msg, idx) ->
       Format.format_msg_data_signal_name msg.endpoint msg.msg idx
+    | Slice (w', base_i, end_i) ->
+      Printf.sprintf "%s[%d:%d]" (Format.format_wirename w'.id) base_i (end_i - 1)
   in
   Printf.sprintf "assign %s = %s;" (Format.format_wirename w.id) expr |>
     CodegenPrinter.print_line printer
