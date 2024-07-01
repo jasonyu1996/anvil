@@ -25,6 +25,7 @@ let format_literal = function
   | Binary (len, b) -> Printf.sprintf "%d'b%s" len (List.map string_of_digit b |> List.rev |> String.concat "")
   | Decimal (len, d) -> Printf.sprintf "%d'd%s" len (List.map string_of_digit d |> List.rev |> String.concat "")
   | Hexadecimal (len, h) -> Printf.sprintf "%d'h%s" len (List.map string_of_digit h |> List.rev |> String.concat "")
+  | WithLength (len, v) -> Printf.sprintf "%d'd%d" len v
   | NoLength n -> string_of_int n
 
 let format_binop = string_of_binop

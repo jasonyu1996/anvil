@@ -370,6 +370,66 @@ let rec visit_expr (graph : event_graph) (ci : cunit_info)
       td with
       w = Some new_w
     }
+  | Record (record_ty_name, field_exprs) ->
+    (
+      match TypedefMap.data_type_name_resolve ci.typedefs @@ `Named record_ty_name with
+      | Some (`Record record_fields) ->
+        (
+          match Utils.list_match_reorder (List.map fst record_fields) field_exprs with
+          | Some expr_reordered ->
+            let tds = List.map (visit_expr graph ci ctx) expr_reordered in
+            let ws = List.map (fun ({w; _} : Typing.timed_data) -> Option.get w) tds in
+            (* FIXME: the order may be incorrect *)
+            let (wires', w) = WireCollection.add_concat ci.typedefs ws graph.wires in
+            graph.wires <- wires';
+            List.map (fun ({lt; _} : Typing.timed_data) -> lt) tds |>
+            Typing.merged_data graph (Some w) ctx.current
+          | _ -> raise (TypeError "Invalid record type value!")
+        )
+      | _ -> raise (TypeError "Invalid record type name!")
+    )
+  | Construct (cstr_spec, cstr_expr_opt) ->
+    (
+      match TypedefMap.data_type_name_resolve ci.typedefs @@ `Named cstr_spec.variant_ty_name with
+      | Some (`Variant _ as dtype) ->
+        let e_dtype_opt = variant_lookup_dtype dtype cstr_spec.variant in
+        (
+          match e_dtype_opt, cstr_expr_opt with
+          | Some e_dtype, Some cstr_expr ->
+            let td = visit_expr graph ci ctx cstr_expr in
+            let w = Option.get td.w in
+            let tag_size = variant_tag_size dtype
+            and data_size = TypedefMap.data_type_size ci.typedefs e_dtype
+            and tot_size = TypedefMap.data_type_size ci.typedefs dtype
+            and var_idx = variant_lookup_index dtype cstr_spec.variant |> Option.get in
+            let (wires', w_tag) = WireCollection.add_literal (WithLength (tag_size, var_idx)) graph.wires in
+            let (wires', new_w) = if tot_size = tag_size + data_size then
+              (* no padding *)
+              WireCollection.add_concat ci.typedefs [w; w_tag] wires'
+            else begin
+              (* padding needed *)
+              let (wires', w_pad) = WireCollection.add_literal (WithLength (tot_size - tag_size - data_size, 0)) wires' in
+              WireCollection.add_concat ci.typedefs [w_pad; w; w_tag] wires'
+            end in
+            graph.wires <- wires';
+            { td with w = Some new_w }
+          | None, None ->
+            let tag_size = variant_tag_size dtype
+            and tot_size = TypedefMap.data_type_size ci.typedefs dtype
+            and var_idx = variant_lookup_index dtype cstr_spec.variant |> Option.get in
+            let (wires', w_tag) = WireCollection.add_literal (WithLength (tag_size, var_idx)) graph.wires in
+            let (wires', new_w) = if tot_size = tag_size then
+              (wires', w_tag)
+            else begin
+              let (wires', w_pad) = WireCollection.add_literal (WithLength (tot_size - tag_size, 0)) wires' in
+              WireCollection.add_concat ci.typedefs [w_pad; w_tag] wires'
+            end in
+            graph.wires <- wires';
+            Typing.const_data graph (Some new_w) ctx.current
+          | _ -> raise (TypeError "Invalid variant construct expression!")
+        )
+      | _ -> raise (TypeError "Invalid variant type name!")
+    )
   | _ -> raise (UnimplementedError "Unimplemented expression!")
 
 let build_proc (ci : cunit_info) (proc : proc_def) =

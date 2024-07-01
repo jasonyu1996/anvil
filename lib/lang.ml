@@ -198,11 +198,12 @@ type literal =
 | Binary of int * bit list
 | Decimal of int * digit list
 | Hexadecimal of int * hexit list
+| WithLength of int * int
 | NoLength of int
 
 let literal_bit_len (lit : literal) : int option =
   match lit with
-  | Binary (n, _) | Decimal (n, _) | Hexadecimal (n, _) -> Some n
+  | Binary (n, _) | Decimal (n, _) | Hexadecimal (n, _) | WithLength (n, _) -> Some n
   | _ -> None
 
 let literal_eval (lit : literal) : int =
@@ -213,6 +214,7 @@ let literal_eval (lit : literal) : int =
       List.fold_left (fun n x -> n * 10 + (value_of_digit x)) 0 d
   | Hexadecimal (_, h) ->
       List.fold_left (fun n x -> n * 16 + (value_of_digit x)) 0 h
+  | WithLength (_, v) -> v
   | NoLength v -> v
 
 let dtype_of_literal (lit : literal) : resolved_data_type =
