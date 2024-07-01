@@ -61,11 +61,7 @@ let string_of_delay (d : delay) : string =
   let buf = Buffer.create 16 in
   let rec append_string_of_delay = function
     | `Ever -> Buffer.add_string buf "oo"
-    | `Atomic (`Cycles n) -> Buffer.add_string buf @@ string_of_int n
-    | `Atomic (`Send msg) ->
-      Lang.string_of_msg_spec msg |> Printf.sprintf "S(%s)" |> Buffer.add_string buf
-    | `Atomic (`Recv msg) ->
-      Lang.string_of_msg_spec msg |> Printf.sprintf "R(%s)" |> Buffer.add_string buf
+    | `Root -> ()
     | `Later (d1, d2) ->
       Buffer.add_char buf '<';
       append_string_of_delay d1;
@@ -81,7 +77,14 @@ let string_of_delay (d : delay) : string =
     | `Seq (d', dd) ->
       append_string_of_delay d';
       Buffer.add_string buf " => ";
-      append_string_of_delay (`Atomic dd)
+      (
+        match dd with
+        | `Cycles n -> Buffer.add_string buf @@ string_of_int n
+        | `Send msg ->
+          Lang.string_of_msg_spec msg |> Printf.sprintf "S(%s)" |> Buffer.add_string buf
+        | `Recv msg ->
+          Lang.string_of_msg_spec msg |> Printf.sprintf "R(%s)" |> Buffer.add_string buf
+      )
   in
   append_string_of_delay d;
   Buffer.contents buf
@@ -118,7 +121,7 @@ module Typing = struct
 
   let rec delay_of_event (e : event) : delay =
     match e.source with
-    | `Root -> `Atomic (`Cycles 0)
+    | `Root -> `Root
     | `Later (e1, e2) -> `Later (delay_of_event e1, delay_of_event e2)
     | `Earlier (e1, e2) -> `Earlier (delay_of_event e1, delay_of_event e2)
     | `Seq (e', d) -> `Seq (delay_of_event e', d)
@@ -171,26 +174,26 @@ module Typing = struct
       (delay_leq_check a1 b) && (delay_leq_check a2 b)
     | `Earlier (a1, a2), _ ->
       (delay_leq_check a1 b) || (delay_leq_check a2 b)
-    (* only both seq or atomic *)
+    | `Root, _ -> true
+    | _, `Root -> false
     | `Ever, `Seq (b', _) -> delay_leq_check `Ever b'
-    | `Atomic aa, `Atomic ab ->
+    (* only both seq or atomic *)
+    | `Seq (a', da), `Seq (b', db) ->
       (
-        match aa, ab with
-        | `Cycles na, `Cycles nb -> na <= nb
-        | _ -> aa = ab
+        match da, db with
+        | `Cycles na, `Cycles nb ->
+          let m = min na nb in
+          if na = m then
+            delay_leq_check a' (`Seq (b', `Cycles (nb - m)))
+          else
+            delay_leq_check (`Seq (a', `Cycles (na - m))) b'
+        | `Send ma, `Send mb when ma = mb ->
+          delay_leq_check a' b'
+        | `Recv ma, `Recv mb when ma = mb ->
+          delay_leq_check a' b'
+        | _ ->
+          delay_leq_check a' b
       )
-    | `Ever, `Atomic _ -> false
-    | `Atomic (`Cycles na), `Seq (b', `Cycles nb) ->
-      na <= nb || (delay_leq_check (`Atomic (`Cycles (na - nb))) b')
-    | `Seq (a', `Cycles na), `Seq (b', `Cycles nb) ->
-      let m = min na nb in
-      if na = m then
-        delay_leq_check a' (`Seq (b', `Cycles (nb - m)))
-      else
-        delay_leq_check (`Seq (a', `Cycles (na - m))) b'
-    | `Seq (a', `Cycles na), `Atomic (`Cycles nb) ->
-      na <= nb && (delay_leq_check a' (`Atomic (`Cycles (nb - na))))
-    | _ -> true (* FIXME: correctly implement this for send/recv *)
 
   let lifetime_check (lt : lifetime) (req : lifetime) : bool =
     (* requires lt.live <= req.live && lt.dead >= req.dead *)

@@ -303,7 +303,7 @@ type atomic_delay = [
 ]
 
 type delay = [
-  | `Atomic of atomic_delay
+  | `Root
   | `Ever
   | `Later of delay * delay
   | `Earlier of delay * delay
