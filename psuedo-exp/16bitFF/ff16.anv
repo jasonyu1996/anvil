@@ -1,13 +1,15 @@
 proc ff16 (ch)
 {
     reg r[15:0]
-    out [ch!right |-> 1]!r
+    out [ch!res |-> 1]!r
     ch?in=>
-    tock =>
-        if(in[0]) r[0|->ch?left]!in[1]
-        else ch!out
+        if(ch?req) ch!out
+        else{
+            tock =>
+                r[0|->ch?res]!in[1];
+            then
+        }
     then
-    ff16(ch)
     
 }
 
@@ -16,7 +18,12 @@ proc ff16 (ch)
 
 proc top(ch)
 {
+    ch?out =>
 
-    ch!{1[0|->1],13[0|->1]};
-    ch?out
+    then
+    ch!{res,13[0|->2]};
+    ch!{req,0};
+    
+
+
 }
