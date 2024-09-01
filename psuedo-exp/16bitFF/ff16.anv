@@ -1,0 +1,22 @@
+proc ff16 (ch)
+{
+    reg r[15:0]
+    out [ch!right |-> 1]!r
+    ch?in=>
+    tock =>
+        if(in[0]) r[0|->ch?left]!in[1]
+        else ch!out
+    then
+    ff16(ch)
+    
+}
+
+
+
+
+proc top(ch)
+{
+
+    ch!{1[0|->1],13[0|->1]};
+    ch?out
+}
