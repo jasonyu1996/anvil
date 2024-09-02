@@ -1,0 +1,36 @@
+proc full_adder(ch)
+{
+    ch?in =>
+    sum[ch!res |-> inf] !(in[0]^in[1]^in[2])
+    carry[ch!res |-> inf]!(in[0]&in[1] | in[1]&in[2] | in[2]&in[0])
+    then
+    ch!{sum, carry};
+
+}
+
+
+
+
+proc RCA(ch)
+{
+    reg [3:0] a = #Some value with a valid lifetime
+    reg [3:0] b = #Some value with a valid lifetime
+    wire cin = # Some value with a valid lifetime
+
+    full adder fa0(ch0)
+    full adder fa1(ch1)
+    full adder fa2(ch2)
+    full adder fa3(ch3)
+
+    ch0!{a[0],b[0],cin};
+    ch0?{sum[0],c1} =>
+    ch1!{a[1],b[1],c1};
+    ch1?{sum[1],c2} =>
+    ch2!{a[2],b[2],c2};
+    ch2?{sum[2],c3} =>
+    ch3!{a[3],b[3],c3};
+    ch1?{sum[1],cout} =>
+
+    ch!{sum,cout};
+
+}
