@@ -1,0 +1,12 @@
+proc ff16(ch)
+{
+    reg 
+    ch?in =>
+         
+        tock =>
+            temp[0|->ch?req]!in;
+            b[1|->ch?req]!temp
+            c[0|->ch?req]!b
+        then
+    then
+}
