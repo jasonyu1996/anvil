@@ -1,4 +1,4 @@
-proc ff16 (ch)
+proc example (ch)
 {
     reg r[15:0]
     out [ch!res |-> 1]!r
