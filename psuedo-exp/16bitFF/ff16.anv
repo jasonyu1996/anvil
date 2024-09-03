@@ -1,12 +1,12 @@
 proc example (ch)
 {
     reg r[15:0]
-    out [ch!res |-> 1]!r
+    out [ch!res |-> 1]:=r
     ch?in=>
-        if(ch?req) ch!out
+        if(type(in)=req) ch!{res, out}
         else{
             tock =>
-                r[0|->ch?res]!in[1];
+                r[0|->ch?res]:=in[1];
             then
         }
     then
@@ -18,12 +18,12 @@ proc example (ch)
 
 proc top(ch)
 {
-    ch?out =>
-
-    then
+    
     ch!{res,13[0|->2]};
     ch!{req,0};
+    ch?out =>
     
+    then
 
 
 }

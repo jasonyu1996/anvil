@@ -78,8 +78,8 @@ Now coming to the anvil implementation:
     proc full adder(ch)
     {
         ch?in =>
-        sum[ch!res |-> inf] !(in[0]^in[1]^in[2])
-        carry[ch!res |-> inf]!(in[0]&in[1] | in[1]&in[2] | in[2]&in[0])
+        sum[ch!res |-> inf] := (in[0]^in[1]^in[2])
+        carry[ch!res |-> inf]:=(in[0]&in[1] | in[1]&in[2] | in[2]&in[0])
         then
         ch!{sum, carry};
 
@@ -94,7 +94,9 @@ The full adder process is created by first recieving the input through the chann
     {
         reg [3:0] a = #Some value with a valid lifetime
         reg [3:0] b = #Some value with a valid lifetime
-        wire cin = # Some value with a valid lifetime
+        wire cin = #Some value with a valid lifetime
+
+        reg [3:0] sum
 
         full adder fa0(ch0)
         full adder fa1(ch1)
