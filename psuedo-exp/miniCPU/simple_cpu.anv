@@ -1,0 +1,99 @@
+proc sub(ch)
+{
+    reg out  
+    result[ch!res|->1] := out  
+    ch?in =>
+        out[0|->ch?req] := in[0]-in[1];
+        ch!result;
+    then
+
+}
+proc add(ch)
+{
+    reg out 
+    result[ch!res|->1] := out  
+    ch?in =>
+        out[0|->ch?req] := in[0]+in[1];
+        ch!result;
+    then
+
+}
+
+proc simple_cpu(ch)
+{
+
+    reg [7:0] register_file [0:1];  // Two 8-bit registers
+    reg [2:0] state;                // State for FSM control
+    reg [7:0] program_counter;      // Program Counter
+
+    // Program Memory 
+    reg [7:0] program_memory [255:0];
+
+    instruction[ch?req|->inf]:= program_memory[program_counter]
+    opcode[]:= instruction[7:5]
+    reg_dest[] := instruction[5]
+    reg_src[] := instruction[6]
+    immediate[] := {4'b0000,instruction[3:0]}
+
+    sub sub_inst (sch)
+    add add_inst (ach)
+    
+    ch?in =>
+        program_counter[0|->ch>req][0]  := 0
+        register_file[][0] := 0
+        register_file[][1] := 0
+        alu_out[]          := 0
+        state[0|->0]           := 0;
+        tock =>
+            case(state)
+                0 : state:=1 register_file[0|->tock] :=register_file
+                1 : begin
+                    case(opcode)
+                        3'b000: 
+                            sch!{req,{reg_dest,reg_src}};
+                            sch?sub_result;
+                            alu_out[0|->ch!resp]:=sub_result;
+                        3'b001:
+                            ach!{req,{register_file[reg_dest],register_file[reg_src]}};
+                            ach?add_result;
+                            alu_out[ch!resp|->c]:=sub_result;
+                        3'b010:
+                            ch!{resp,register_file[reg_dest] & register_file[reg_src]};
+                        3'b011:
+                            ch!{resp,register_file[reg_dest] | register_file[reg_src]};
+                        3'b100:
+                            ch!{resp,register_file[reg_dest] ^ register_file[reg_src]};
+                        3'b101:
+                            ch!{resp,opcode}
+                        3'b110:
+                            ch!{resp,immediate};
+                        3'b111:
+                            ch!{resp,immediate};
+                    endcase
+                2: begin
+                    if (opcode > 3'b110) register_file[0|->0] := immediate;
+                    if (opcode < 3'b101) register_file[0|->]
+
+
+
+                end 
+
+
+                    end
+
+
+
+
+                end
+
+
+        then
+            
+
+        then
+    then
+
+
+
+
+}
