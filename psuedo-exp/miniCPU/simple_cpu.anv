@@ -56,19 +56,19 @@ proc simple_cpu(ch)
                         3'b001:
                             ach!{req,{register_file[reg_dest],register_file[reg_src]}};
                             ach?add_result;
-                            alu_out[0|->1]:=add_result
+                            alu_out[0|->ch!res]:=add_result
                         3'b010:
-                            alu_out[0|->1] := register_file[reg_dest] & register_file[reg_src]
+                            alu_out[0|->ch!res] := register_file[reg_dest] & register_file[reg_src]
                         3'b011:
-                            alu_out[0|->1] := register_file[reg_dest] | register_file[reg_src]
+                            alu_out[0|->ch!res] := register_file[reg_dest] | register_file[reg_src]
                         3'b100:
-                            alu_out[0|->1] := register_file[reg_dest] ^ register_file[reg_src]
+                            alu_out[0|->ch!res] := register_file[reg_dest] ^ register_file[reg_src]
                         3'b101:
-                            alu_out[0|->1] := opcode
+                            alu_out[0|->ch!res] := opcode
                         3'b110:
-                            alu_out[0|->1] := immediate
+                            alu_out[0|->ch!res] := immediate
                         3'b111:
-                            alu_out[0|->1] := immediate
+                            alu_out[0|->ch!res] := immediate
                     endcase
                     state :=2
                 2: begin
