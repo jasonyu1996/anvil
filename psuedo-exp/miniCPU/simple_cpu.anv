@@ -30,10 +30,10 @@ proc simple_cpu(ch)
     reg [7:0] program_memory [255:0];
 
     instruction[ch?req|->inf]:= program_memory[program_counter]
-    opcode[]:= instruction[7:5]
-    reg_dest[] := instruction[5]
-    reg_src[] := instruction[6]
-    immediate[] := {4'b0000,instruction[3:0]}
+    opcode[ch?req|->inf]:= instruction[7:5]
+    reg_dest[ch?req|->inf] := instruction[5]
+    reg_src[ch?req|->inf] := instruction[6]
+    immediate[ch?req|->inf] := {4'b0000,instruction[3:0]}
 
     sub sub_inst (sch)
     add add_inst (ach)
@@ -78,23 +78,9 @@ proc simple_cpu(ch)
                         state :=3
                     end
                 3: begin
-                    program_counter[0|->ch!res]:=program_counter + 1
-                    state := 0
-                    end
-
-                end 
-
-
-                    end
-
-
-
-
-                end
-
-
-        then
-            
+                        program_counter[0|->ch!res]:=program_counter + 1
+                        state := 0
+                    end 
 
         then
     then
