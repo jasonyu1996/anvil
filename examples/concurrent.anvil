@@ -7,7 +7,7 @@ chan reg_itfc = {
 proc reggg(e : right reg_itfc) =
     let a = recv e::req in
     a =>
-    dprint "Received" (a)
+    dprint "Received %d" (a)
 
 proc concurrent() =
     chan reg_le -- reg_ri : reg_itfc
