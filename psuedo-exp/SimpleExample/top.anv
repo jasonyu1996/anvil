@@ -1,12 +1,20 @@
-proc ff16(ch)
+channel ch
 {
-    reg 
-    ch?in =>
+    signal_t type;
+    left wire a;
+    right wire b,c;
+    
+}
+proc example(ch)
+{
+    reg temp,b,c;
+    ch?in=>
          
-        tock =>
-            temp[0|->ch?req]:=in;
-            b[1|->ch?req]:=temp
-            c[0|->ch?req]:=b
-        then
+            tock;
+            temp:=in.a;
+            b::=temp<0|->(tock|ch?req)>;
+            c::=b<0|->(tock|ch?req)>;
+            ch!{res,.b(b),.c(c<0|->ch>req>)};
+        
     then
 }
