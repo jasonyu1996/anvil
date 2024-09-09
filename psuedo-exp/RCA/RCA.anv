@@ -1,10 +1,16 @@
-proc full_adder(ch)
+channel addCh
+{
+    signal_t type;
+    wire  w
+}
+proc full_adder(addCh)
 {
     ch?in =>
-    sum[ch!res |-> 1] :=(in[0]^in[1]^in[2])
-    carry[ch!res |-> 1]:=(in[0]&in[1] | in[1]&in[2] | in[2]&in[0])
+        sum[ch!res |-> 1] :=(in[0]^in[1]^in[2]);
+        carry[ch!res |-> 1]:=(in[0]&in[1] | in[1]&in[2] | in[2]&in[0]);
+        ch!{sum, carry};
     then
-    ch!{sum, carry};
+    
 
 }
 

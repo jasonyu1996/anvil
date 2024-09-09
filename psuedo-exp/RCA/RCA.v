@@ -1,3 +1,12 @@
+// Full adder module
+module full_adder (
+    input a, b, cin,  
+    output sum, cout  
+);
+    assign #5 sum = a ^ b ^ cin;  // Sum with a delay of 5 units
+    assign #5 cout = (a & b) | (b & cin) | (a & cin); // Carry out with a delay of 5 units
+endmodule
+
 module RCA (
     input [3:0] a,    
     input [3:0] b,    
@@ -43,13 +52,4 @@ module RCA (
         .cout(cout)
     );
 
-endmodule
-
-// Full adder module
-module full_adder (
-    input a, b, cin,  
-    output sum, cout  
-);
-    assign #5 sum = a ^ b ^ cin;  // Sum with a delay of 5 units
-    assign #5 cout = (a & b) | (b & cin) | (a & cin); // Carry out with a delay of 5 units
 endmodule

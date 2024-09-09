@@ -1,11 +1,11 @@
 channel ch
 {
     signal_t type;
-    wire val[16];
+    wire[16] val;
 }
 proc FF16 (ch)
 {
-    reg r[16];
+    reg[16] r;
     out[ch!res |-> ch?all]:=r;
     ch?in=>
         if(ch.type=req) ch<res, out>
@@ -21,7 +21,7 @@ proc FF16 (ch)
 //Alternative definition
 proc ff16 (ch)
 {
-    reg r[16];
+    reg[16] r;
     ch?in=>
         if(ch.type=req) ch<res, r[0|->ch?all]>
         else{
