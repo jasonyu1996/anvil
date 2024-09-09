@@ -1,14 +1,40 @@
 channel addCh
 {
     signal_t type;
-    wire  w
+    left
+    {
+        wire a;
+        wire b;
+        wire cin;
+    }
+    right
+    {
+        wire sum;
+        wire cout;
+    }
+}
+
+channel addCh
+{
+    signal_t type;
+    left
+    {
+        wire[4] a;
+        wire[4] b;
+        wire cin;
+    }
+    right
+    {
+        wire[4] sum;
+        wire cout;
+    }
 }
 proc full_adder(addCh)
 {
     ch?in =>
-        sum[ch!res |-> 1] :=(in[0]^in[1]^in[2]);
-        carry[ch!res |-> 1]:=(in[0]&in[1] | in[1]&in[2] | in[2]&in[0]);
-        ch!{sum, carry};
+        reg s<ch!res |-> ch?req> :=(in.a^in.b^in.cin);
+        reg c:=(in.a&in.b | in.b&in.cin | in.cin&in.a);
+        ch!{res,.sum(s), .cout(c<0|->ch?req>)};
     then
     
 
@@ -17,27 +43,30 @@ proc full_adder(addCh)
 
 
 
-proc RCA(ch)
+proc RCA(RCAch)
 {
-    reg [3:0] a = #Some value with a valid lifetime
-    reg [3:0] b = #Some value with a valid lifetime
-    wire cin = # Some value with a valid lifetime
+    reg[4] sum;
+    reg cout;
+    wire c1, c2, c3;  
+    full adder fa0(ch0);
+    full adder fa1(ch1);
+    full adder fa2(ch2);
+    full adder fa3(ch3);
+    RCAch?in =>
 
-    reg [3:0] sum
-    full adder fa0(ch0)
-    full adder fa1(ch1)
-    full adder fa2(ch2)
-    full adder fa3(ch3)
+        ch0!{req,.a(in.a[0]),.b(in.b[0]),.cin(in.cin)};
+        ch0?{res,.sum(sum[0]),.cout(c1)};
+        
+        ch1!{req,.a(in.a[1]),.b(in.b[1]),.c(c1)};
+        ch1?{res,.sum(sum[1]),.cout(c2)};
+        
+        ch2!{req,.a(in.a[2]),.b(in.b[2]),.cin(c2)};
+        ch2?{res,.sum(sum[2]),.cout(c3)};
+    
+        ch3!{req,.a(in.a[3]),.b(in.b[3]),.cin(c3)};
+        ch1?{res,.sum(sum[1]),.cout(cout)};
 
-    ch0!{a[0],b[0],cin};
-    ch0?{sum[0],c1} =>
-    ch1!{a[1],b[1],c1};
-    ch1?{sum[1],c2} =>
-    ch2!{a[2],b[2],c2};
-    ch2?{sum[2],c3} =>
-    ch3!{a[3],b[3],c3};
-    ch1?{sum[1],cout} =>
-
-    ch!{sum,cout};
+        RCAch!{resp,.sum(sum<0|->RCAch?req>),.cout(cout<0|->RCAch?req>)};
+    then
 
 }
