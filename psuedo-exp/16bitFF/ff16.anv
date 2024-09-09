@@ -1,29 +1,34 @@
-proc example (ch)
+channel ch
 {
-    reg r[15:0]
-    out [ch!res |-> 1]:=r
+    signal_t type;
+    wire val[16];
+}
+proc FF16 (ch)
+{
+    reg r[16];
+    out[ch!res |-> ch?all]:=r;
     ch?in=>
-        if(type(in)=req) ch!{res, out}
+        if(ch.type=req) ch<res, out>
         else{
             tock =>
-                r[0|->ch?res]:=in[1];
+                r[0|->ch?res]::=in.val;
             then
         }
     then
     
 }
 
-
-
-
-proc top(ch)
+//Alternative definition
+proc ff16 (ch)
 {
-    
-    ch!{res,13[0|->2]};
-    ch!{req,0};
-    ch?out =>
-    
+    reg r[16];
+    ch?in=>
+        if(ch.type=req) ch<res, r[0|->ch?all]>
+        else{
+            tock =>
+                r::=in.val;
+            then
+        }
     then
-
-
+    
 }
