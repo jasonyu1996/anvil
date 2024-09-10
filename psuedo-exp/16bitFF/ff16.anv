@@ -1,8 +1,8 @@
 channel ch
 {
     signal_t type;
-    left wire[16] wdata;
-    right wire[16] rdata;
+    left wire[16] wdata<0|->ch?res>;
+    right wire[16] rdata<0|->ch?all>;
 }  
 proc FF16 (ch)
 {
@@ -11,9 +11,9 @@ proc FF16 (ch)
     ch?in=>
         if(ch.type=req) ch!{res, .rdata(out)}
         else{
-            tock =>
-                r[0|->ch?res]::=in.wdata;
-            then
+                tock;
+                r[0|->ch?all]::=in.wdata;
+            
         }
     then
     
@@ -26,9 +26,8 @@ proc ff16 (ch)
     ch?in=>
         if(ch.type=req) ch!{res, .rdata(r<0|->ch?all>)}
         else{
-            tock =>
-                r::=in.val;
-            then
+            tock;
+            r::=in.val;
         }
     then
     

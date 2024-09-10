@@ -3,38 +3,38 @@ channel addCh
     signal_t type;
     left
     {
-        wire a;
-        wire b;
-        wire cin;
+        wire a<0|->addCh?req>;
+        wire b<0|->addCh?req>;
+        wire cin<0|->addCh?req>;
     }
     right
     {
-        wire sum;
-        wire cout;
+        wire sum<0|->addCh?res>;
+        wire cout<0|->addCh?res>;
     }
 }
 
-channel addCh
+channel RCAch
 {
     signal_t type;
     left
     {
-        wire[4] a;
-        wire[4] b;
-        wire cin;
+        wire[4] a<0|->RCAch?req>;
+        wire[4] b<0|->RCAch?req>;
+        wire cin<0|->RCAch?req>;
     }
     right
     {
-        wire[4] sum;
-        wire cout;
+        wire[4] sum<0|->RCAch?req>;
+        wire cout<0|->RCAch?req>;
     }
 }
 proc full_adder(addCh)
 {
-    ch?in =>
-        reg s<ch!res |-> ch?req> :=(in.a^in.b^in.cin);
+    addCh?in =>
+        reg s<addCh!res |-> addCh?req> :=(in.a^in.b^in.cin);
         reg c:=(in.a&in.b | in.b&in.cin | in.cin&in.a);
-        ch!{res,.sum(s), .cout(c<0|->ch?req>)};
+        addCh!{res,.sum(s), .cout(c<0|->addCh?req>)};
     then
     
 
