@@ -1,8 +1,8 @@
 channel ch
 {
     signal_t type;
-    left wire a;
-    right wire b,c;
+    left wire a<0|->ch?req>;
+    right wire b<0|->ch?req>, c<0|->ch?req>;
     
 }
 proc example(ch)
