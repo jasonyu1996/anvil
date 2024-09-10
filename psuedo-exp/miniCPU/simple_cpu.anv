@@ -1,85 +1,114 @@
-proc sub(ch)
-{
-    reg out  
-    result[ch!res|->1] := out  
-    ch?in =>
-        out[0|->ch?req] := in[0]-in[1];
-        ch!result;
+channel sch{
+    signal_t type;
+    left
+    {
+        wire[8] a;
+        wire[8] b;
+    }
+    right
+    {
+        wire[8] result;
+    }
+}
+
+channel ach{
+    signal_t type;
+    left
+    {
+        wire[8] a;
+        wire[8] b;
+    }
+    right
+    {
+        wire[8] result;
+    }
+}
+
+channel ch{
+    signal_t type;
+    left ;
+    right wire[8] alu_out;
+}
+proc sub(sch)
+{  
+    sch?in =>
+        sch!{res,(in.a - in.b)<0|->sch?req>};
     then
 
 }
-proc add(ch)
+proc add(ach)
 {
-    reg out 
-    result[ch!res|->1] := out  
-    ch?in =>
-        out[0|->ch?req] := in[0]+in[1];
-        ch!result;
+    ach?in =>
+        ach!{res,(in.a + in.b)<0|->ach?req>};
     then
-
 }
 
 proc simple_cpu(ch)
 {
     
-    reg [7:0] register_file [0:1];  // Two 8-bit registers
-    reg [2:0] state;                // State for FSM control
-    reg [7:0] program_counter;      // Program Counter
+    reg[8] register_file[2];  // Two 8-bit registers
+    reg[3] state;                // State for FSM control
+    reg[8] program_counter;      // Program Counter
 
     // Program Memory 
-    reg [7:0] program_memory [255:0];
+    reg[8] program_memory[255:0];
 
-    instruction[ch?req|->inf]:= program_memory[program_counter]
-    opcode[ch?req|->inf]:= instruction[7:5]
-    reg_dest[ch?req|->inf] := instruction[5]
-    reg_src[ch?req|->inf] := instruction[6]
-    immediate[ch?req|->inf] := {4'b0000,instruction[3:0]}
+    wire[8] instruction<ch?req|->inf> := program_memory[program_counter]
+    wire[3] opcode<ch?req|->inf> := instruction[7:5]
+    wire reg_dest<ch?req|->inf> := instruction[5]
+    wire reg_src<ch?req|->inf> := instruction[6]
+    wire[8] immediate<ch?req|->inf> := {4'b0000,instruction[3:0]}
 
     sub sub_inst (sch)
     add add_inst (ach)
     
     ch?in =>
-        program_counter[0|->ch!res][0]  := 0
-        register_file[0|->0][0] := 0
-        register_file[0|->0][1] := 0
-        alu_out[0|->0]:= 0
-        state[0|->0]:= 0
+        program_counter  ::= 0;
+        register_file[0] ::= 0;
+        register_file[1] ::= 0;
+        alu_out ::= 0;
+        state ::= 0;
         tock =>
             case(state)
-                0 : state:=1 register_file[0|->1]:=register_file
+                0 : begin
+                    state::=1;
+                    register_file<0|->ch!res>:=register_file;
+                end
                 1 : begin
                     case(opcode)
                         3'b000: 
-                            sch!{req,{register_file[reg_dest],register_file[reg_src]}};
+                            wire[8] sub_result;
+                            sch!{req,.a(register_file[reg_dest]),.b(register_file[reg_src])};
                             sch?sub_result;
-                            alu_out[0|->1]:=sub_result
+                            alu_out::=sub_result;
                         3'b001:
-                            ach!{req,{register_file[reg_dest],register_file[reg_src]}};
+                            wire[8] add_result;
+                            ach!{req,.a(register_file[reg_dest]),.b(register_file[reg_src])};
                             ach?add_result;
-                            alu_out[0|->ch!res]:=add_result
+                            alu_out::=add_result;
                         3'b010:
-                            alu_out[0|->ch!res] := register_file[reg_dest] & register_file[reg_src]
+                            alu_out ::= register_file[reg_dest] & register_file[reg_src];
                         3'b011:
-                            alu_out[0|->ch!res] := register_file[reg_dest] | register_file[reg_src]
+                            alu_out ::= register_file[reg_dest] | register_file[reg_src];
                         3'b100:
-                            alu_out[0|->ch!res] := register_file[reg_dest] ^ register_file[reg_src]
+                            alu_out ::= register_file[reg_dest] ^ register_file[reg_src];
                         3'b101:
-                            alu_out[0|->ch!res] := opcode
+                            alu_out ::= opcode;
                         3'b110:
-                            alu_out[0|->ch!res] := immediate
+                            alu_out ::= immediate;
                         3'b111:
-                            alu_out[0|->ch!res] := immediate
+                            alu_out ::= immediate;
                     endcase
                     state :=2
                 2: begin
-                        ch!{res,alu_out};
-                        if (opcode > 3'b110) register_file[0|->ch!res][reg_dest] := alu_out
-                        if (opcode < 3'b101) register_file[0|->ch!res][1b'0] := alu_out
-                        state :=3
+                        ch!{res,.alu_out(alu_out<0|->2>)};
+                        if (opcode > 3'b110) register_file[reg_dest] ::= alu_out;
+                        if (opcode < 3'b101) register_file[0] ::= alu_out;
+                        state ::=3
                     end
                 3: begin
-                        program_counter[0|->ch!res]:=program_counter + 1
-                        state := 0
+                        program_counter<0|->ch!res> ::= program_counter + 1;
+                        state ::= 0
                     end 
 
         then
