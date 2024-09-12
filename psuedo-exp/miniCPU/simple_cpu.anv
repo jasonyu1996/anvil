@@ -1,50 +1,47 @@
 channel sch{
-    signal_t type;
     left
     {
-        wire[8] a<0|->sch?req>;
-        wire[8] b<0|->sch?req>;
+        bv[8] a<0|->sch?req>;
+        bv[8] b<0|->sch?req>;
     }
     right
     {
-        wire[8] result<0|->sch?req>;
+        bv[8] result<0|->sch!req>;
     }
 }
 
 channel ach{
-    signal_t type;
     left
     {
-        wire[8] a<0|->ach?req>;
-        wire[8] b<0|->ach?req>;  
+        bv[8] a<0|->ach?req>;
+        bv[8] b<0|->ach?req>;  
     }
     right
     {
-        wire[8] result<0|->ach?req>;
+        bv[8] result<0|->ach!req>;
     }
 }
 
 channel ch{
-    signal_t type;
-    left;
-    right wire[8] alu_out<0|->ch!res>;
+    left::req;
+    right::res bv[8] alu_out<0|->ch?res>;
 }
 
-proc sub(sch)
+proc sub(sch::right)
 {  
-    sch?in =>
-        sch!{res,(in.a - in.b)};
+    recv sch::req(in) =>
+        send sch::res(.result(in.a - in.b));
     then
 
 }
-proc add(ach)
+proc add(ach::right)
 {
-    ach?in =>
-        ach!{res,(in.a + in.b)};
+    recv ach::req(in) =>
+        send ach::res(.result(in.a + in.b));
     then
 }
 
-proc simple_cpu(ch)
+proc simple_cpu(ch::right)
 {
     
     reg[8] register_file[2];  // Two 8-bit registers
@@ -60,11 +57,11 @@ proc simple_cpu(ch)
     wire reg_src<ch?req|->inf> := instruction[6]
     wire[8] immediate<ch?req|->inf> := {4'b0000,instruction[3:0]}
 
-    sub sub_inst (sch)
-    add add_inst (ach)
+    spawn left::sub sub_inst (sch::sch1)
+    spawn left::add add_inst (ach::ach1)
     
-    ch?in =>
-        program_counter  ::= 0;
+        recv ch::req(in);
+        program_counter ::= 0;
         register_file[0] ::= 0;
         register_file[1] ::= 0;
         alu_out ::= 0;
@@ -79,13 +76,13 @@ proc simple_cpu(ch)
                     case(opcode)
                         3'b000: 
                             wire[8] sub_result;
-                            sch!{req,.a(register_file[reg_dest]),.b(register_file[reg_src])};
-                            sch?sub_result;
+                            send sch1::req(.a(register_file[reg_dest]),.b(register_file[reg_src]));
+                            recv sch1::res(sub_result);
                             alu_out::=sub_result;
                         3'b001:
                             wire[8] add_result;
-                            ach!{req,.a(register_file[reg_dest]),.b(register_file[reg_src])};
-                            ach?add_result;
+                            send ach1::req(.a(register_file[reg_dest]),.b(register_file[reg_src]));
+                            recv ach1::res(add_result);
                             alu_out::=add_result;
                         3'b010:
                             alu_out ::= register_file[reg_dest] & register_file[reg_src];
@@ -103,7 +100,7 @@ proc simple_cpu(ch)
                     state ::=2;
                 end
                 2: begin
-                    ch!{res,.alu_out(alu_out)};
+                    send ch::res(.alu_out(alu_out));
                     if (opcode > 3'b110) register_file[reg_dest] ::= alu_out;
                     if (opcode < 3'b101) register_file[0] ::= alu_out;
                     state ::=3;
@@ -114,7 +111,6 @@ proc simple_cpu(ch)
                 end 
             endcase
         then
-    then
 
 
 

@@ -1,5 +1,4 @@
 module FF16( input clk,
-            input rstn,
             input wr,
             input sel,
             input [15:0] wdata,

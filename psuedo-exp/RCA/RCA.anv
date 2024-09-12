@@ -1,72 +1,68 @@
 channel addCh
 {
-    signal_t type;
-    left
+    left::req
     {
-        wire a<0|->addCh?req>;
-        wire b<0|->addCh?req>;
-        wire cin<0|->addCh?req>;
+        bv[1] a<0|->addCh?req>;
+        bv[1] b<0|->addCh?req>;
+        bv[1] cin<0|->addCh?req>;
     }
-    right
+    right::res
     {
-        wire sum<0|->addCh?res>;
-        wire cout<0|->addCh?res>;
+        bv[1] sum<0|->addCh!req>;
+        bv[1] cout<0|->addCh!req>;
     }
 }
 
 channel RCAch
 {
-    signal_t type;
-    left
+    left::req
     {
-        wire[4] a<0|->RCAch?req>;
-        wire[4] b<0|->RCAch?req>;
-        wire cin<0|->RCAch?req>;
+        bv[4] a<0|->RCAch?req>;
+        bv[4] b<0|->RCAch?req>;
+        bv[1] cin<0|->RCAch?req>;
     }
-    right
+    right::res
     {
-        wire[4] sum<0|->RCAch?req>;
-        wire cout<0|->RCAch?req>;
+        bv[4] sum<0|->RCAch!req>;
+        bv[1] cout<0|->RCAch!req>;
     }
 }
-proc full_adder(addCh)
+proc full_adder(right::addCh)
 {
-    addCh?in =>
-        reg s<addCh!res |-> addCh?req> :=(in.a^in.b^in.cin);
+    recv addCh::req(in) =>
+        reg s :=(in.a^in.b^in.cin);
         reg c:=(in.a&in.b | in.b&in.cin | in.cin&in.a);
-        addCh!{res,.sum(s), .cout(c<0|->addCh?req>)};
+        send addCh::res(.sum(s<0|->addCh?req>), .cout(c<0|->addCh?req>));
     then
-    
-
 }
 
 
 
 
-proc RCA(RCAch)
+proc RCA(right::RCAch)
 {
     reg[4] sum;
     reg cout;
     wire c1, c2, c3;  
-    full adder fa0(ch0);
-    full adder fa1(ch1);
-    full adder fa2(ch2);
-    full adder fa3(ch3);
-    RCAch?in =>
+    spawn left::full_adder fa0(addCh::ch0);
+    spawn left::full_adder fa1(addCh::ch1);
+    spawn left::full_adder fa2(addCh::ch2);
+    spawn left::full_adder fa3(addCh::ch3);
+    recv RCAch::req(in) =>
 
-        ch0!{req,.a(in.a[0]),.b(in.b[0]),.cin(in.cin)};
-        ch0?{res,.sum(sum[0]),.cout(c1)};
+        send ch0::req(.a(in.a[0]),.b(in.b[0]),.cin(in.cin));
+        recv ch0::res(.sum(sum[0]),.cout(c1));
         
-        ch1!{req,.a(in.a[1]),.b(in.b[1]),.c(c1)};
-        ch1?{res,.sum(sum[1]),.cout(c2)};
+        send ch1::req(.a(in.a[1]),.b(in.b[1]),.cin(c1));
+        recv ch1::res(.sum(sum[1]),.cout(c2));
         
-        ch2!{req,.a(in.a[2]),.b(in.b[2]),.cin(c2)};
-        ch2?{res,.sum(sum[2]),.cout(c3)};
-    
-        ch3!{req,.a(in.a[3]),.b(in.b[3]),.cin(c3)};
-        ch1?{res,.sum(sum[1]),.cout(cout)};
+        send ch2::req(.a(in.a[2]),.b(in.b[2]),.cin(c2));
+        recv ch2::res(.sum(sum[2]),.cout(c3));
+        
+        send ch3::req(.a(in.a[3]),.b(in.b[3]),.cin(c3));
+        recv ch3::res(.sum(sum[3]),.cout(cout));
 
-        RCAch!{resp,.sum(sum<0|->RCAch?req>),.cout(cout<0|->RCAch?req>)};
+        send RCAch::res(.sum(sum<0|->RCAch?req>),.cout(cout<0|->RCAch?req>));
     then
 
 }

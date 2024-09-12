@@ -1,34 +1,26 @@
 channel ch
 {
-    signal_t type;
-    left wire[16] wdata<0|->ch?res>;
-    right wire[16] rdata<0|->ch?all>;
+    left::ReqRead
+    left::ReqWrite bv[16] wdata<0|->ch?ReqWrite>;
+    right::ResRead bv[16] rdata<0|->(ch!ReqRead | ch!ReqWrite)>;
 }  
-proc FF16 (ch)
+proc FF16 (ch::right)
 {
     reg[16] r;
-    out<ch!res |-> ch?all>:=r;
-    ch?in=>
-        if(ch.type=req) ch!{res, .rdata(out)}
-        else{
-                tock;
-                r[0|->ch?all]::=in.wdata;
-            
-        }
+    recv ch::ReqRead=>
+        send ch::ResRead(.rdata(r<0|->(ch?ReqRead | ch?ReqWrite)>));
     then
-    
+    recv ch::ReqWrite=>
+        tock;   
+        r::=in.wdata;
+    then
 }
 
-//Alternative definition
-proc ff16 (ch)
+proc top()
 {
-    reg[16] r;
-    ch?in=>
-        if(ch.type=req) ch!{res, .rdata(r<0|->ch?all>)}
-        else{
-            tock;
-            r::=in.val;
-        }
-    then
-    
+    spawn left::FF16 ff16(ch::ch1);
+    send ch1::ReqWrite(.wdata(16'h1234));
+    send ch1::ReqRead;
+    recv ch1::ResRead(.rdata(rdata));
+    println!("rdata: {rdata}");
 }

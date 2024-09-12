@@ -1,20 +1,26 @@
 channel ch
 {
-    signal_t type;
-    left wire a<0|->ch?req>;
-    right wire b<0|->ch?req>, c<0|->ch?req>;
+    left::req bv[1] a<0|->ch?req>;
+    right::res bv[1] b<0|->ch!req>, bv[1] c<0|->ch!req>;
     
 }
-proc example(ch)
+proc example(right::ch)
 {
     reg temp,b,c;
-    ch?in=>
-         
+    recv ch::req(in)=>
             tock;
             temp:=in.a;
-            b::=temp<0|->(tock|ch?req)>;
-            c::=b<0|->(tock|ch?req)>;
-            ch!{res,.b(b),.c(c<0|->ch>req>)};
-        
+            b:=temp<0|->(tock|ch?req)>;
+            c:=b<0|->(tock|ch?req)>;
+            send ch::res(.b(b),.c(c<0|->ch?req>));
     then
+}
+
+proc top()
+{
+    reg b,c;
+    spawn left::example e1 (ch::ch1);
+    send ch1::req (.a(1'b1));
+    recv ch1::res({.b(b),.c(c)});
+    println!("b: {b}, c: {c}");
 }
