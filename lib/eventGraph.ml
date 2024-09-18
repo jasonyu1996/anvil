@@ -378,8 +378,7 @@ let rec visit_expr (graph : event_graph) (ci : cunit_info)
           match Utils.list_match_reorder (List.map fst record_fields) field_exprs with
           | Some expr_reordered ->
             let tds = List.map (visit_expr graph ci ctx) expr_reordered in
-            let ws = List.map (fun ({w; _} : Typing.timed_data) -> Option.get w) tds in
-            (* FIXME: the order may be incorrect *)
+            let ws = List.rev_map (fun ({w; _} : Typing.timed_data) -> Option.get w) tds in
             let (wires', w) = WireCollection.add_concat ci.typedefs ws graph.wires in
             graph.wires <- wires';
             List.map (fun ({lt; _} : Typing.timed_data) -> lt) tds |>
