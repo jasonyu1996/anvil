@@ -58,3 +58,5 @@ type event_graph_collection = {
 val build : Lang.compilation_unit -> event_graph_collection
 
 exception BorrowCheckError of string * plain_lifetime * plain_lifetime
+
+val canonicalize_endpoint_name : Lang.identifier -> event_graph -> Lang.identifier

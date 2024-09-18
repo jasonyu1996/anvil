@@ -35,13 +35,13 @@ let codegen_next printer (g : EventGraph.event_graph) =
           [
             Printf.sprintf "assign _event_next%d = !_event_current%d && !_event_reached[%d] &&" e.id e.id e.id;
             Printf.sprintf "(_event_current%d || _event_reached[%d]) && %s;" e'.id e'.id
-              (CodegenFormat.format_msg_ack_signal_name msg.endpoint msg.msg)
+              (CodegenFormat.format_msg_ack_signal_name (EventGraph.canonicalize_endpoint_name msg.endpoint g) msg.msg)
           ] |> print_lines
         | `Recv msg ->
           [
             Printf.sprintf "assign _event_next%d = !_event_current%d && !_event_reached[%d] &&" e.id e.id e.id;
             Printf.sprintf "(_event_current%d || _event_reached[%d]) && %s;" e'.id e'.id
-              (CodegenFormat.format_msg_valid_signal_name msg.endpoint msg.msg)
+              (CodegenFormat.format_msg_valid_signal_name (EventGraph.canonicalize_endpoint_name msg.endpoint g) msg.msg)
           ] |> print_lines
       )
     | `Earlier (e1, e2) ->
@@ -150,15 +150,15 @@ let codegen_sustained_actions printer (g : EventGraph.event_graph) =
       match sa.ty with
       | Send (msg, w) ->
         Printf.sprintf "assign %s = %s;"
-          (CodegenFormat.format_msg_valid_signal_name msg.endpoint msg.msg)
+          (CodegenFormat.format_msg_valid_signal_name (EventGraph.canonicalize_endpoint_name msg.endpoint g) msg.msg)
           activated |> print_line;
         Printf.sprintf "assign %s = %s;"
-          (CodegenFormat.format_msg_data_signal_name msg.endpoint msg.msg 0)
+          (CodegenFormat.format_msg_data_signal_name (EventGraph.canonicalize_endpoint_name msg.endpoint g) msg.msg 0)
           (CodegenFormat.format_wirename w.id)
           |> print_line
       | Recv msg ->
         Printf.sprintf "assign %s = %s;"
-          (CodegenFormat.format_msg_ack_signal_name msg.endpoint msg.msg)
+          (CodegenFormat.format_msg_ack_signal_name (EventGraph.canonicalize_endpoint_name msg.endpoint g) msg.msg)
           activated |> print_line
     ) e.sustained_actions
   in

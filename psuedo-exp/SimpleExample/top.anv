@@ -1,26 +1,36 @@
 channel ch
 {
-    left::req bv[1] a<0|->ch?req>;
-    right::res bv[1] b<0|->ch!req>, bv[1] c<0|->ch!req>;
-    
+    req : left bv[1]@0-req;
+    res : right {
+        b : bv[1];
+        c : bv[1];
+    }@0-req;
 }
-proc example(right::ch)
+proc example(c : left ch)
 {
-    reg temp,b,c;
-    recv ch::req(in)=>
-            tock;
-            temp:=in.a;
-            b:=temp<0|->(tock|ch?req)>;
-            c:=b<0|->(tock|ch?req)>;
-            send ch::res(.b(b),.c(c<0|->ch?req>));
-    then
+    reg temp : bv[1];
+    reg b : bv[1];
+    reg c : bv[1];
+    loop {
+        let r = recv c.req in
+        r =>
+        cycle =>
+        temp := r;
+        b := !temp;
+        c := !b
+        =>
+        send ch.res({b = !b; c = !c});
+    }
 }
 
 proc top()
 {
-    reg b,c;
-    spawn left::example e1 (ch::ch1);
-    send ch1::req (.a(1'b1));
-    recv ch1::res({.b(b),.c(c)});
-    println!("b: {b}, c: {c}");
+    ch(ch_le, ch_ri);
+    spawn example(ch_le);
+
+    loop {
+        send ch_ri.req(1'b1) =>
+        let r = recv ch_ri.res in
+        r => println!("b: {r.b}, c: {r.c}");
+    }
 }

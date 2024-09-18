@@ -1,26 +1,38 @@
+enum req_t {
+    Read,
+    Write(bv[16])
+}
+
 channel ch
 {
-    left::ReqRead
-    left::ReqWrite bv[16] wdata<0|->ch?ReqWrite>;
-    right::ResRead bv[16] rdata<0|->(ch!ReqRead | ch!ReqWrite)>;
-}  
-proc FF16 (ch::right)
+    Req : left req_t@0-1;
+    ResRead : right bv[16]@0-Req;
+}
+
+proc FF16 (c : left ch)
 {
-    reg[16] r;
-    recv ch::ReqRead=>
-        send ch::ResRead(.rdata(r<0|->(ch?ReqRead | ch?ReqWrite)>));
-    then
-    recv ch::ReqWrite=>
-        tock;   
-        r::=in.wdata;
-    then
+    reg r : bv[16];
+
+    loop {
+        let req = recv c.Req in
+        req => {
+            // match statement now following Rust syntax
+            match req {
+                Read -> send c.ResRead(!r),
+                Write(v) -> r := v
+            }
+        }
+    }
 }
 
 proc top()
 {
-    spawn left::FF16 ff16(ch::ch1);
-    send ch1::ReqWrite(.wdata(16'h1234));
-    send ch1::ReqRead;
-    recv ch1::ResRead(.rdata(rdata));
-    println!("rdata: {rdata}");
+    ch(ch_le, ch_ri);
+    spawn FF16(ch_le);
+    loop {
+        send ch_ri.Req(Write(16'h1234)) =>
+        send ch_ri.ReqRead =>
+        let rdata = recv ch_ri.ResRead in
+        rdata => println!("rdata: {rdata}");
+    }
 }

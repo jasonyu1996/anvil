@@ -1,0 +1,84 @@
+type add1_req = {
+    a : logic[1];
+    b : logic[1];
+    cr : logic[1]
+}
+
+type add1_res = {
+    sum : logic[1];
+    cout : logic[1]
+}
+
+
+type add4_req = {
+    a : logic[4];
+    b : logic[4];
+    cr : logic[1]
+}
+
+type add4_res = {
+    sum : logic[4];
+    cout : logic[1]
+}
+
+chan addCh =
+{
+    left req :
+    (add1_req@#0-req),
+    right res :
+    (add1_res@#0-req)
+}
+
+chan RCAch =
+{
+    left req :
+    (add4_req@#0-req),
+    right res :
+    (add4_res@#0-req)
+}
+
+proc full_adder(ch : left addCh) =
+    let r = recv ch::req in
+    r => (
+        let s=(r.a^r.b^r.cr) in
+        let c=((r.a&r.b) | (r.b&r.cr) | (r.cr&r.a)) in
+        send ch::res(add1_res::{sum = s; cout = c})
+    )
+
+
+proc RCA(ch : left RCAch) =
+    chan ch0_le -- ch0_ri : addCh
+    chan ch1_le -- ch1_ri : addCh
+    chan ch2_le -- ch2_ri : addCh
+    chan ch3_le -- ch3_ri : addCh
+    spawn full_adder(ch0_le)
+    spawn full_adder(ch1_le)
+    spawn full_adder(ch2_le)
+    spawn full_adder(ch3_le)
+
+    let r = recv ch::req in
+    r =>
+        send ch0_ri::req(add1_req::{a = r.a[0]; b = r.b[0]; cr = r.cr}) =>
+        let r0 = recv ch0_ri::res in
+        r0 =>
+        send ch1_ri::req(add1_req::{a = r.a[1]; b = r.b[1]; cr = r0.cout}) =>
+        let r1 = recv ch1_ri::res in
+        r1 =>
+        send ch2_ri::req(add1_req::{a = r.a[2]; b = r.b[2]; cr = r1.cout}) =>
+        let r2 = recv ch2_ri::res in
+        r2 =>
+        send ch3_ri::req(add1_req::{a = r.a[3]; b = r.b[3]; cr = r2.cout}) =>
+        let r3 = recv ch3_ri::res in
+        r3 =>
+        // send ch::res(add4_res::{sum = {r3.sum, r2.sum, r1.sum, r0.sum}; cout = r3.cout})
+        send ch::res(add4_res::{sum = {r3.sum, r2.sum, r1.sum, r0.sum}; cout = r3.cout})
+
+proc RCATop() =
+    chan ch_le -- ch_ri : RCAch
+    spawn RCA(ch_le)
+
+    cycle 1 =>
+    send ch_ri::req(add4_req::{a = 4'b0100; b = 4'b1001; cr = 1'b0}) =>
+    let r = recv ch_ri::res in
+    r => dprint "Res = %d" (r.sum)
+

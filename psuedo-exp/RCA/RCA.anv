@@ -1,68 +1,71 @@
 channel addCh
 {
-    left::req
+    req : left
     {
-        bv[1] a<0|->addCh?req>;
-        bv[1] b<0|->addCh?req>;
-        bv[1] cin<0|->addCh?req>;
-    }
-    right::res
+        a : bv[1];
+        b : bv[1];
+        cr : bv[1];
+    }@0-req;
+    res : right
     {
-        bv[1] sum<0|->addCh!req>;
-        bv[1] cout<0|->addCh!req>;
-    }
+        sum : bv[1];
+        cout : bv[1];
+    }@0-req;
 }
 
 channel RCAch
 {
-    left::req
+    req : left
     {
-        bv[4] a<0|->RCAch?req>;
-        bv[4] b<0|->RCAch?req>;
-        bv[1] cin<0|->RCAch?req>;
-    }
-    right::res
+        a : bv[4];
+        b : bv[4];
+        cr : bv[1];
+    }@0-req;
+    res : right
     {
-        bv[4] sum<0|->RCAch!req>;
-        bv[1] cout<0|->RCAch!req>;
-    }
-}
-proc full_adder(right::addCh)
-{
-    recv addCh::req(in) =>
-        reg s :=(in.a^in.b^in.cin);
-        reg c:=(in.a&in.b | in.b&in.cin | in.cin&in.a);
-        send addCh::res(.sum(s<0|->addCh?req>), .cout(c<0|->addCh?req>));
-    then
+        sum : bv[4];
+        cout : bv[1];
+    }@0-req;
 }
 
-
-
-
-proc RCA(right::RCAch)
+proc full_adder(ch : left addCh)
 {
-    reg[4] sum;
-    reg cout;
-    wire c1, c2, c3;  
-    spawn left::full_adder fa0(addCh::ch0);
-    spawn left::full_adder fa1(addCh::ch1);
-    spawn left::full_adder fa2(addCh::ch2);
-    spawn left::full_adder fa3(addCh::ch3);
-    recv RCAch::req(in) =>
+    loop {
+        let r = recv ch.req in
+        r => {
+            let s=(r.a^r.b^r.cr) in
+            let c=(r.a&r.b | r.b&r.cr | r.cr&r.a) in
+            send ch.res({sum = s; cout = c});
+        }
+    }
+}
 
-        send ch0::req(.a(in.a[0]),.b(in.b[0]),.cin(in.cin));
-        recv ch0::res(.sum(sum[0]),.cout(c1));
-        
-        send ch1::req(.a(in.a[1]),.b(in.b[1]),.cin(c1));
-        recv ch1::res(.sum(sum[1]),.cout(c2));
-        
-        send ch2::req(.a(in.a[2]),.b(in.b[2]),.cin(c2));
-        recv ch2::res(.sum(sum[2]),.cout(c3));
-        
-        send ch3::req(.a(in.a[3]),.b(in.b[3]),.cin(c3));
-        recv ch3::res(.sum(sum[3]),.cout(cout));
 
-        send RCAch::res(.sum(sum<0|->RCAch?req>),.cout(cout<0|->RCAch?req>));
-    then
-
+proc RCA(ch : left RCAch)
+{
+    addCh(ch0_le, ch0_ri);
+    addCh(ch1_le, ch1_ri);
+    addCh(ch2_le, ch2_ri);
+    addCh(ch3_le, ch3_ri);
+    spawn full_adder(ch0_le);
+    spawn full_adder(ch1_le);
+    spawn full_adder(ch2_le);
+    spawn full_adder(ch3_le);
+    loop {
+        let r = recv ch.req in
+        r =>
+            send ch0_ri.req({a = r.a[0]; b = r.b[0]; cr = r.cr}) =>
+            let r0 = recv ch0_ri.res in
+            r0 =>
+            send ch1_ri.req({a = r.a[1]; b = r.b[1]; cr = r0.cout}) =>
+            let r1 = recv ch0_ri.res in
+            r1 =>
+            send ch2_ri.req({a = r.a[2]; b = r.b[2]; cr = r1.cout}) =>
+            let r2 = recv ch1_ri.res in
+            r2 =>
+            send ch3_ri.req({a = r.a[3]; b = r.b[3]; cr = r2.cout}) =>
+            let r3 = recv ch2_ri.res in
+            r3 =>
+            send ch.res({sum = {r3.sum, r2.sum, r1.sum, r0.sum}; cout = r3.cout});
+    }
 }

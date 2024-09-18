@@ -52,16 +52,6 @@ module Port = struct
     in Printf.sprintf "%s %s %s" inout (Format.format_dtype typedefs port.dtype) port.name
 end
 
-module Endpoint = struct
-  let _is_canonical (endpoint: endpoint_def) : bool =
-    (Option.is_none endpoint.opp) || (endpoint.dir = Left)
-
-  let canonical_name (endpoint: endpoint_def) : identifier =
-    match endpoint.dir with
-    | Left -> endpoint.name
-    | Right -> Option.value ~default:endpoint.name endpoint.opp
-end
-
 type port_def = Port.t
 
 let codegen_ports printer (graphs : event_graph_collection)
@@ -90,7 +80,7 @@ let codegen_spawns printer (graphs : event_graph_collection) (g : event_graph) =
     let proc_other = CodegenHelpers.lookup_proc graphs.event_graphs spawn.proc |> Option.get in
     let connect_endpoints = fun (arg_endpoint : endpoint_def) (param_ident : identifier) ->
       let endpoint_local = MessageCollection.lookup_endpoint g.messages param_ident |> Option.get in
-      let endpoint_name_local = Endpoint.canonical_name endpoint_local in
+      let endpoint_name_local = EventGraph.canonicalize_endpoint_name param_ident g in
       let cc = MessageCollection.lookup_channel_class graphs.channel_classes endpoint_local.channel_class |> Option.get in
       let print_msg_con = fun (msg : message_def) ->
         if Port.message_has_valid_port msg then
@@ -121,7 +111,7 @@ let codegen_endpoints printer (graphs : event_graph_collection) (g : event_graph
   Port.gather_ports graphs.channel_classes |>
   List.iter print_port_signal_decl
 
-let codegen_wire_assignment printer (w : WireCollection.wire) =
+let codegen_wire_assignment printer (g : event_graph) (w : WireCollection.wire) =
   let expr =
     match w.source with
     | Literal lit -> Format.format_literal lit
@@ -149,9 +139,10 @@ let codegen_wire_assignment printer (w : WireCollection.wire) =
       List.map (fun (w' : WireCollection.wire) -> Format.format_wirename w'.id) ws |>
         String.concat ", " |> Printf.sprintf "{%s}"
     | MessagePort (msg, idx) ->
-      Format.format_msg_data_signal_name msg.endpoint msg.msg idx
+      let msg_endpoint = EventGraph.canonicalize_endpoint_name msg.endpoint g in
+      Format.format_msg_data_signal_name msg_endpoint msg.msg idx
     | Slice (w', base_i, end_i) ->
-      Printf.sprintf "%s[%d:%d]" (Format.format_wirename w'.id) base_i (end_i - 1)
+      Printf.sprintf "%s[%d:%d]" (Format.format_wirename w'.id) (end_i - 1) base_i
   in
   Printf.sprintf "assign %s = %s;" (Format.format_wirename w.id) expr |>
     CodegenPrinter.print_line printer
@@ -163,7 +154,7 @@ let codegen_post_declare printer (graphs : event_graph_collection) (g : event_gr
     Printf.sprintf "%s %s;" (Format.format_dtype graphs.typedefs w.dtype) @@ Format.format_wirename w.id |>
       CodegenPrinter.print_line printer
   in List.iter codegen_wire_decl g.wires;
-  List.iter (codegen_wire_assignment printer) g.wires
+  List.iter (codegen_wire_assignment printer g) g.wires
   (* set send signals *)
   (* StringMap.iter (fun _ {msg_spec; select} ->
     let data_wires = gather_data_wires_from_msg ctx proc msg_spec

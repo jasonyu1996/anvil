@@ -463,3 +463,17 @@ let build (cunit : compilation_unit) =
     channel_classes = cunit.channel_classes;
   }
 
+
+module Endpoint = struct
+  let canonicalize (endpoint : endpoint_def) : identifier =
+    match endpoint.dir with
+    | Left -> endpoint.name
+    | Right -> Option.value ~default:endpoint.name endpoint.opp
+
+  let canonicalize_endpoint_name (endpoint_name : identifier) (g : event_graph) : identifier =
+    match MessageCollection.lookup_endpoint g.messages endpoint_name with
+    | Some endpoint_local -> canonicalize endpoint_local
+    | None -> endpoint_name
+end
+
+let canonicalize_endpoint_name = Endpoint.canonicalize_endpoint_name
