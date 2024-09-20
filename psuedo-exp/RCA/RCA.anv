@@ -43,29 +43,34 @@ proc full_adder(ch : left addCh)
 
 proc RCA(ch : left RCAch)
 {
-    addCh(ch0_le, ch0_ri);
-    addCh(ch1_le, ch1_ri);
-    addCh(ch2_le, ch2_ri);
-    addCh(ch3_le, ch3_ri);
-    spawn full_adder(ch0_le);
-    spawn full_adder(ch1_le);
-    spawn full_adder(ch2_le);
-    spawn full_adder(ch3_le);
+    acquire addCh(ch0):right;
+    acquire addCh(ch1):right;
+    acquire addCh(ch2):right;
+    acquire addCh(ch3):right;
+    spawn full_adder(ch0:left);
+    spawn full_adder(ch1:left);
+    spawn full_adder(ch2:left);
+    spawn full_adder(ch3:left);
     loop {
         let r = recv ch.req in
         r =>
-            send ch0_ri.req({a = r.a[0]; b = r.b[0]; cr = r.cr}) =>
-            let r0 = recv ch0_ri.res in
-            r0 =>
-            send ch1_ri.req({a = r.a[1]; b = r.b[1]; cr = r0.cout}) =>
-            let r1 = recv ch0_ri.res in
-            r1 =>
-            send ch2_ri.req({a = r.a[2]; b = r.b[2]; cr = r1.cout}) =>
-            let r2 = recv ch1_ri.res in
-            r2 =>
-            send ch3_ri.req({a = r.a[3]; b = r.b[3]; cr = r2.cout}) =>
-            let r3 = recv ch2_ri.res in
-            r3 =>
-            send ch.res({sum = {r3.sum, r2.sum, r1.sum, r0.sum}; cout = r3.cout});
+
+        send ch0.req({a = r.a[0]; b = r.b[0]; cr = r.cr}) =>
+        let r0 = recv ch0.res in
+        r0 =>
+
+        send ch1.req({a = r.a[1]; b = r.b[1]; cr = r0.cout}) =>
+        let r1 = recv ch1.res in
+        r1 =>
+            
+        send ch2.req({a = r.a[2]; b = r.b[2]; cr = r1.cout}) =>
+        let r2 = recv ch2.res in
+        r2 =>
+            
+        send ch3.req({a = r.a[3]; b = r.b[3]; cr = r2.cout}) =>
+        let r3 = recv ch3.res in
+        r3 =>
+            
+        send ch.res({sum = {r3.sum, r2.sum, r1.sum, r0.sum}; cout = r3.cout});
     }
 }
