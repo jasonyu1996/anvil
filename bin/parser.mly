@@ -33,6 +33,7 @@
 %token AT                   (* @ *)
 %token TILDE                (* ~ *)
 %token PERIOD               (* . *)
+%token KEYWORD_LOOP         (* loop *)
 %token KEYWORD_PROC         (* proc *)
 %token KEYWORD_CHAN         (* chan *)
 %token KEYWORD_IN           (* in *)
@@ -95,7 +96,7 @@ cunit:
 
 proc_def:
   KEYWORD_PROC; ident = IDENT; LEFT_PAREN; args = proc_def_arg_list; RIGHT_PAREN;
-  EQUAL; body = proc_def_body
+  EQUAL; KEYWORD_LOOP; LEFT_BRACE; body = proc_def_body; RIGHT_BRACE
   {
     {
       name = ident;
@@ -115,6 +116,12 @@ proc_def_body:
       prog = prog;
     }
   }
+// | KEYWORD_LOOP; LEFT_PAREN; body = expr; RIGHT_PAREN
+//   {
+//     let open Anvil.Lang in {
+//       prog = body;
+//     }
+//   }
 | KEYWORD_CHAN; chan_def = channel_def; body = proc_def_body
   {
     let open Anvil.Lang in {body with channels = chan_def::(body.channels)}
@@ -291,7 +298,9 @@ expr:
   { Anvil.Lang.Debug (Anvil.Lang.DebugPrint (s, v)) }
 | KEYWORD_DFINISH
   { Anvil.Lang.Debug Anvil.Lang.DebugFinish }
-;
+// | KEYWORD_LOOP; body = expr
+//   { Anvil.Lang.Loop body }  
+// ;
 
 constructor_spec:
   ty = IDENT; DOUBLE_COLON; variant = IDENT

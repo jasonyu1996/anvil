@@ -50,6 +50,7 @@ rule read =
   | "!="      { EXCL_EQ }
   | "|>"      { OR_GT }
   | "!"       { EXCL }
+  | "loop"    { KEYWORD_LOOP }
   | "proc"    { KEYWORD_PROC }
   | "chan"    { KEYWORD_CHAN }
   | "in"      { KEYWORD_IN }

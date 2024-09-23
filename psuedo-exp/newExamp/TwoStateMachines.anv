@@ -44,7 +44,32 @@ proc TwoStateMachines(ch : left commch)
     loop
     {
         tock =>
-        state_thread1 = next_state_thread1;
-        state_thread2 = next_state_thread2;
+        state_thread1 = next_state_thread1<@0-1>;
+        state_thread2 = next_state_thread2<@0-1>;
+    }
+
+    loop
+    {
+        case (state_thread1)
+            IDLE: begin
+                if (start) next_state_thread1 = READ;
+                else next_state_thread1 = IDLE;
+            end
+            READ: begin
+                next_state_thread1 = PROCESS;
+            end
+            PROCESS: begin
+                thread1_data_buffer = shared_reg + data_in1; 
+                next_state_thread1 = WRITE;
+            end
+            WRITE: begin
+                if (shared_reg != 8'd0) begin
+                    hazard_detected = 1; 
+                end
+                shared_reg = thread1_data_buffer;  
+                done1 = 1;
+                next_state_thread1 = IDLE;
+            end
+        endcase
     }
 }
