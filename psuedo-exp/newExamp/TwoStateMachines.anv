@@ -1,0 +1,50 @@
+channel commch
+{
+    reset:left@(0-req);
+    req : left
+    {
+        in1 : bv[8];
+        in2 : bv[8];
+    }@0-req;
+    res : right
+    {
+        shared_reg : bv[8];
+        done1 : bv[1];
+        done2 : bv[1];
+    }@0-req;
+}
+typedef enum bv[2] {
+        IDLE = 2'b00,
+        READ = 2'b01,
+        PROCESS = 2'b10,
+        WRITE = 2'b11
+} state_t;
+
+proc TwoStateMachines(ch : left commch)
+{
+    // Registers for Thread 1
+    reg [2] state_thread1, next_state_thread1;
+    reg [8] thread1_data_buffer; 
+
+    // Registers for Thread 2
+    reg [2] state_thread2, next_state_thread2;
+    reg [8] thread2_data_buffer;
+    
+    loop
+    {
+        recv ch.reset =>
+        state_thread1 = IDLE;
+        done1 = 0;
+        thread1_data_buffer = 8'd0;
+        state_thread2 = IDLE;
+        done2 = 0;
+        thread2_data_buffer = 8'd0;
+    }
+
+    loop
+    {
+        tock =>
+        state_thread1 = next_state_thread1;
+        state_thread2 = next_state_thread2;
+    }
+}

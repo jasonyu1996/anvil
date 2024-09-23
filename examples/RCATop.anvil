@@ -38,15 +38,17 @@ chan RCAch =
 }
 
 proc full_adder(ch : left addCh) =
+loop {
     let r = recv ch::req in
     r => (
         let s=(r.a^r.b^r.cr) in
         let c=((r.a&r.b) | (r.b&r.cr) | (r.cr&r.a)) in
         send ch::res(add1_res::{sum = s; cout = c})
     )
-
+}
 
 proc RCA(ch : left RCAch) =
+loop {
     chan ch0_le -- ch0_ri : addCh
     chan ch1_le -- ch1_ri : addCh
     chan ch2_le -- ch2_ri : addCh
@@ -72,8 +74,9 @@ proc RCA(ch : left RCAch) =
         r3 =>
         // send ch::res(add4_res::{sum = {r3.sum, r2.sum, r1.sum, r0.sum}; cout = r3.cout})
         send ch::res(add4_res::{sum = {r3.sum, r2.sum, r1.sum, r0.sum}; cout = r3.cout})
-
+}
 proc RCATop() =
+loop {
     chan ch_le -- ch_ri : RCAch
     spawn RCA(ch_le)
 
@@ -82,3 +85,4 @@ proc RCATop() =
     let r = recv ch_ri::res in
     r => dprint "Res = %d" (r.sum)
 
+}

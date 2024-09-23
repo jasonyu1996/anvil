@@ -35,7 +35,7 @@ proc full_adder(ch : left addCh)
         r => {
             let s=(r.a^r.b^r.cr) in
             let c=(r.a&r.b | r.b&r.cr | r.cr&r.a) in
-            send ch.res({sum = s; cout = c});
+            send ch.res({sum = s; cout = c}) =>
         }
     }
 }
