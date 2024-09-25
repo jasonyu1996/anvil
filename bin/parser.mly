@@ -96,7 +96,7 @@ cunit:
 
 proc_def:
   KEYWORD_PROC; ident = IDENT; LEFT_PAREN; args = proc_def_arg_list; RIGHT_PAREN;
-  EQUAL; KEYWORD_LOOP; LEFT_BRACE; body = proc_def_body; RIGHT_BRACE
+  EQUAL; LEFT_BRACE; body = proc_def_body; RIGHT_BRACE
   {
     {
       name = ident;
@@ -107,35 +107,35 @@ proc_def:
 ;
 
 proc_def_body:
-| prog = expr
+| prog = expr // Single executing commands (outside the always block)
   {
     let open Anvil.Lang in {
       channels = [];
       spawns = [];
       regs = [];
       prog = prog;
+      loops = [];
     }
   }
-// | KEYWORD_LOOP; LEFT_PAREN; body = expr; RIGHT_PAREN
-//   {
-//     let open Anvil.Lang in {
-//       prog = body;
-//     }
-//   }
-| KEYWORD_CHAN; chan_def = channel_def; body = proc_def_body
+| KEYWORD_LOOP; LEFT_BRACE; thread_prog = expr; RIGHT_BRACE; body=proc_def_body //For thread definitions
+  {
+    let open Anvil.Lang in {body with loops = expr::(body.loops) }
+  }
+| KEYWORD_CHAN; chan_def = channel_def; body = proc_def_body // For Channel Invocation and interface aquisition
   {
     let open Anvil.Lang in {body with channels = chan_def::(body.channels)}
   }
-| KEYWORD_REG; reg_def = reg_def; body = proc_def_body
+| KEYWORD_REG; reg_def = reg_def; body = proc_def_body // For reg definition
   {
     let open Anvil.Lang in {body with regs = reg_def::(body.regs)}
   }
-| KEYWORD_SPAWN; spawn_def = spawn; body = proc_def_body
+| KEYWORD_SPAWN; spawn_def = spawn; body = proc_def_body // For instantiating processes
   {
     let open Anvil.Lang in {body with spawns = spawn_def::(body.spawns)}
   }
 ;
 
+// For defining struct for messages and message types
 type_def:
   KEYWORD_TYPE; name = IDENT; EQUAL; dtype = data_type
   {
@@ -143,6 +143,7 @@ type_def:
   }
 ;
 
+// For channel declaration for each pair of process
 channel_class_def:
   KEYWORD_CHAN; ident = IDENT; EQUAL; LEFT_BRACE; messages = separated_list(COMMA, message_def); RIGHT_BRACE
   {
@@ -152,12 +153,12 @@ channel_class_def:
     } : Anvil.Lang.channel_class_def
   }
 ;
-
+//For passing the list of channels that are nessacary to communicate with the instantiation of the process
 proc_def_arg_list:
   l = separated_list(COMMA, proc_def_arg)
   { l }
 ;
-
+// To Do: Can be renamed to inherited channel or something
 proc_def_arg:
   foreign = foreign_tag; ident = IDENT; COLON; chan_dir = channel_direction; chan_class_ident = IDENT
   {
@@ -171,18 +172,19 @@ proc_def_arg:
   }
 ;
 
+// To Ask: What does this do
 foreign_tag:
 | { false }
 | KEYWORD_FOREIGN { true }
 ;
-
+// Specifies the dirn of comm (inp or out)
 channel_direction:
 | KEYWORD_LEFT
   { Anvil.Lang.Left }
 | KEYWORD_RIGHT
   { Anvil.Lang.Right }
 ;
-
+// channels are instantantiated with endpoint aquisition by native channel inside the proc
 channel_def:
   left_foreign = foreign_tag; left_endpoint = IDENT; DOUBLE_MINUS;
   right_foreign = foreign_tag; right_endpoint = IDENT; COLON;
@@ -201,7 +203,7 @@ channel_def:
     } : Anvil.Lang.channel_def
   }
 ;
-
+// Instantiating the proc for comm
 spawn:
   proc = IDENT; LEFT_PAREN; params = separated_list(COMMA, IDENT); RIGHT_PAREN
   {
@@ -211,7 +213,7 @@ spawn:
     } : Anvil.Lang.spawn_def
   }
 ;
-
+//register declaration, To Do: Add support for declaration as well as init
 reg_def:
   ident = IDENT; COLON; dtype = data_type
   {
@@ -222,7 +224,7 @@ reg_def:
     } : Anvil.Lang.reg_def
   }
 ;
-
+//term definitions for expressions
 term:
 | literal_str = BIT_LITERAL
   { Anvil.Lang.Literal (ParserHelper.bit_literal_of_string literal_str) }
@@ -235,9 +237,9 @@ term:
 | ident = IDENT
   { Anvil.Lang.Identifier ident }
 ;
-
+//expressions
 expr:
-| KEYWORD_SET; lval = lvalue; COLON_EQ; v = expr
+| KEYWORD_SET; lval = lvalue; COLON_EQ; v = expr //To Ask: Where are we using set
   { Anvil.Lang.Assign (lval, v) }
 | e = term
   { e }
@@ -302,16 +304,17 @@ expr:
 //   { Anvil.Lang.Loop body }  
 // ;
 
+//To Ask: What does this do
 constructor_spec:
   ty = IDENT; DOUBLE_COLON; variant = IDENT
   { let open Anvil.Lang in {variant_ty_name = ty; variant} }
 ;
-
+//To Ask: Where is this being used
 %inline record_field_constr:
   field_name = IDENT; EQUAL; field_value = expr
   { (field_name, field_value) }
 ;
-
+// The string that sends message
 send_pack:
   msg_specifier = message_specifier;
   LEFT_PAREN; data = expr; RIGHT_PAREN
@@ -322,7 +325,7 @@ send_pack:
     }
   }
 ;
-
+// The command that recvs message
 recv_pack:
   msg_specifier = message_specifier
   {
@@ -360,7 +363,7 @@ bin_expr:
 | v1 = expr; OR; v2 = expr
   { Anvil.Lang.Binop (Anvil.Lang.Or, v1, v2) }
 ;
-
+// What is UMinus UAND UOR
 un_expr:
 | MINUS; e = expr
   { Anvil.Lang.Unop (Anvil.Lang.Neg, e) } %prec UMINUS
@@ -371,7 +374,7 @@ un_expr:
 | OR; e = expr
   { Anvil.Lang.Unop (Anvil.Lang.OrAll, e) } %prec UOR
 ;
-
+//To Ask: Where is this being used
 lvalue:
 | regname = IDENT
   { Anvil.Lang.Reg regname }
@@ -394,7 +397,7 @@ match_arm:
 | OR_GT; pattern = match_pattern; body_opt = match_arm_body?
   { (pattern, body_opt) }
 ;
-
+//To ask: are we going to use it
 %inline match_pattern:
   cstr = IDENT; bind_name_opt = IDENT?
   {
@@ -406,7 +409,7 @@ match_arm:
   POINT_TO; e = expr
   { e }
 ;
-
+//Definition of messages: To Do: Doesnt support custom lifetime types, just sync?
 message_def:
   dir = message_direction; ident = IDENT; COLON; LEFT_PAREN; data = separated_list(COMMA, sig_type_chan_local); RIGHT_PAREN;
   send_sync_mode_opt = message_sync_mode_spec?;
@@ -423,7 +426,7 @@ message_def:
     } : Anvil.Lang.message_def
   }
 ;
-
+//To Do: Support for multiple message types
 recv_message_sync_mode_spec:
   MINUS; sync = message_sync_mode_spec
   { sync }
@@ -537,13 +540,13 @@ timestamp_chan_local:
 | KEYWORD_ETERNAL
   { `Eternal }
 ;
-
+//Message string
 message_specifier:
-  endpoint = IDENT; DOUBLE_COLON; msg = IDENT
+  endpoint = IDENT; DOUBLE_COLON; msg_type = IDENT
   {
     {
       endpoint = endpoint;
-      msg = msg;
+      msg = msg_type;
     } : Anvil.Lang.message_specifier
   }
 ;

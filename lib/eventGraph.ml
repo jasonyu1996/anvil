@@ -46,12 +46,14 @@ and sustained_action = {
 
 type event_graph = {
   name : identifier;
+  thread_id : int;
   mutable events: event list;
   mutable wires: wire_collection;
   channels: channel_def list;
   messages : MessageCollection.t;
   spawns: spawn_def list;
   regs: reg_def list;
+  (* loops: expr list; *)
   (* the id of the last event *)
   (* the process loops from the start when this event is reached *)
   mutable last_event_id: int;
@@ -431,20 +433,25 @@ let rec visit_expr (graph : event_graph) (ci : cunit_info)
     )
   | _ -> raise (UnimplementedError "Unimplemented expression!")
 
+(* Builds the graph representation for each process To Do: Add support for commands outside loop (be executed once or continuosly)*)
 let build_proc (ci : cunit_info) (proc : proc_def) =
-  let graph = {
-    name = proc.name;
-    events = [];
-    wires = WireCollection.empty;
-    channels = proc.body.channels;
-    messages = MessageCollection.create proc.body.channels proc.args ci.channel_classes;
-    spawns = proc.body.spawns;
-    regs = proc.body.regs;
-    last_event_id = 0;
-  } in
-  let td = visit_expr graph ci (BuildContext.create_empty graph) proc.body.prog in
-  graph.last_event_id <- td.lt.live.id;
-  graph
+  let graphs = List.mapi (fun i e ->  (* Use List.mapi to get the index *)
+    let graph = {
+      name = proc.name;
+      thread_id = i;
+      events = [];
+      wires = WireCollection.empty;
+      channels = proc.body.channels;
+      messages = MessageCollection.create proc.body.channels proc.args ci.channel_classes;
+      spawns = proc.body.spawns;
+      regs = proc.body.regs;
+      last_event_id = 0;
+    } in
+    let td = visit_expr graph ci (BuildContext.create_empty graph) e in
+    graph.last_event_id <- td.lt.live.id;  (* Set last_event_id for each graph *)
+    graph
+  ) proc.body.loops in
+  graphs
 
 type event_graph_collection = {
   event_graphs : event_graph list;
@@ -455,7 +462,7 @@ type event_graph_collection = {
 let build (cunit : compilation_unit) =
   let typedefs = TypedefMap.of_list cunit.type_defs in
   let ci = { typedefs; channel_classes = cunit.channel_classes } in
-  let graphs = List.map (build_proc ci) cunit.procs in
+  let graphs = List.concat_map (build_proc ci) cunit.procs in
   {
     event_graphs = graphs;
     typedefs;

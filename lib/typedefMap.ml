@@ -1,8 +1,8 @@
 open Lang
 open Except
-
+(* Map with keys as string *)
 type t = type_def Utils.string_map
-
+(* Empty map *)
 let empty : t = Utils.StringMap.empty
 let of_list typedef_list =
   List.to_seq typedef_list |> Seq.map (fun (x : type_def) -> (x.name, x))
