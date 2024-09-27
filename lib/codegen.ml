@@ -187,17 +187,24 @@ let codegen_regs printer (graphs : event_graph_collection) (g : event_graph) =
     )
     g.regs
 
-let codegen_proc printer (graphs : EventGraph.event_graph_collection) (g : event_graph) =
+let codegen_proc printer (graphs : EventGraph.event_graph_collection) (g : proc_graph) =
   (* generate ports *)
   Printf.sprintf "module %s (" g.name |> CodegenPrinter.print_line printer ~lvl_delta_post:1;
-  codegen_ports printer graphs g.messages.args;
+
+  (* Generate ports for the first thread *)
+  codegen_ports printer graphs g.threads[0].messages.args;
   CodegenPrinter.print_line printer ~lvl_delta_pre:(-1) ~lvl_delta_post:1 ");";
 
-  codegen_endpoints printer graphs g;
-  codegen_spawns printer graphs g;
-  codegen_regs printer graphs g;
-  codegen_post_declare printer graphs g;
-  CodegenStates.codegen_states printer graphs g;
+  (* Generate endpoints, spawns, regs, and post-declare for the first thread *)
+  codegen_endpoints printer graphs g.threads[0];
+  codegen_spawns printer graphs g.threads[0];
+  codegen_regs printer graphs g.threads[0];
+  codegen_post_declare printer graphs g.threads[0];
+
+  (* Iterate over all threads to print states *)
+  List.iter (fun thread ->
+    CodegenStates.codegen_states printer graphs thread
+  ) g.threads;
 
   CodegenPrinter.print_line printer ~lvl_delta_pre:(-1) "endmodule"
 

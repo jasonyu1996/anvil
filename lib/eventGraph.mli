@@ -38,8 +38,9 @@ and event_source = [
   | `Seq of event * Lang.atomic_delay
   | `Branch of condition * event
 ]
+
 type event_graph = {
-  name : Lang.identifier;
+  thread_id : int;
   mutable events : event list;
   mutable wires : wire_collection;
   channels : Lang.channel_def list;
@@ -49,8 +50,13 @@ type event_graph = {
   mutable last_event_id: int;
 }
 
+type proc_graph = {
+  id : Lang.identifier;
+  threads : event_graph list;
+}
+
 type event_graph_collection = {
-  event_graphs : event_graph list;
+  event_graphs : proc_graph list;
   typedefs : TypedefMap.t;
   channel_classes : Lang.channel_class_def list;
 }

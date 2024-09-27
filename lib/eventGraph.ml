@@ -45,7 +45,7 @@ and sustained_action = {
 }
 
 type event_graph = {
-  name : identifier;
+  (* name : identifier; *)
   thread_id : int;
   mutable events: event list;
   mutable wires: wire_collection;
@@ -58,7 +58,10 @@ type event_graph = {
   (* the process loops from the start when this event is reached *)
   mutable last_event_id: int;
 }
-
+type proc_graph = {
+  name: identifier;
+  threads: event_graph list;
+}
 let string_of_delay (d : delay) : string =
   let buf = Buffer.create 16 in
   let rec append_string_of_delay = function
@@ -435,9 +438,9 @@ let rec visit_expr (graph : event_graph) (ci : cunit_info)
 
 (* Builds the graph representation for each process To Do: Add support for commands outside loop (be executed once or continuosly)*)
 let build_proc (ci : cunit_info) (proc : proc_def) =
-  let graphs = List.mapi (fun i e ->  (* Use List.mapi to get the index *)
+  let proc_threads = List.mapi (fun i e ->  (* Use List.mapi to get the index *)
     let graph = {
-      name = proc.name;
+      (* name = proc.name; *)
       thread_id = i;
       events = [];
       wires = WireCollection.empty;
@@ -451,10 +454,10 @@ let build_proc (ci : cunit_info) (proc : proc_def) =
     graph.last_event_id <- td.lt.live.id;  (* Set last_event_id for each graph *)
     graph
   ) proc.body.loops in
-  graphs
+ {name = proc.name; threads = proc_threads};
 
 type event_graph_collection = {
-  event_graphs : event_graph list;
+  event_graphs : proc_graph list;
   typedefs : TypedefMap.t;
   channel_classes : channel_class_def list;
 }
@@ -462,7 +465,7 @@ type event_graph_collection = {
 let build (cunit : compilation_unit) =
   let typedefs = TypedefMap.of_list cunit.type_defs in
   let ci = { typedefs; channel_classes = cunit.channel_classes } in
-  let graphs = List.concat_map (build_proc ci) cunit.procs in
+  let graphs = List.concat_map (fun proc -> [build_proc ci proc]) cunit.procs in
   {
     event_graphs = graphs;
     typedefs;
