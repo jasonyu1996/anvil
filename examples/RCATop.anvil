@@ -76,6 +76,10 @@ loop {
         send ch::res(add4_res::{sum = {r3.sum, r2.sum, r1.sum, r0.sum}; cout = r3.cout})
 }
 
+loop {
+    cycle 1
+}
+
 proc RCATop() =
     chan ch_le -- ch_ri : RCAch
     spawn RCA(ch_le)
