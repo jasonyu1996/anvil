@@ -200,13 +200,17 @@ let codegen_proc printer (graphs : EventGraph.event_graph_collection) (g : proc_
 
   (* Generate endpoints, spawns, regs, and post-declare for the first thread *)
   codegen_endpoints printer graphs initEvents;
+  
   codegen_spawns printer graphs initEvents;
+
   codegen_regs printer graphs initEvents;
-  codegen_post_declare printer graphs initEvents;
+  
+  
 
   (* Iterate over all threads to print states *)
   List.iter (fun thread ->
-    CodegenStates.codegen_states printer graphs thread
+    codegen_post_declare printer graphs thread;
+    CodegenStates.codegen_states printer graphs thread;
   ) g.threads;
 
   CodegenPrinter.print_line printer ~lvl_delta_pre:(-1) "endmodule"
