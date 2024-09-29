@@ -96,7 +96,7 @@ cunit:
 
 proc_def:
   KEYWORD_PROC; ident = IDENT; LEFT_PAREN; args = proc_def_arg_list; RIGHT_PAREN;
-  EQUAL; LEFT_BRACE; body = proc_def_body; RIGHT_BRACE
+  EQUAL; body = proc_def_body;
   {
     {
       name = ident;
@@ -107,19 +107,18 @@ proc_def:
 ;
 
 proc_def_body:
-| prog = expr // Single executing commands (outside the always block)
+|
   {
     let open Anvil.Lang in {
       channels = [];
       spawns = [];
       regs = [];
-      prog = prog;
       loops = [];
     }
   }
-| KEYWORD_LOOP; LEFT_BRACE; thread_prog = expr; RIGHT_BRACE; body=proc_def_body //For thread definitions
+| KEYWORD_LOOP; LEFT_BRACE thread_prog = expr; RIGHT_BRACE; body=proc_def_body //For thread definitions
   {
-    let open Anvil.Lang in {body with loops = expr::(body.loops) }
+    let open Anvil.Lang in {body with loops = thread_prog::(body.loops) }
   }
 | KEYWORD_CHAN; chan_def = channel_def; body = proc_def_body // For Channel Invocation and interface aquisition
   {

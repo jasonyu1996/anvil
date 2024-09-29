@@ -1,6 +1,7 @@
 open Lang
 
 type event_graph = EventGraph.event_graph
+type proc_graph = EventGraph.proc_graph  (* Ensure proc_graph is defined in EventGraph *)
 type event_graph_collection = EventGraph.event_graph_collection
 
 module Format = CodegenFormat
@@ -78,6 +79,7 @@ let codegen_spawns printer (graphs : event_graph_collection) (g : event_graph) =
     CodegenPrinter.print_line printer ".rst_ni";
     (* connect the wires *)
     let proc_other = CodegenHelpers.lookup_proc graphs.event_graphs spawn.proc |> Option.get in
+    let proc_other_details = List.hd proc_other.threads; in 
     let connect_endpoints = fun (arg_endpoint : endpoint_def) (param_ident : identifier) ->
       let endpoint_local = MessageCollection.lookup_endpoint g.messages param_ident |> Option.get in
       let endpoint_name_local = EventGraph.canonicalize_endpoint_name param_ident g in
@@ -98,7 +100,7 @@ let codegen_spawns printer (graphs : event_graph_collection) (g : event_graph) =
           List.iteri (print_data_con Format.format_msg_data_signal_name) msg.sig_types;
         end
       in List.iter print_msg_con cc.messages
-    in List.iter2 connect_endpoints proc_other.messages.args spawn.params;
+    in List.iter2 connect_endpoints proc_other_details.messages.args spawn.params;
     CodegenPrinter.print_line printer ~lvl_delta_pre:(-1) ");"
   in List.iteri gen_spawn g.spawns
 
@@ -192,14 +194,15 @@ let codegen_proc printer (graphs : EventGraph.event_graph_collection) (g : proc_
   Printf.sprintf "module %s (" g.name |> CodegenPrinter.print_line printer ~lvl_delta_post:1;
 
   (* Generate ports for the first thread *)
-  codegen_ports printer graphs g.threads[0].messages.args;
+  let initEvents:event_graph = List.hd g.threads; in
+  codegen_ports printer graphs initEvents.messages.args;
   CodegenPrinter.print_line printer ~lvl_delta_pre:(-1) ~lvl_delta_post:1 ");";
 
   (* Generate endpoints, spawns, regs, and post-declare for the first thread *)
-  codegen_endpoints printer graphs g.threads[0];
-  codegen_spawns printer graphs g.threads[0];
-  codegen_regs printer graphs g.threads[0];
-  codegen_post_declare printer graphs g.threads[0];
+  codegen_endpoints printer graphs initEvents;
+  codegen_spawns printer graphs initEvents;
+  codegen_regs printer graphs initEvents;
+  codegen_post_declare printer graphs initEvents;
 
   (* Iterate over all threads to print states *)
   List.iter (fun thread ->

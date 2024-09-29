@@ -51,7 +51,7 @@ type event_graph = {
 }
 
 type proc_graph = {
-  id : Lang.identifier;
+  name : Lang.identifier;
   threads : event_graph list;
 }
 

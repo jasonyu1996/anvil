@@ -349,7 +349,7 @@ type proc_def_body = {
   (* processes spawned by this process *)
   spawns: spawn_def list;
   regs: reg_def list;
-  prog: expr;
+  (* prog: expr; *)
   loops: expr list;
 }
 
