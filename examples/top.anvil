@@ -1,6 +1,8 @@
 proc top() =
-    cycle then
-    let answer = 8'd42 in
-    dprint "Hello Anvil! Answer = %d" (answer);
-    cycle then
-    dfinish
+    loop {
+        cycle 1 =>
+        let answer = 8'd42 in
+        dprint "Hello Anvil! Answer = %d" (answer);
+        cycle 1 =>
+        dfinish
+    }
