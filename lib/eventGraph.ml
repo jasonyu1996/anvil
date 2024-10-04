@@ -117,7 +117,7 @@ module Typing = struct
   type shared_var_info = {
     assigning_thread : int;
     mutable value : timed_data option;
-    mutable dtype : data_type option;
+    _dtype : data_type;
   }
 
   type build_context = {
@@ -463,23 +463,23 @@ let rec visit_expr (graph : event_graph) (ci : cunit_info)
         )
       | _ -> raise (TypeError "Invalid variant type name!")
     )
-  | SharedAssign (id, value_expr, start_time, end_time) ->
+  | SharedAssign (id, value_expr, lifetime) ->
     let shared_info = Hashtbl.find ctx.shared_vars_info id in
     if graph.thread_id = shared_info.assigning_thread then
       let value_td = visit_expr graph ci ctx value_expr in
       
-      let start_event = match start_time with
-        | `Cycles n -> Typing.event_create graph (`Seq (ctx.current, `Cycles n))
-        | `Message msg_spec -> Typing.event_create graph (`Seq (ctx.current, `Recv msg_spec))
-        | `Eternal -> ctx.current in
-      
-      let end_event = match end_time with
-        | `Cycles n -> Typing.event_create graph (`Seq (start_event, `Cycles n))
-        | `Message msg_spec -> Typing.event_create graph (`Seq (start_event, `Recv msg_spec))
-        | `Eternal -> Typing.event_create graph `Root in
-
-      let shared_lifetime = Typing.{
-        live = start_event;
+      let start_event = match lifetime.b with
+      | `Cycles n -> Typing.event_create graph (`Seq (ctx.current, `Cycles n))
+      | `Message msg -> Typing.event_create graph (`Seq (ctx.current, `Recv {endpoint = ""; msg = msg}))
+      | `Eternal -> ctx.current in
+    
+    let end_event = match lifetime.e with
+      | `Cycles n -> Typing.event_create graph (`Seq (start_event, `Cycles n))
+      | `Message msg -> Typing.event_create graph (`Seq (start_event, `Recv {endpoint = ""; msg = msg}))
+      | `Eternal -> Typing.event_create graph `Root in
+  
+    let shared_lifetime = Typing.{
+      live = start_event;
         dead = Typing.delay_of_event end_event;
       } in
       
@@ -489,9 +489,9 @@ let rec visit_expr (graph : event_graph) (ci : cunit_info)
       } in
       
       shared_info.value <- Some shared_td;
-      (match shared_info.dtype with
+      (* (match shared_info.dtype with
       | None -> shared_info.dtype <- Some (Option.get value_td.w).dtype
-      | Some _ -> ());
+      | Some _ -> ()); *)
       
       (* Create an event for the assignment *)
       let assign_event = Typing.event_create graph (`Seq (ctx.current, `Cycles 0)) in
@@ -504,12 +504,12 @@ let rec visit_expr (graph : event_graph) (ci : cunit_info)
 
 (* Builds the graph representation for each process To Do: Add support for commands outside loop (be executed once or continuosly)*)
 let build_proc (ci : cunit_info) (proc : proc_def) : proc_graph =
-    let shared_vars_info = Hashtbl.create (List.length proc.body.shared_vars) in
-    List.iter (fun sv -> 
+  let shared_vars_info = Hashtbl.create (List.length proc.body.shared_vars) in
+  List.iter (fun sv -> 
       let r: Typing.shared_var_info = {
         assigning_thread = sv.assigning_thread;
         value = None;
-        dtype = None;
+        _dtype = sv.dtype;
       } in
       Hashtbl.add shared_vars_info sv.ident r 
     ) proc.body.shared_vars;

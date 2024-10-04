@@ -38,14 +38,23 @@ chan RCAch =
 }
 
 proc full_adder(ch : left addCh) =
+
+shared a : logic[4] assigned by 0
+
 loop {
     let r = recv ch::req in
     r => (
         let s=(r.a^r.b^r.cr) in
         let c=((r.a&r.b) | (r.b&r.cr) | (r.cr&r.a)) in
         send ch::res(add1_res::{sum = s; cout = c})
-    )
+    );
+    shared a (#0 - #0) = 4'b0100
 }
+    loop {
+        cycle 1;
+        dprint "a = %d" (a)
+
+    }
 
 
 proc RCA(ch : left RCAch) =

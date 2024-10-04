@@ -283,7 +283,7 @@ and expr =
   | Debug of debug_op
   | Send of send_pack
   | Recv of recv_pack
-  | SharedAssign of identifier * expr * future * future  (* id, value, start_time, end_time *)
+  | SharedAssign of identifier * expr * sig_lifetime_chan_local  (* id, value, lifetime *)
 and lvalue =
   | Reg of identifier
   | Indexed of lvalue * index (* lvalue[index] *)
@@ -347,6 +347,7 @@ type spawn_def = {
 type shared_var_def = {
   ident: identifier;
   assigning_thread: int;
+  dtype: data_type;
 }
 
 type proc_def_body = {
@@ -398,3 +399,29 @@ let get_message_direction (msg_dir : message_direction)
   match endpoint_dir with
   | Left -> msg_dir
   | Right -> reverse msg_dir
+
+let rec string_of_expr (e : expr) : string =
+  match e with
+  | Literal lit -> "Literal " ^ string_of_literal lit
+  | Identifier id -> "Identifier " ^ id
+  | Assign (lv, e) -> "Assign (" ^ string_of_lvalue lv ^ ", " ^ string_of_expr e ^ ")"
+  | _ -> "..."
+
+and string_of_lvalue (lv : lvalue) : string =
+  match lv with
+  | Reg id -> "Reg " ^ id
+  | Indexed (lv, idx) -> "Indexed (" ^ string_of_lvalue lv ^ ", " ^ string_of_index idx ^ ")"
+  | Indirected (lv, id) -> "Indirected (" ^ string_of_lvalue lv ^ ", " ^ id ^ ")"
+
+and string_of_index (idx : index) : string =
+  match idx with
+  | Single e -> "Single (" ^ string_of_expr e ^ ")"
+  | Range (e1, e2) -> "Range (" ^ string_of_expr e1 ^ ", " ^ string_of_expr e2 ^ ")"
+
+and string_of_literal (lit : literal) : string =
+  match lit with
+  | Binary (n, bits) -> "Binary (" ^ string_of_int n ^ ", [" ^ String.concat ";" (List.map string_of_digit bits) ^ "])"
+  | Decimal (n, digits) -> "Decimal (" ^ string_of_int n ^ ", [" ^ String.concat ";" (List.map string_of_digit digits) ^ "])"
+  | Hexadecimal (n, hexits) -> "Hexadecimal (" ^ string_of_int n ^ ", [" ^ String.concat ";" (List.map string_of_digit hexits) ^ "])"
+  | WithLength (n, v) -> "WithLength (" ^ string_of_int n ^ ", " ^ string_of_int v ^ ")"
+  | NoLength v -> "NoLength " ^ string_of_int v
