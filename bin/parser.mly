@@ -69,6 +69,9 @@
 %token <string>DEC_LITERAL  (* decimal literal *)
 %token <string>HEX_LITERAL  (* hexadecimal literal *)
 %token <string>STR_LITERAL
+%token KEYWORD_SHARED       (* shared *)
+%token KEYWORD_ASSIGNED     (* assigned *)
+%token KEYWORD_BY           (* by *)
 %right LEFT_ABRACK RIGHT_ABRACK LEFT_ABRACK_EQ RIGHT_ABRACK_EQ
 %right EXCL_EQ DOUBLE_EQ
 %right KEYWORD_IN
@@ -114,6 +117,7 @@ proc_def_body:
       spawns = [];
       regs = [];
       loops = [];
+      shared_vars = [];
     }
   }
 | KEYWORD_LOOP; LEFT_BRACE thread_prog = expr; RIGHT_BRACE; body=proc_def_body //For thread definitions
@@ -131,6 +135,10 @@ proc_def_body:
 | KEYWORD_SPAWN; spawn_def = spawn; body = proc_def_body // For instantiating processes
   {
     let open Anvil.Lang in {body with spawns = spawn_def::(body.spawns)}
+  }
+| shared_var = shared_var_def; body = proc_def_body
+  {
+    let open Anvil.Lang in {body with shared_vars = shared_var :: body.shared_vars}
   }
 ;
 
@@ -299,6 +307,8 @@ expr:
   { Anvil.Lang.Debug (Anvil.Lang.DebugPrint (s, v)) }
 | KEYWORD_DFINISH
   { Anvil.Lang.Debug Anvil.Lang.DebugFinish }
+| KEYWORD_SHARED; ident = IDENT; LEFT_PAREN; start_time = timestamp; COMMA; end_time = timestamp; RIGHT_PAREN; EQUAL; value = expr
+  { Anvil.Lang.SharedAssign (ident, value, start_time, end_time) }
 // | KEYWORD_LOOP; body = expr
 //   { Anvil.Lang.Loop body }  
 // ;
@@ -547,5 +557,15 @@ message_specifier:
       endpoint = endpoint;
       msg = msg_type;
     } : Anvil.Lang.message_specifier
+  }
+;
+
+shared_var_def:
+  KEYWORD_SHARED; ident = IDENT; KEYWORD_ASSIGNED; KEYWORD_BY; thread_id = INT
+  {
+    {
+      ident = ident;
+      assigning_thread = thread_id;
+    } : Anvil.Lang.shared_var_def
   }
 ;
