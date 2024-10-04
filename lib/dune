@@ -1,2 +1,3 @@
 (library
- (name anvil))
+ (name anvil)
+ (public_name anvil))
