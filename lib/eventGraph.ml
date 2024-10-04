@@ -53,7 +53,6 @@ type event_graph = {
   messages : MessageCollection.t;
   spawns: spawn_def list;
   regs: reg_def list;
-  (* loops: expr list; *)
   (* the id of the last event *)
   (* the process loops from the start when this event is reached *)
   mutable last_event_id: int;
@@ -489,14 +488,6 @@ let rec visit_expr (graph : event_graph) (ci : cunit_info)
       } in
       
       shared_info.value <- Some shared_td;
-      (* (match shared_info.dtype with
-      | None -> shared_info.dtype <- Some (Option.get value_td.w).dtype
-      | Some _ -> ()); *)
-      
-      (* Create an event for the assignment *)
-      let assign_event = Typing.event_create graph (`Seq (ctx.current, `Cycles 0)) in
-      assign_event.actions <- RegAssign (id, Option.get shared_td.w) :: assign_event.actions;
-      
       shared_td
     else
       raise (TypeError "Shared variable assigned in wrong thread")
