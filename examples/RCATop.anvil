@@ -48,7 +48,7 @@ loop {
         let c=((r.a&r.b) | (r.b&r.cr) | (r.cr&r.a)) in
         send ch::res(add1_res::{sum = s; cout = c})
     );
-    shared a (#0 - #0) = 4'b0100
+    shared a (#1 - #5) = 4'b0100
 }
     loop {
         cycle 1;
