@@ -1,19 +1,5 @@
 type wire = WireCollection.wire
 type wire_collection = WireCollection.t
-type action =
-  | DebugPrint of string * wire list
-  | DebugFinish
-  | RegAssign of string * wire
-
-type sustained_action_type =
-  | Send of Lang.message_specifier * wire
-  | Recv of Lang.message_specifier
-
-type condition = {
-  w : wire;
-  neg : bool;
-}
-
 
 type atomic_delay = [
   | `Cycles of int
@@ -21,34 +7,56 @@ type atomic_delay = [
   | `Recv of Lang.message_specifier
 ]
 
-type event = {
+type lifetime = {
+  live : event;
+  dead : event_pat;
+}
+and timed_data = {
+  w : wire option;
+  lt : lifetime;
+}
+and action =
+  | DebugPrint of string * timed_data list
+  | DebugFinish
+  | RegAssign of string * timed_data
+and sustained_action_type =
+  | Send of Lang.message_specifier * timed_data
+  | Recv of Lang.message_specifier
+and condition = {
+  data : timed_data;
+  neg : bool;
+}
+and event_pat = (event * Lang.delay_pat) list
+and event = {
   id : int;
   mutable actions: action list;
   mutable sustained_actions : sustained_action list;
   source: event_source;
+  (* for lifetime checking *)
   mutable control_regs: (int * int) Utils.string_map;
   mutable control_endps: (int * int) Utils.string_map;
   mutable current_regs : (int * int) Utils.string_map;
   mutable current_endps : (int * int) Utils.string_map;
-}
-and sustained_action = {
-  until : event;
-  ty : sustained_action_type;
+  mutable outs : event list;
 }
 and event_source = [
   | `Root
   | `Later of event * event
   | `Seq of event * atomic_delay
   | `Branch of condition * event
-  | `Either of event * event
+  | `Either of event * event (* joining if-then-else branches *)
 ]
-
-type event_pat = (event * Lang.delay_pat) list
+(* sustained actions are in effect when current is reached and until
+  is not reached *)
+and sustained_action = {
+  until : event;
+  ty : sustained_action_type
+}
 
 type event_graph = {
   thread_id : int;
   mutable events : event list;
-  mutable wires : wire_collection;
+  mutable wires : WireCollection.t;
   channels : Lang.channel_def list;
   messages : MessageCollection.t;
   spawns : Lang.spawn_def list;

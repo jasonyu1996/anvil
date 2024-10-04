@@ -4,26 +4,10 @@ open Except
 type wire = WireCollection.wire
 type wire_collection = WireCollection.t
 
-
 type cunit_info = {
   typedefs : TypedefMap.t;
   channel_classes : channel_class_def list;
 }
-
-type action =
-  | DebugPrint of string * wire list
-  | DebugFinish
-  | RegAssign of string * wire
-
-type sustained_action_type =
-  | Send of message_specifier * wire
-  | Recv of message_specifier
-
-type condition = {
-  w : wire;
-  neg : bool;
-}
-
 
 type atomic_delay = [
   | `Cycles of int
@@ -31,7 +15,27 @@ type atomic_delay = [
   | `Recv of Lang.message_specifier
 ]
 
-type event = {
+type lifetime = {
+  live : event;
+  dead : event_pat;
+}
+and timed_data = {
+  w : wire option;
+  lt : lifetime;
+}
+and action =
+  | DebugPrint of string * timed_data list
+  | DebugFinish
+  | RegAssign of string * timed_data
+and sustained_action_type =
+  | Send of message_specifier * timed_data
+  | Recv of message_specifier
+and condition = {
+  data : timed_data;
+  neg : bool;
+}
+and event_pat = (event * Lang.delay_pat) list
+and event = {
   id : int;
   mutable actions: action list;
   mutable sustained_actions : sustained_action list;
@@ -41,6 +45,7 @@ type event = {
   mutable control_endps: (int * int) Utils.string_map;
   mutable current_regs : (int * int) Utils.string_map;
   mutable current_endps : (int * int) Utils.string_map;
+  mutable outs : event list;
 }
 and event_source = [
   | `Root
@@ -55,8 +60,6 @@ and sustained_action = {
   until : event;
   ty : sustained_action_type
 }
-
-type event_pat = (event * Lang.delay_pat) list
 
 type event_graph = {
   (* name : identifier; *)
@@ -79,15 +82,6 @@ type proc_graph = {
 
 exception LifetimeCheckError of string
 module Typing = struct
-  type lifetime = {
-    live : event;
-    dead : event_pat;
-  }
-
-  type timed_data = {
-    w : wire option;
-    lt : lifetime;
-  }
 
   type context = timed_data Utils.string_map
   type build_context = {
@@ -98,12 +92,23 @@ module Typing = struct
   let event_create g source =
     let n = {actions = []; sustained_actions = []; source; id = List.length g.events;
       control_regs = Utils.StringMap.empty; control_endps = Utils.StringMap.empty;
-      current_regs = Utils.StringMap.empty; current_endps = Utils.StringMap.empty} in
+      current_regs = Utils.StringMap.empty; current_endps = Utils.StringMap.empty;
+      outs = []} in
     g.events <- n::g.events;
+    (
+      match source with
+      | `Later (e1, e2)
+      | `Either (e1, e2) ->
+        e1.outs <- n::e1.outs;
+        e2.outs <- n::e2.outs
+      | `Branch (_, ev') ->
+        ev'.outs <- n::ev'.outs
+      | _ -> ()
+    );
     n
 
   let lifetime_const current = {live = current; dead = [(current, `Eternal)]}
-  let _lifetime_immediate current = {live = current; dead = [(current, `Cycles 1)]}
+  let lifetime_immediate current = {live = current; dead = [(current, `Cycles 1)]}
   let lifetime_intersect g (a : lifetime) (b : lifetime) =
     {
       live = event_create g (`Later (a.live, b.live));
@@ -283,13 +288,81 @@ module Typing = struct
       ) ev.control_endps
     ) g.events
 
+  let event_traverse (ev : event) visitor : event list =
+    let visited = Seq.return ev.id |> Utils.IntSet.of_seq |> ref in
+    let q = Seq.return ev |> Queue.of_seq in
+    let res = ref [] in
+    let add_to_queue ev' =
+      if Utils.IntSet.mem ev'.id !visited |> not then (
+        visited := Utils.IntSet.add ev'.id !visited;
+        Queue.add ev' q
+      )
+      else ()
+    in
+    while Queue.is_empty q |> not do
+      let cur = Queue.pop q in
+      res := cur::!res;
+      visitor add_to_queue cur
+    done;
+    !res
+
+  (** compute predecessors of an event in the event graph *)
+  let _event_predecessors (ev : event) (_g : event_graph) : event list =
+    let visitor add_to_queue cur =
+      match cur.source with
+      | `Later (e1, e2)
+      | `Either (e1, e2) ->
+        add_to_queue e1;
+        add_to_queue e2
+      | `Branch (_, ev')
+      | `Seq (ev', _) ->
+        add_to_queue ev'
+      | _ -> ()
+    in
+    event_traverse ev visitor
+
+  let _event_successors (ev : event) (_g : event_graph) : event list =
+    let visitor add_to_queue cur =
+      List.iter add_to_queue cur.outs
+    in
+    event_traverse ev visitor
+
+  type _event_pat_match_result =
+  | Match | Mismatch | Unsure
+
+  let _event_pat_matches (_ev : event) (_ev_pat : event_pat) = Unsure
+
+  (** Check that lt1 is always fully covered by lt2 *)
+  let lifetime_in_range (_lt1 : lifetime) (_lt2 : lifetime) = true
+    (* 1. check if lt2's start is a predecessor of lt1's start *)
+    (* 2. derive a set of all time points A potentially within lt1 *)
+    (* 4. check that end time of lt2 does not match any time point in A *)
+
   (** Perform lifetime check on an event graph and throw out LifetimeCheckError if failed. *)
   let lifetime_check (config : Config.compile_config) (g : event_graph) =
     gen_control_set g;
     (* for debugging purposes*)
     if config.verbose then
       print_control_set g
-    else ()
+    else ();
+    (* check lifetime for each use of a wire *)
+    List.iter (fun ev ->
+      List.iter (fun a ->
+        match a with
+        | RegAssign (_reg_ident, td) ->
+          (* TODO: check that the register is not currently borrowed *)
+          if lifetime_in_range (lifetime_immediate ev) td.lt |> not then
+            raise (LifetimeCheckError "Value does not live long enough in reg assignment!")
+          else ()
+        | DebugPrint (_, tds) ->
+          List.iter (fun td ->
+            if lifetime_in_range (lifetime_immediate ev) td.lt |> not then
+              raise (LifetimeCheckError "Value does not live long enough in debug print!")
+            else ()
+          ) tds
+        | _ -> ()
+      ) ev.actions
+    ) g.events
 
   (* let rec delay_leq_check (a : delay) (b : delay) : bool =
     match a, b with
@@ -334,10 +407,10 @@ module Typing = struct
       {ctx with typing_ctx = context_add ctx.typing_ctx v d}
     let wait g (ctx : t) (other : event) : t =
       {ctx with current = event_create g (`Later (ctx.current, other))}
-    let branch g (ctx : t) (w : wire) : t * t =
+    let branch g (ctx : t) (td : timed_data) : t * t =
       (
-        {ctx with current = event_create g (`Branch ({w; neg = false}, ctx.current))},
-        {ctx with current = event_create g (`Branch ({w; neg = true}, ctx.current))}
+        {ctx with current = event_create g (`Branch ({data = td; neg = false}, ctx.current))},
+        {ctx with current = event_create g (`Branch ({data = td; neg = true}, ctx.current))}
       )
   end
 
@@ -348,7 +421,7 @@ type build_context = Typing.build_context
 module BuildContext = Typing.BuildContext
 
 let rec visit_expr (graph : event_graph) (ci : cunit_info)
-                   (ctx : build_context) (e : expr) : Typing.timed_data =
+                   (ctx : build_context) (e : expr) : timed_data =
   match e with
   | Literal lit ->
     let (wires', w) = WireCollection.add_literal lit graph.wires in
@@ -357,7 +430,6 @@ let rec visit_expr (graph : event_graph) (ci : cunit_info)
   | Identifier ident -> Typing.context_lookup ctx.typing_ctx ident |> Option.get
   | Assign (lval, e') ->
     let td = visit_expr graph ci ctx e' in
-    let w' = Option.get td.w in
     let reg_ident = (
       let open Lang in
       match lval with
@@ -365,7 +437,7 @@ let rec visit_expr (graph : event_graph) (ci : cunit_info)
         ident
       | _ -> raise (UnimplementedError "Lval with indexing/indirection unimplemented!")
     ) in
-    ctx.current.actions <- (RegAssign (reg_ident, w'))::ctx.current.actions;
+    ctx.current.actions <- (RegAssign (reg_ident, td))::ctx.current.actions;
     Typing.cycles_data graph 1 ctx.current
   | Binop (binop, e1, e2) ->
     let td1 = visit_expr graph ci ctx e1
@@ -403,12 +475,12 @@ let rec visit_expr (graph : event_graph) (ci : cunit_info)
     let w1 = Option.get td1.w in
     let (ctx_true, ctx_false) =
       let ctx' = BuildContext.wait graph ctx td1.lt.live in
-      BuildContext.branch graph ctx' w1
+      BuildContext.branch graph ctx' td1
     in
     let td2 = visit_expr graph ci ctx_true e2
     and td3 = visit_expr graph ci ctx_false e3 in
     (* FIXME: the dead time is incorrect *)
-    let lt = let open Typing in {live = Typing.event_create graph (`Either (td2.lt.live, td3.lt.live));
+    let lt = {live = Typing.event_create graph (`Either (td2.lt.live, td3.lt.live));
       dead = td1.lt.dead @ td2.lt.dead @td3.lt.dead} in
     (
       match td2.w, td3.w with
@@ -421,10 +493,10 @@ let rec visit_expr (graph : event_graph) (ci : cunit_info)
     )
   | Concat es ->
     let tds = List.map (visit_expr graph ci ctx) es in
-    let ws = List.map (fun (td : Typing.timed_data) -> Option.get td.w) tds in
+    let ws = List.map (fun (td : timed_data) -> Option.get td.w) tds in
     let (wires', w) = WireCollection.add_concat ci.typedefs ws graph.wires in
     graph.wires <- wires';
-    Typing.merged_data graph (Some w) ctx.current (List.map (fun (td : Typing.timed_data) -> td.lt) tds)
+    Typing.merged_data graph (Some w) ctx.current (List.map (fun (td : timed_data) -> td.lt) tds)
   | Read reg_ident ->
     let r = List.find (fun (r : Lang.reg_def) -> r.name = reg_ident) graph.regs in
     let (wires', w) = WireCollection.add_reg_read ci.typedefs r graph.wires in
@@ -435,10 +507,7 @@ let rec visit_expr (graph : event_graph) (ci : cunit_info)
       match op with
       | DebugPrint (s, e_list) ->
         let timed_ws = List.map (visit_expr graph ci ctx) e_list in
-        let ws = List.map (fun (x : Typing.timed_data) -> Option.get x.w)
-          timed_ws
-        in
-        ctx.current.actions <- (DebugPrint (s, ws))::ctx.current.actions;
+        ctx.current.actions <- (DebugPrint (s, timed_ws))::ctx.current.actions;
         (* TODO: incorrect lifetime *)
         {w = None; lt = Typing.lifetime_const ctx.current}
       | DebugFinish ->
@@ -453,7 +522,7 @@ let rec visit_expr (graph : event_graph) (ci : cunit_info)
     ctx.current.sustained_actions <-
       {
         until = ntd.lt.live;
-        ty = Send (send_pack.send_msg_spec, Option.get td.w)
+        ty = Send (send_pack.send_msg_spec, td)
       }::ctx.current.sustained_actions;
     ntd
   | Recv recv_pack ->
@@ -491,10 +560,10 @@ let rec visit_expr (graph : event_graph) (ci : cunit_info)
           match Utils.list_match_reorder (List.map fst record_fields) field_exprs with
           | Some expr_reordered ->
             let tds = List.map (visit_expr graph ci ctx) expr_reordered in
-            let ws = List.rev_map (fun ({w; _} : Typing.timed_data) -> Option.get w) tds in
+            let ws = List.rev_map (fun ({w; _} : timed_data) -> Option.get w) tds in
             let (wires', w) = WireCollection.add_concat ci.typedefs ws graph.wires in
             graph.wires <- wires';
-            List.map (fun ({lt; _} : Typing.timed_data) -> lt) tds |>
+            List.map (fun ({lt; _} : timed_data) -> lt) tds |>
             Typing.merged_data graph (Some w) ctx.current
           | _ -> raise (TypeError "Invalid record type value!")
         )

@@ -62,7 +62,7 @@ let codegen_next printer (g : EventGraph.event_graph) =
         else
           Printf.sprintf "assign _thread_%d_event_current%d = _thread_%d_event_current%d && %s;" g.thread_id e.id g.thread_id e'.id wn |> print_line
       in
-      print @@ CodegenFormat.format_wirename cond.w.id
+      print @@ CodegenFormat.format_wirename (Option.get cond.data.w).id
   in
   List.iter print_compute_next g.events
 
@@ -74,16 +74,16 @@ let codegen_actions printer (g : EventGraph.event_graph) =
     if e.actions <> [] then begin
       Printf.sprintf "if (_thread_%d_event_current%d) begin" g.thread_id e.id |> print_line ~lvl_delta_post:1;
       let print_action = function
-        | DebugPrint (s, ws) ->
+        | DebugPrint (s, tds) ->
           Printf.sprintf "$display(\"%s\"%s);"
             s
-            (List.map (fun (x : wire) -> Printf.sprintf ", %s" @@ CodegenFormat.format_wirename x.id) ws |>
+            (List.map (fun (td : timed_data) -> Printf.sprintf ", %s" @@ CodegenFormat.format_wirename (Option.get td.w).id) tds |>
             String.concat "") |> print_line
         | DebugFinish ->
           print_line "$finish;"
-        | RegAssign (reg_ident, w) ->
+        | RegAssign (reg_ident, td) ->
           Printf.sprintf "%s <= %s;"
-            (CodegenFormat.format_regname_current reg_ident) (CodegenFormat.format_wirename w.id)
+            (CodegenFormat.format_regname_current reg_ident) (CodegenFormat.format_wirename (Option.get td.w).id)
             |> print_line
       in
       List.iter print_action e.actions;
@@ -148,13 +148,13 @@ let codegen_sustained_actions printer (g : EventGraph.event_graph) =
       let activated = Printf.sprintf "(_thread_%d_event_reached[%d] || _thread_%d_event_current%d) && !_thread_%d_event_reached[%d] && !_thread_%d_event_current%d"
         g.thread_id e.id g.thread_id e.id g.thread_id sa.until.id g.thread_id sa.until.id in
       match sa.ty with
-      | Send (msg, w) ->
+      | Send (msg, td) ->
         Printf.sprintf "assign %s = %s;"
           (CodegenFormat.format_msg_valid_signal_name (EventGraph.canonicalize_endpoint_name msg.endpoint g) msg.msg)
           activated |> print_line;
         Printf.sprintf "assign %s = %s;"
           (CodegenFormat.format_msg_data_signal_name (EventGraph.canonicalize_endpoint_name msg.endpoint g) msg.msg 0)
-          (CodegenFormat.format_wirename w.id)
+          (CodegenFormat.format_wirename (Option.get td.w).id)
           |> print_line
       | Recv msg ->
         Printf.sprintf "assign %s = %s;"
