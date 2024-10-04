@@ -14,12 +14,12 @@ type condition = {
   neg : bool;
 }
 
-type plain_lifetime = {
-  live: Lang.delay;
-  dead: Lang.delay;
-}
 
-val string_of_plain_lifetime : plain_lifetime -> string
+type atomic_delay = [
+  | `Cycles of int
+  | `Send of Lang.message_specifier
+  | `Recv of Lang.message_specifier
+]
 
 type event = {
   id : int;
@@ -34,10 +34,12 @@ and sustained_action = {
 and event_source = [
   | `Root
   | `Later of event * event
-  | `Earlier of event * event
-  | `Seq of event * Lang.atomic_delay
+  | `Seq of event * atomic_delay
   | `Branch of condition * event
+  | `Either of event * event
 ]
+
+type event_pat = (event * Lang.delay_pat) list
 
 type event_graph = {
   thread_id : int;
@@ -63,6 +65,6 @@ type event_graph_collection = {
 
 val build : Lang.compilation_unit -> event_graph_collection
 
-exception BorrowCheckError of string * plain_lifetime * plain_lifetime
+exception BorrowCheckError of string
 
 val canonicalize_endpoint_name : Lang.identifier -> event_graph -> Lang.identifier

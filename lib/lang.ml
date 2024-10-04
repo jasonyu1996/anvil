@@ -8,22 +8,23 @@ type message_specifier = {
 let string_of_msg_spec (msg_spec : message_specifier) : string =
   msg_spec.endpoint ^ "::" ^ msg_spec.msg
 
-type future = [ `Cycles of int | `Message of message_specifier | `Eternal ]
+(* TODO: more complex patterns *)
+type delay_pat = [ `Cycles of int | `Message of message_specifier | `Eternal ]
 
-(* future definition that is local to a specific channel *)
-type future_chan_local = [ `Cycles of int | `Message of identifier | `Eternal ]
+(* delay_pat definition that is local to a specific channel *)
+type delay_pat_chan_local = [ `Cycles of int | `Message of identifier | `Eternal ]
 
-let string_of_future (t : future) : string =
+let string_of_delay_pat (t : delay_pat) : string =
   match t with
   | `Cycles n -> Printf.sprintf "#%d" n
   | `Message msg_spec -> Printf.sprintf "%s" (string_of_msg_spec msg_spec)
   | `Eternal -> "E"
 
-type sig_lifetime = { b: future; e: future;}
-type sig_lifetime_chan_local = { b: future_chan_local; e: future_chan_local; }
+type sig_lifetime = { b: delay_pat; e: delay_pat;}
+type sig_lifetime_chan_local = { b: delay_pat_chan_local; e: delay_pat_chan_local; }
 
 let string_of_lifetime (lt : sig_lifetime) : string =
-  Printf.sprintf "%s-%s" (string_of_future lt.b) (string_of_future lt.e)
+  Printf.sprintf "%s-%s" (string_of_delay_pat lt.b) (string_of_delay_pat lt.e)
 
 let sig_lifetime_this_cycle_chan_local : sig_lifetime_chan_local =
   { b = `Cycles 0; e = `Cycles 1 }
@@ -96,14 +97,14 @@ type 'a sig_type_general = {
 type sig_type = sig_lifetime sig_type_general
 type sig_type_chan_local = sig_lifetime_chan_local sig_type_general
 
-let future_globalise (endpoint : identifier) (t : future_chan_local) : future =
+let delay_pat_globalise (endpoint : identifier) (t : delay_pat_chan_local) : delay_pat =
   match t with
   | `Message msg -> `Message {endpoint = endpoint; msg = msg}
   | `Cycles n -> `Cycles n
   | `Eternal -> `Eternal
 
 let lifetime_globalise (endpoint : identifier) (lt : sig_lifetime_chan_local) : sig_lifetime =
-  { b = future_globalise endpoint lt.b; e = future_globalise endpoint lt.e }
+  { b = delay_pat_globalise endpoint lt.b; e = delay_pat_globalise endpoint lt.e }
 
 let sig_type_globalise (endpoint : identifier) (s : sig_type_chan_local) : sig_type =
   {
@@ -123,7 +124,7 @@ type message_direction = In | Out
 
 type message_sync_mode =
   | Dynamic
-  | Dependent of future_chan_local
+  | Dependent of delay_pat_chan_local
 
 (* message definition *)
 type message_def = {
@@ -297,20 +298,6 @@ and match_pattern = {
 and debug_op =
   | DebugPrint of string * expr list
   | DebugFinish
-
-type atomic_delay = [
-  | `Cycles of int
-  | `Send of message_specifier
-  | `Recv of message_specifier
-]
-
-type delay = [
-  | `Root
-  | `Ever
-  | `Later of delay * delay
-  | `Earlier of delay * delay
-  | `Seq of delay * atomic_delay
-]
 
 let delay_immediate = `Cycles 0
 let delay_single_cycle = `Cycles 1

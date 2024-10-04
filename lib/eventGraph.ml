@@ -24,6 +24,13 @@ type condition = {
   neg : bool;
 }
 
+
+type atomic_delay = [
+  | `Cycles of int
+  | `Send of Lang.message_specifier
+  | `Recv of Lang.message_specifier
+]
+
 type event = {
   id : int;
   mutable actions: action list;
@@ -33,9 +40,9 @@ type event = {
 and event_source = [
   | `Root
   | `Later of event * event
-  | `Earlier of event * event
   | `Seq of event * atomic_delay
   | `Branch of condition * event
+  | `Either of event * event (* joining if-then-else branches *)
 ]
 (* sustained actions are in effect when current is reached and until
   is not reached *)
@@ -43,6 +50,8 @@ and sustained_action = {
   until : event;
   ty : sustained_action_type
 }
+
+type event_pat = (event * Lang.delay_pat) list
 
 type event_graph = {
   (* name : identifier; *)
@@ -62,50 +71,10 @@ type proc_graph = {
   name: identifier;
   threads: event_graph list;
 }
-let string_of_delay (d : delay) : string =
-  let buf = Buffer.create 16 in
-  let rec append_string_of_delay = function
-    | `Ever -> Buffer.add_string buf "oo"
-    | `Root -> ()
-    | `Later (d1, d2) ->
-      Buffer.add_char buf '<';
-      append_string_of_delay d1;
-      Buffer.add_string buf ", ";
-      append_string_of_delay d2;
-      Buffer.add_char buf '>'
-    | `Earlier (d1, d2) ->
-      Buffer.add_char buf '[';
-      append_string_of_delay d1;
-      Buffer.add_string buf ", ";
-      append_string_of_delay d2;
-      Buffer.add_char buf ']'
-    | `Seq (d', dd) ->
-      append_string_of_delay d';
-      Buffer.add_string buf " => ";
-      (
-        match dd with
-        | `Cycles n -> Buffer.add_string buf @@ string_of_int n
-        | `Send msg ->
-          Lang.string_of_msg_spec msg |> Printf.sprintf "S(%s)" |> Buffer.add_string buf
-        | `Recv msg ->
-          Lang.string_of_msg_spec msg |> Printf.sprintf "R(%s)" |> Buffer.add_string buf
-      )
-  in
-  append_string_of_delay d;
-  Buffer.contents buf
-
-type plain_lifetime = {
-  live: delay;
-  dead: delay;
-}
-
-let string_of_plain_lifetime (lt : plain_lifetime) : string =
-  Printf.sprintf "{%s, %s}" (string_of_delay lt.live) (string_of_delay lt.dead)
-
 module Typing = struct
   type lifetime = {
     live : event;
-    dead : delay;
+    dead : event_pat;
   }
 
   type timed_data = {
@@ -124,29 +93,17 @@ module Typing = struct
     g.events <- n::g.events;
     n
 
-  let rec delay_of_event (e : event) : delay =
-    match e.source with
-    | `Root -> `Root
-    | `Later (e1, e2) -> `Later (delay_of_event e1, delay_of_event e2)
-    | `Earlier (e1, e2) -> `Earlier (delay_of_event e1, delay_of_event e2)
-    | `Seq (e', d) -> `Seq (delay_of_event e', d)
-    | `Branch (_, e') -> delay_of_event e'
-
-  let lifetime_plainify (lt : lifetime) : plain_lifetime =
-    {
-      live = delay_of_event lt.live;
-      dead = lt.dead;
-    }
-
-  let lifetime_const current = {live = current; dead = `Ever}
-  let lifetime_immediate current = {live = current; dead = `Seq (delay_of_event current, `Cycles 1)}
+  let lifetime_const current = {live = current; dead = [(current, `Eternal)]}
+  let _lifetime_immediate current = {live = current; dead = [(current, `Cycles 1)]}
   let lifetime_intersect g (a : lifetime) (b : lifetime) =
     {
       live = event_create g (`Later (a.live, b.live));
-      dead = `Earlier (a.dead, b.dead);
+      dead = a.dead @ b.dead;
     }
 
-  let cycles_data g (n : int) (current : event) = {w = None; lt = {live = event_create g (`Seq (current, `Cycles n)); dead = `Ever}}
+  let cycles_data g (n : int) (current : event) =
+    let live_event = event_create g (`Seq (current, `Cycles n)) in
+    {w = None; lt = {live = live_event; dead = [(live_event, `Eternal)]}}
   let const_data _g (w : wire option) (current : event) = {w; lt = lifetime_const current}
   let merged_data g (w : wire option) (current : event) (lts : lifetime list) =
     match lts with
@@ -156,11 +113,12 @@ module Typing = struct
       {w; lt = lt'}
   let derived_data (w : wire option) (lt : lifetime) = {w; lt}
   let send_msg_data g (msg : message_specifier) (current : event) =
-    {w = None; lt = {live = event_create g (`Seq (current, `Send msg)); dead = `Ever}}
+    let live_event = event_create g (`Seq (current, `Send msg)) in
+    {w = None; lt = {live = live_event; dead = [(live_event, `Eternal)]}}
   let recv_msg_data g (w : wire option) (msg : message_specifier) (_msg_def : message_def) (current : event) =
     let event_received = event_create g (`Seq (current, `Recv msg)) in
     (* FIXME: take into consideration the lifetime signature *)
-    {w; lt = {live = event_received; dead = `Ever}}
+    {w; lt = {live = event_received; dead = [(event_received, `Eternal)]}}
 
   let context_add (ctx : context) (v : identifier) (d : timed_data) : context =
     Utils.StringMap.add v d ctx
@@ -168,7 +126,7 @@ module Typing = struct
   let context_lookup (ctx : context) (v : identifier) = Utils.StringMap.find_opt v ctx
   (* checks if lt lives at least as long as required *)
 
-  let rec delay_leq_check (a : delay) (b : delay) : bool =
+  (* let rec delay_leq_check (a : delay) (b : delay) : bool =
     match a, b with
     | _, `Ever -> true
     | _, `Later (b1, b2) ->
@@ -198,14 +156,7 @@ module Typing = struct
           delay_leq_check a' b'
         | _ ->
           delay_leq_check a' b
-      )
-
-  let lifetime_check (lt : lifetime) (req : lifetime) : bool =
-    (* requires lt.live <= req.live && lt.dead >= req.dead *)
-    let lt_live_delay = delay_of_event lt.live
-    and req_live_delay = delay_of_event req.live in
-    (delay_leq_check lt_live_delay req_live_delay) &&
-      (delay_leq_check req.dead lt.dead)
+      ) *)
 
   module BuildContext = struct
     type t = build_context
@@ -228,15 +179,10 @@ module Typing = struct
 
 end
 
-exception BorrowCheckError of string * plain_lifetime * plain_lifetime
+exception BorrowCheckError of string
 
 type build_context = Typing.build_context
 module BuildContext = Typing.BuildContext
-
-let lifetime_check_except lt req emsg =
-  if not @@ Typing.lifetime_check lt req then
-    raise (BorrowCheckError (emsg, Typing.lifetime_plainify lt, Typing.lifetime_plainify req))
-  else ()
 
 let rec visit_expr (graph : event_graph) (ci : cunit_info)
                    (ctx : build_context) (e : expr) : Typing.timed_data =
@@ -249,7 +195,6 @@ let rec visit_expr (graph : event_graph) (ci : cunit_info)
   | Assign (lval, e') ->
     let td = visit_expr graph ci ctx e' in
     let w' = Option.get td.w in
-    lifetime_check_except td.lt (Typing.lifetime_immediate ctx.current) "Value does not live long enough in assignment!";
     let reg_ident = (
       let open Lang in
       match lval with
@@ -295,13 +240,13 @@ let rec visit_expr (graph : event_graph) (ci : cunit_info)
     let w1 = Option.get td1.w in
     let (ctx_true, ctx_false) =
       let ctx' = BuildContext.wait graph ctx td1.lt.live in
-      lifetime_check_except td1.lt (Typing.lifetime_immediate ctx.current) "If condition does not live long enough!";
       BuildContext.branch graph ctx' w1
     in
     let td2 = visit_expr graph ci ctx_true e2
     and td3 = visit_expr graph ci ctx_false e3 in
-    let lt = let open Typing in {live = Typing.event_create graph (`Earlier (td2.lt.live, td3.lt.live));
-      dead = `Earlier (td1.lt.dead, `Earlier (td2.lt.dead, td3.lt.dead))} in
+    (* FIXME: the dead time is incorrect *)
+    let lt = let open Typing in {live = Typing.event_create graph (`Either (td2.lt.live, td3.lt.live));
+      dead = td1.lt.dead @ td2.lt.dead @td3.lt.dead} in
     (
       match td2.w, td3.w with
       | None, None -> {w = None; lt}
@@ -436,6 +381,8 @@ let rec visit_expr (graph : event_graph) (ci : cunit_info)
     )
   | _ -> raise (UnimplementedError "Unimplemented expression!")
 
+let lifetime_check (_g : event_graph) = ()
+
 (* Builds the graph representation for each process To Do: Add support for commands outside loop (be executed once or continuosly)*)
 let build_proc (ci : cunit_info) (proc : proc_def) =
   let proc_threads = List.mapi (fun i e ->  (* Use List.mapi to get the index *)
@@ -452,9 +399,10 @@ let build_proc (ci : cunit_info) (proc : proc_def) =
     } in
     let td = visit_expr graph ci (BuildContext.create_empty graph) e in
     graph.last_event_id <- td.lt.live.id;  (* Set last_event_id for each graph *)
+    lifetime_check graph;
     graph
   ) proc.body.loops in
- {name = proc.name; threads = proc_threads};
+  {name = proc.name; threads = proc_threads};
 
 type event_graph_collection = {
   event_graphs : proc_graph list;

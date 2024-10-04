@@ -44,7 +44,7 @@ let codegen_next printer (g : EventGraph.event_graph) =
               (CodegenFormat.format_msg_valid_signal_name (EventGraph.canonicalize_endpoint_name msg.endpoint g) msg.msg)
           ] |> print_lines
       )
-    | `Earlier (e1, e2) ->
+    | `Either (e1, e2) ->
       Printf.sprintf "assign _thread_%d_event_current%d = !_thread_%d_event_reached[%d] && (_thread_%d_event_current%d || _thread_%d_event_current%d);"
         g.thread_id e.id g.thread_id e.id g.thread_id e1.id g.thread_id e2.id |> print_line
     | `Later (e1, e2) ->
