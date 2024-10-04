@@ -114,9 +114,16 @@ module Typing = struct
   }
 
   type context = timed_data Utils.string_map
+  type shared_var_info = {
+    assigning_thread : int;
+    mutable value : timed_data option;
+    mutable dtype : data_type option;
+  }
+
   type build_context = {
     typing_ctx : context;
     current : event;
+    shared_vars_info : (identifier, shared_var_info) Hashtbl.t;
   }
 
   let event_create g source =
@@ -211,7 +218,8 @@ module Typing = struct
     type t = build_context
     let create_empty g : t = {
       typing_ctx = context_empty;
-      current = event_create g `Root
+      current = event_create g `Root;
+      shared_vars_info = Hashtbl.create 0;
     }
 
     let add_binding (ctx : t) (v : identifier) (d : timed_data) : t =
@@ -245,7 +253,28 @@ let rec visit_expr (graph : event_graph) (ci : cunit_info)
     let (wires', w) = WireCollection.add_literal lit graph.wires in
     graph.wires <- wires';
     Typing.const_data graph (Some w) ctx.current
-  | Identifier ident -> Typing.context_lookup ctx.typing_ctx ident |> Option.get
+  | Identifier ident ->
+    (
+      match Typing.context_lookup ctx.typing_ctx ident with
+      | Some td -> td
+      | None ->
+      (
+        match Hashtbl.find_opt ctx.shared_vars_info ident with
+        | Some shared_info ->
+          (
+            match shared_info.value with
+            | Some td -> 
+              Typing.{
+               w = td.w;
+               lt = Typing.lifetime_immediate ctx.current
+             }
+           | None -> 
+             raise (TypeError ("Shared variable " ^ ident ^ " used before assignment"))
+          )
+        | None ->
+          raise (TypeError ("Undefined identifier: " ^ ident))
+      )
+    )
   | Assign (lval, e') ->
     let td = visit_expr graph ci ctx e' in
     let w' = Option.get td.w in
@@ -434,27 +463,75 @@ let rec visit_expr (graph : event_graph) (ci : cunit_info)
         )
       | _ -> raise (TypeError "Invalid variant type name!")
     )
+  | SharedAssign (id, value_expr, start_time, end_time) ->
+    let shared_info = Hashtbl.find ctx.shared_vars_info id in
+    if graph.thread_id = shared_info.assigning_thread then
+      let value_td = visit_expr graph ci ctx value_expr in
+      
+      let start_event = match start_time with
+        | `Cycles n -> Typing.event_create graph (`Seq (ctx.current, `Cycles n))
+        | `Message msg_spec -> Typing.event_create graph (`Seq (ctx.current, `Recv msg_spec))
+        | `Eternal -> ctx.current in
+      
+      let end_event = match end_time with
+        | `Cycles n -> Typing.event_create graph (`Seq (start_event, `Cycles n))
+        | `Message msg_spec -> Typing.event_create graph (`Seq (start_event, `Recv msg_spec))
+        | `Eternal -> Typing.event_create graph `Root in
+
+      let shared_lifetime = Typing.{
+        live = start_event;
+        dead = Typing.delay_of_event end_event;
+      } in
+      
+      let shared_td = Typing.{
+        w = value_td.w;
+        lt = shared_lifetime;
+      } in
+      
+      shared_info.value <- Some shared_td;
+      (match shared_info.dtype with
+      | None -> shared_info.dtype <- Some (Option.get value_td.w).dtype
+      | Some _ -> ());
+      
+      (* Create an event for the assignment *)
+      let assign_event = Typing.event_create graph (`Seq (ctx.current, `Cycles 0)) in
+      assign_event.actions <- RegAssign (id, Option.get shared_td.w) :: assign_event.actions;
+      
+      shared_td
+    else
+      raise (TypeError "Shared variable assigned in wrong thread")
   | _ -> raise (UnimplementedError "Unimplemented expression!")
 
 (* Builds the graph representation for each process To Do: Add support for commands outside loop (be executed once or continuosly)*)
-let build_proc (ci : cunit_info) (proc : proc_def) =
-  let proc_threads = List.mapi (fun i e ->  (* Use List.mapi to get the index *)
-    let graph = {
-      (* name = proc.name; *)
-      thread_id = i;
-      events = [];
-      wires = WireCollection.empty;
-      channels = proc.body.channels;
-      messages = MessageCollection.create proc.body.channels proc.args ci.channel_classes;
-      spawns = proc.body.spawns;
-      regs = proc.body.regs;
-      last_event_id = 0;
-    } in
-    let td = visit_expr graph ci (BuildContext.create_empty graph) e in
-    graph.last_event_id <- td.lt.live.id;  (* Set last_event_id for each graph *)
-    graph
-  ) proc.body.loops in
- {name = proc.name; threads = proc_threads};
+let build_proc (ci : cunit_info) (proc : proc_def) : proc_graph =
+    let shared_vars_info = Hashtbl.create (List.length proc.body.shared_vars) in
+    List.iter (fun sv -> 
+      let r: Typing.shared_var_info = {
+        assigning_thread = sv.assigning_thread;
+        value = None;
+        dtype = None;
+      } in
+      Hashtbl.add shared_vars_info sv.ident r 
+    ) proc.body.shared_vars;
+    let proc_threads = List.mapi (fun i e ->
+      let graph = {
+        thread_id = i;
+        events = [];
+        wires = WireCollection.empty;
+        channels = proc.body.channels;
+        messages = MessageCollection.create proc.body.channels proc.args ci.channel_classes;
+        spawns = proc.body.spawns;
+        regs = proc.body.regs;
+        last_event_id = 0;
+      } in
+      let ctx = BuildContext.create_empty graph in
+      let ctx_with_shared = { ctx with shared_vars_info } in
+      let td = visit_expr graph ci ctx_with_shared e in
+      graph.last_event_id <- td.lt.live.id;
+      graph
+    ) proc.body.loops in
+  
+    {name = proc.name; threads = proc_threads}
 
 type event_graph_collection = {
   event_graphs : proc_graph list;

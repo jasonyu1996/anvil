@@ -283,6 +283,7 @@ and expr =
   | Debug of debug_op
   | Send of send_pack
   | Recv of recv_pack
+  | SharedAssign of identifier * expr * future * future  (* id, value, start_time, end_time *)
 and lvalue =
   | Reg of identifier
   | Indexed of lvalue * index (* lvalue[index] *)
@@ -343,12 +344,18 @@ type spawn_def = {
   params: identifier list;
 }
 
+type shared_var_def = {
+  ident: identifier;
+  assigning_thread: int;
+}
+
 type proc_def_body = {
   (* new channels available to this process *)
   channels: channel_def list;
   (* processes spawned by this process *)
   spawns: spawn_def list;
   regs: reg_def list;
+  shared_vars: shared_var_def list;  (* New field *)
   (* prog: expr; *)
   loops: expr list;
 }
