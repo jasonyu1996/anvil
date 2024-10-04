@@ -36,6 +36,11 @@ type event = {
   mutable actions: action list;
   mutable sustained_actions : sustained_action list;
   source: event_source;
+  (* for lifetime checking *)
+  mutable control_regs: (int * int) Utils.string_map;
+  mutable control_endps: (int * int) Utils.string_map;
+  mutable current_regs : (int * int) Utils.string_map;
+  mutable current_endps : (int * int) Utils.string_map;
 }
 and event_source = [
   | `Root
@@ -71,6 +76,8 @@ type proc_graph = {
   name: identifier;
   threads: event_graph list;
 }
+
+exception LifetimeCheckError of string
 module Typing = struct
   type lifetime = {
     live : event;
@@ -89,7 +96,9 @@ module Typing = struct
   }
 
   let event_create g source =
-    let n = {actions = []; sustained_actions = []; source; id = List.length g.events} in
+    let n = {actions = []; sustained_actions = []; source; id = List.length g.events;
+      control_regs = Utils.StringMap.empty; control_endps = Utils.StringMap.empty;
+      current_regs = Utils.StringMap.empty; current_endps = Utils.StringMap.empty} in
     g.events <- n::g.events;
     n
 
@@ -125,6 +134,162 @@ module Typing = struct
   let context_empty : context = Utils.StringMap.empty
   let context_lookup (ctx : context) (v : identifier) = Utils.StringMap.find_opt v ctx
   (* checks if lt lives at least as long as required *)
+
+  let in_control_set (cur : (int * int) Utils.string_map) (cnt : (int * int) Utils.string_map) (s : identifier) =
+    let (pre, post) = Utils.StringMap.find s cnt in
+    if Utils.StringMap.find s cur |> fst = 0 then
+      pre + 1 = post
+    else
+      pre + 2 = post
+
+  let in_control_set_reg (ev : event) = in_control_set ev.current_regs ev.control_regs
+  let in_control_set_endps (ev : event) = in_control_set ev.current_endps ev.control_endps
+
+  (** Generate the control set for each event in the event graph. The control set of event
+  includes actions that are synchronised at the event. *)
+  let gen_control_set (g : event_graph) =
+    let events_rev = List.rev g.events in
+    let all_endpoints = g.messages.endpoints @ g.messages.args in
+    let reg_assign_cnt_empty = List.map (fun (r : reg_def) -> (r.name, 0)) g.regs
+      |> List.to_seq |> Utils.StringMap.of_seq
+    and endp_use_cnt_empty =
+        List.map (fun (e : endpoint_def) -> (e.name, 0)) all_endpoints
+          |> List.to_seq |> Utils.StringMap.of_seq
+    in
+    let reg_assign_cnt = ref reg_assign_cnt_empty
+    and endp_use_cnt = ref endp_use_cnt_empty in
+    let control_regs_init = Seq.repeat (0, Int.max_int) |> Seq.take (List.length g.regs)
+          |> Seq.zip (List.map (fun (r : reg_def) -> r.name) g.regs |> List.to_seq) |> Utils.StringMap.of_seq
+    and control_endps_init = Seq.repeat (0, Int.max_int) |> Seq.take (List.length all_endpoints)
+          |> Seq.zip (List.map (fun (ep : endpoint_def) -> ep.name) all_endpoints |> List.to_seq)
+          |> Utils.StringMap.of_seq in
+    List.iter
+      (fun (ev : event) ->
+        ev.control_regs <- control_regs_init;
+        ev.current_regs <- control_regs_init;
+        ev.control_endps <- control_endps_init;
+        ev.current_endps <- control_endps_init;
+      )
+      events_rev;
+
+    let opt_incr (a_opt : int option) =
+      let a = Option.get a_opt in
+      Some (a + 1)
+    in
+    let opt_update_forward (v : int) (a_opt : (int * int) option) =
+      let (a, b) = Option.get a_opt in
+      Some (max v a, b)
+    and opt_update_backward (v : int) (a_opt : (int * int) option) =
+      let (a, b) = Option.get a_opt in
+      Some (a, min v b)
+    in
+    List.iter
+      (fun (ev : event) ->
+        List.iter
+          (fun (a : action) ->
+            match a with
+            | RegAssign (reg_ident, _) -> (
+              reg_assign_cnt := Utils.StringMap.update reg_ident opt_incr !reg_assign_cnt;
+              let v = Utils.StringMap.find reg_ident !reg_assign_cnt in
+              ev.current_regs <- Utils.StringMap.update reg_ident (opt_update_forward v) ev.current_regs;
+              ev.current_regs <- Utils.StringMap.update reg_ident (opt_update_backward v) ev.current_regs
+            )
+            | _ -> ()
+          )
+          ev.actions;
+        List.iter
+          (fun (a : sustained_action) ->
+            match a.ty with
+            | Send (ms, _) | Recv ms -> (
+              endp_use_cnt := Utils.StringMap.update ms.endpoint opt_incr !endp_use_cnt;
+              let v = Utils.StringMap.find ms.endpoint !endp_use_cnt in
+              ev.current_endps <- Utils.StringMap.update ms.endpoint (opt_update_forward v) ev.current_endps;
+              ev.current_endps <- Utils.StringMap.update ms.endpoint (opt_update_backward v) ev.current_endps
+            )
+          )
+          ev.sustained_actions;
+        (* forward pass *)
+        let forward_from (ev' : event) =
+          ev.control_regs <- Utils.StringMap.merge (fun _ a b -> opt_update_forward (Option.get a |> fst) b) ev'.control_regs ev.control_regs;
+          ev.control_endps <- Utils.StringMap.merge (fun _ a b -> opt_update_forward (Option.get a |> fst) b) ev'.control_endps ev.control_endps;
+          ev.control_regs <- Utils.StringMap.merge (fun _ a b -> opt_update_forward (Option.get a |> fst) b) ev'.current_regs ev.control_regs;
+          ev.control_endps <- Utils.StringMap.merge (fun _ a b -> opt_update_forward (Option.get a |> fst) b) ev'.current_endps ev.control_endps
+        in
+        (
+          match ev.source with
+          | `Root -> ()
+          | `Later (e1, e2) | `Either (e1, e2) -> (* FIXME: handle 'either' correctly *)
+            (* Printf.eprintf "FR %d, %d -> %d\n" e1.id e2.id ev.id; *)
+            forward_from e1;
+            forward_from e2
+          | `Seq (ev', _) | `Branch (_, ev') ->
+            (* Printf.eprintf "FR %d -> %d\n" ev'.id ev.id; *)
+            forward_from ev'
+        )
+      )
+      events_rev;
+    (* backward pass *)
+    List.iter
+      (fun (ev : event) ->
+        let backward_to (ev' : event) =
+          ev'.control_regs <- Utils.StringMap.merge (fun _ a b -> opt_update_backward (Option.get a |> snd) b) ev.control_regs ev'.control_regs;
+          ev'.control_endps <- Utils.StringMap.merge (fun _ a b -> opt_update_backward (Option.get a |> snd) b) ev.control_endps ev'.control_endps;
+          ev'.control_regs <- Utils.StringMap.merge (fun _ a b -> opt_update_backward (Option.get a |> snd) b) ev.current_regs ev'.control_regs;
+          ev'.control_endps <- Utils.StringMap.merge (fun _ a b -> opt_update_backward (Option.get a |> snd) b) ev.current_endps ev'.control_endps
+        in
+        (
+          ev.control_regs <- Utils.StringMap.merge (fun _ a b -> opt_update_backward (let v = Option.get a in v + 1) b) !reg_assign_cnt ev.control_regs;
+          ev.control_endps <- Utils.StringMap.merge (fun _ a b -> opt_update_backward (let v = Option.get a in v + 1) b) !endp_use_cnt ev.control_endps;
+          match ev.source with
+          | `Root -> ()
+        | `Later (e1, e2) | `Either (e1, e2) -> (* FIXME: handle 'either' correctly *)
+          backward_to e1;
+          backward_to e2
+        | `Seq (ev', _) | `Branch (_, ev') ->
+          backward_to ev'
+        )
+      ) g.events;
+    (* check for violations of linearity *)
+    List.iter
+      (fun (ev : event) ->
+        List.iter (fun (a : action) ->
+          match a with
+          | RegAssign (reg_ident, _) -> (
+            if in_control_set_reg ev reg_ident |> not then
+              raise (LifetimeCheckError "Non-linearizable register assignment!")
+            else ()
+          )
+          | _ -> ()
+        ) ev.actions;
+        List.iter (fun (sa : sustained_action) ->
+          match sa.ty with
+          | Send (ms, _) | Recv ms -> (
+            if in_control_set_endps ev ms.endpoint |> not then
+              raise (LifetimeCheckError "Non-linearizable endpoint use!")
+            else ()
+          )
+        ) ev.sustained_actions
+      )
+      g.events
+
+  let print_control_set (g : event_graph) =
+    List.iter (fun ev ->
+      Printf.eprintf "=== Event %d ===\n" ev.id;
+      Utils.StringMap.iter (fun reg_ident r ->
+        Printf.eprintf "Reg %s: %d, %d\n" reg_ident (fst r) (snd r)
+      ) ev.control_regs;
+      Utils.StringMap.iter (fun endp r ->
+        Printf.eprintf "Endpoint %s: %d, %d\n" endp (fst r) (snd r)
+      ) ev.control_endps
+    ) g.events
+
+  (** Perform lifetime check on an event graph and throw out LifetimeCheckError if failed. *)
+  let lifetime_check (config : Config.compile_config) (g : event_graph) =
+    gen_control_set g;
+    (* for debugging purposes*)
+    if config.verbose then
+      print_control_set g
+    else ()
 
   (* let rec delay_leq_check (a : delay) (b : delay) : bool =
     match a, b with
@@ -178,8 +343,6 @@ module Typing = struct
 
 
 end
-
-exception BorrowCheckError of string
 
 type build_context = Typing.build_context
 module BuildContext = Typing.BuildContext
@@ -381,10 +544,9 @@ let rec visit_expr (graph : event_graph) (ci : cunit_info)
     )
   | _ -> raise (UnimplementedError "Unimplemented expression!")
 
-let lifetime_check (_g : event_graph) = ()
 
 (* Builds the graph representation for each process To Do: Add support for commands outside loop (be executed once or continuosly)*)
-let build_proc (ci : cunit_info) (proc : proc_def) =
+let build_proc (config : Config.compile_config) (ci : cunit_info) (proc : proc_def) =
   let proc_threads = List.mapi (fun i e ->  (* Use List.mapi to get the index *)
     let graph = {
       (* name = proc.name; *)
@@ -399,7 +561,7 @@ let build_proc (ci : cunit_info) (proc : proc_def) =
     } in
     let td = visit_expr graph ci (BuildContext.create_empty graph) e in
     graph.last_event_id <- td.lt.live.id;  (* Set last_event_id for each graph *)
-    lifetime_check graph;
+    Typing.lifetime_check config graph;
     graph
   ) proc.body.loops in
   {name = proc.name; threads = proc_threads};
@@ -410,10 +572,10 @@ type event_graph_collection = {
   channel_classes : channel_class_def list;
 }
 
-let build (cunit : compilation_unit) =
+let build (config : Config.compile_config) (cunit : compilation_unit) =
   let typedefs = TypedefMap.of_list cunit.type_defs in
   let ci = { typedefs; channel_classes = cunit.channel_classes } in
-  let graphs = List.concat_map (fun proc -> [build_proc ci proc]) cunit.procs in
+  let graphs = List.map (build_proc config ci) cunit.procs in
   {
     event_graphs = graphs;
     typedefs;

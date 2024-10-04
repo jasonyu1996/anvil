@@ -26,6 +26,10 @@ type event = {
   mutable actions: action list;
   mutable sustained_actions : sustained_action list;
   source: event_source;
+  mutable control_regs: (int * int) Utils.string_map;
+  mutable control_endps: (int * int) Utils.string_map;
+  mutable current_regs : (int * int) Utils.string_map;
+  mutable current_endps : (int * int) Utils.string_map;
 }
 and sustained_action = {
   until : event;
@@ -63,8 +67,8 @@ type event_graph_collection = {
   channel_classes : Lang.channel_class_def list;
 }
 
-val build : Lang.compilation_unit -> event_graph_collection
+val build : Config.compile_config -> Lang.compilation_unit -> event_graph_collection
 
-exception BorrowCheckError of string
+exception LifetimeCheckError of string
 
 val canonicalize_endpoint_name : Lang.identifier -> event_graph -> Lang.identifier

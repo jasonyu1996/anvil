@@ -20,10 +20,10 @@ let () =
     in
     close_in in_channel;
     try
-      let event_graphs = Anvil.EventGraph.build cunit in
+      let event_graphs = Anvil.EventGraph.build config cunit in
       Anvil.Codegen.generate stdout config event_graphs
     with
-    | Anvil.EventGraph.BorrowCheckError msg ->
+    | Anvil.EventGraph.LifetimeCheckError msg ->
       Printf.eprintf "Borrow checking failed: %s\n" msg;
       exit 1
     | Anvil.Except.TypeError msg -> Printf.eprintf "Type error: %s\n" msg; exit 1

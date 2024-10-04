@@ -79,7 +79,7 @@ let codegen_spawns printer (graphs : event_graph_collection) (g : event_graph) =
     CodegenPrinter.print_line printer ".rst_ni";
     (* connect the wires *)
     let proc_other = CodegenHelpers.lookup_proc graphs.event_graphs spawn.proc |> Option.get in
-    let proc_other_details = List.hd proc_other.threads; in 
+    let proc_other_details = List.hd proc_other.threads; in
     let connect_endpoints = fun (arg_endpoint : endpoint_def) (param_ident : identifier) ->
       let endpoint_local = MessageCollection.lookup_endpoint g.messages param_ident |> Option.get in
       let endpoint_name_local = EventGraph.canonicalize_endpoint_name param_ident g in
@@ -200,12 +200,12 @@ let codegen_proc printer (graphs : EventGraph.event_graph_collection) (g : proc_
 
   (* Generate endpoints, spawns, regs, and post-declare for the first thread *)
   codegen_endpoints printer graphs initEvents;
-  
+
   codegen_spawns printer graphs initEvents;
 
   codegen_regs printer graphs initEvents;
-  
-  
+
+
 
   (* Iterate over all threads to print states *)
   List.iter (fun thread ->

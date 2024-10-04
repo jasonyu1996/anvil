@@ -16,13 +16,17 @@ proc concurrent() =
     spawn reggg(reg_ri)
     loop {
         let a = 4'b1 in
-        cycle 1 =>
-        let b = if (1'b1) then (dprint "Hello true" (); a + a) else (dprint "Hello false" (); a) in
-        dprint "Value a = %d, b = %d" (a, b);
-        cycle 1 =>
-        dprint "Concat result = %d" ({a, a});
-        send reg_le::req (1'b1) =>
-        dprint "Sent" ();
-        cycle 1 =>
-        dfinish
+        cycle 1 => (
+            let b = if (1'b1) then (dprint "Hello true" (); a + a) else (dprint "Hello false" (); a) in
+            dprint "Value a = %d, b = %d" (a, b);
+            cycle 1 => (
+                dprint "Concat result = %d" ({a, a});
+                send reg_le::req (1'b1) => (
+                    dprint "Sent" ();
+                    cycle 1 => (
+                        dfinish
+                    )
+                )
+            )
+        )
     }
