@@ -89,23 +89,86 @@ module Typing = struct
     current : event;
   }
 
-  let event_create g source =
-    let n = {actions = []; sustained_actions = []; source; id = List.length g.events;
-      control_regs = Utils.StringMap.empty; control_endps = Utils.StringMap.empty;
-      current_regs = Utils.StringMap.empty; current_endps = Utils.StringMap.empty;
-      outs = []} in
-    g.events <- n::g.events;
-    (
-      match source with
+  let event_traverse (ev : event) visitor : event list =
+    let visited = Seq.return ev.id |> Utils.IntSet.of_seq |> ref in
+    let q = Seq.return ev |> Queue.of_seq in
+    let res = ref [] in
+    let add_to_queue ev' =
+      if Utils.IntSet.mem ev'.id !visited |> not then (
+        visited := Utils.IntSet.add ev'.id !visited;
+        Queue.add ev' q
+      )
+      else ()
+    in
+    while Queue.is_empty q |> not do
+      let cur = Queue.pop q in
+      res := cur::!res;
+      visitor add_to_queue cur
+    done;
+    !res
+
+  (** Compute predecessors of an event in the event graph.
+    Result in topological order
+  *)
+  let event_predecessors (ev : event) : event list =
+    let visitor add_to_queue cur =
+      match cur.source with
       | `Later (e1, e2)
       | `Either (e1, e2) ->
-        e1.outs <- n::e1.outs;
-        e2.outs <- n::e2.outs
-      | `Branch (_, ev') ->
-        ev'.outs <- n::ev'.outs
+        add_to_queue e1;
+        add_to_queue e2
+      | `Branch (_, ev')
+      | `Seq (ev', _) ->
+        add_to_queue ev'
       | _ -> ()
-    );
-    n
+    in
+    event_traverse ev visitor
+
+  (* Result in topological order *)
+  let event_successors (ev : event) : event list =
+    let visitor add_to_queue cur =
+      List.iter add_to_queue cur.outs
+    in
+    event_traverse ev visitor |> List.rev
+
+  let event_is_successor (ev : event) (ev' : event) =
+    event_successors ev |> List.exists (fun x -> x.id = ev'.id)
+
+  let event_is_predecessor (ev : event) (ev' : event) =
+    event_predecessors ev |> List.exists (fun x -> x.id = ev'.id)
+
+
+  let event_create g source =
+    let event_create_inner () =
+      let n = {actions = []; sustained_actions = []; source; id = List.length g.events;
+        control_regs = Utils.StringMap.empty; control_endps = Utils.StringMap.empty;
+        current_regs = Utils.StringMap.empty; current_endps = Utils.StringMap.empty;
+        outs = []} in
+      g.events <- n::g.events;
+      (
+        match source with
+        | `Later (e1, e2)
+        | `Either (e1, e2) ->
+          e1.outs <- n::e1.outs;
+          e2.outs <- n::e2.outs
+        | `Branch (_, ev') ->
+          ev'.outs <- n::ev'.outs
+        | _ -> ()
+      );
+      n
+    in
+    (
+      match source with
+      | `Later (e1, e2) -> (
+        if event_is_successor e1 e2 then
+          e2
+        else if event_is_predecessor e1 e2 then
+          e1
+        else
+          event_create_inner ()
+      )
+      | _ -> event_create_inner ()
+    )
 
   let lifetime_const current = {live = current; dead = [(current, `Eternal)]}
   let lifetime_immediate current = {live = current; dead = [(current, `Cycles 1)]}
@@ -118,6 +181,10 @@ module Typing = struct
   let cycles_data g (n : int) (current : event) =
     let live_event = event_create g (`Seq (current, `Cycles n)) in
     {w = None; lt = {live = live_event; dead = [(live_event, `Eternal)]}}
+  let sync_data g (current : event) (td: timed_data) =
+    let ev = event_create g (`Later (current, td.lt.live)) in
+    {td with lt = {td.lt with live = ev}}
+
   let const_data _g (w : wire option) (current : event) = {w; lt = lifetime_const current}
   let merged_data g (w : wire option) (current : event) (lts : lifetime list) =
     match lts with
@@ -288,63 +355,104 @@ module Typing = struct
       ) ev.control_endps
     ) g.events
 
-  let event_traverse (ev : event) visitor : event list =
-    let visited = Seq.return ev.id |> Utils.IntSet.of_seq |> ref in
-    let q = Seq.return ev |> Queue.of_seq in
-    let res = ref [] in
-    let add_to_queue ev' =
-      if Utils.IntSet.mem ev'.id !visited |> not then (
-        visited := Utils.IntSet.add ev'.id !visited;
-        Queue.add ev' q
-      )
-      else ()
-    in
-    while Queue.is_empty q |> not do
-      let cur = Queue.pop q in
-      res := cur::!res;
-      visitor add_to_queue cur
-    done;
-    !res
-
-  (** compute predecessors of an event in the event graph *)
-  let _event_predecessors (ev : event) (_g : event_graph) : event list =
-    let visitor add_to_queue cur =
-      match cur.source with
-      | `Later (e1, e2)
-      | `Either (e1, e2) ->
-        add_to_queue e1;
-        add_to_queue e2
-      | `Branch (_, ev')
-      | `Seq (ev', _) ->
-        add_to_queue ev'
-      | _ -> ()
-    in
-    event_traverse ev visitor
-
-  let _event_successors (ev : event) (_g : event_graph) : event list =
-    let visitor add_to_queue cur =
-      List.iter add_to_queue cur.outs
-    in
-    event_traverse ev visitor
 
   type _event_pat_match_result =
-  | Match | Mismatch | Unsure
+  {
+    bef: bool;
+    aft: bool;
+    at: bool;
+  }
 
-  let _event_pat_matches (_ev : event) (_ev_pat : event_pat) = Unsure
+  (** evs must be in topological order*)
+  let find_controller (endpts : identifier list) =
+    List.find_opt
+      (fun ev ->
+        List.for_all (fun endpt -> in_control_set_reg ev endpt) endpts
+      )
+
+  let find_first_msg_after (ev : event) (msg: Lang.message_specifier) =
+    event_successors ev |> List.tl |> List.find_opt
+      (fun ev' ->
+        List.exists (fun sa ->
+          match sa.ty with
+          | Send (msg', _) | Recv msg' -> msg' = msg
+        ) ev'.sustained_actions
+      )
+
+  let event_pat_bounds (ev_pat : event_pat) : (event * event) list =
+    List.filter_map (fun (ev, dpat) ->
+      match dpat with
+      | `Eternal -> None
+      | `Cycles _n -> Some (ev, ev) (* FIXME: incorrect *)
+      | `Message msg -> (
+        let preds = event_predecessors ev
+        and succs = event_successors ev in
+        let pred_controller = find_controller [msg.endpoint] (List.rev preds) |> Option.get in
+        let succ_controller = find_controller [msg.endpoint] succs |> Option.get in
+        let le_match = find_first_msg_after pred_controller msg |> Option.get
+        and ri_match = find_first_msg_after succ_controller msg |> Option.get in
+        Some (le_match, ri_match)
+      )
+    ) ev_pat
+
+  (** When does the event take place relative to the event pattern? *)
+  let event_pat_matches (ev : event) (ev_pat : event_pat) =
+    let res = ref {bef = false; aft = false; at = false} in
+    let bs = event_pat_bounds ev_pat in
+    if (List.length ev_pat) <> (List.length bs) then
+      res := {!res with bef = true}
+    else ();
+    let succs = event_successors ev |> List.tl |> List.map (fun x -> x.id) |> Utils.IntSet.of_list in
+    let preds = event_predecessors ev |> List.tl |> List.map (fun x -> x.id) |> Utils.IntSet.of_list in
+    List.iter (fun (le, ri) ->
+      let le_in_preds = Utils.IntSet.mem le.id preds
+      and ri_in_succs = Utils.IntSet.mem ri.id succs in
+      if ri_in_succs then
+        res := {!res with bef = true}
+      else ();
+      if le_in_preds then
+        res := {!res with aft = true}
+      else ();
+      if (le_in_preds && ri_in_succs) || le.id = ev.id || ri.id = ev.id then
+        res := {!res with at = true}
+      else ();
+      if (not le_in_preds) && (not ri_in_succs) && le.id <> ev.id && ri.id <> ev.id then
+        res := {bef = true; aft = true; at = true}
+      else ()
+    ) bs;
+    Printf.eprintf "Event pat: %d %b %b %b\n" ev.id !res.bef !res.at !res.aft;
+    !res
 
   (** Check that lt1 is always fully covered by lt2 *)
-  let lifetime_in_range (_lt1 : lifetime) (_lt2 : lifetime) = true
+  let lifetime_in_range (lt1 : lifetime) (lt2 : lifetime) =
     (* 1. check if lt2's start is a predecessor of lt1's start *)
     (* 2. derive a set of all time points A potentially within lt1 *)
     (* 4. check that end time of lt2 does not match any time point in A *)
+    (* FIXME: not considering lt1's dead time now *)
+    Printf.eprintf "Checking lt %d %d %b\n" lt1.live.id lt2.live.id (event_is_successor lt1.live lt2.live);
+    (event_is_successor lt2.live lt1.live) && (
+      let r = event_pat_matches lt1.live lt2.dead in
+      (not r.at) && (not r.aft)
+    )
+
+  let print_graph (g: event_graph) =
+    List.iter (fun ev ->
+      match ev.source with
+      | `Later (e1, e2) -> Printf.eprintf "> %d: later %d %d\n" ev.id e1.id e2.id
+      | `Either (e1, e2) -> Printf.eprintf "> %d: either %d %d\n" ev.id e1.id e2.id
+      | `Seq (ev', _) -> Printf.eprintf "> %d: seq %d\n" ev.id ev'.id
+      | `Branch (_, ev') -> Printf.eprintf "> %d: branch %d\n" ev.id ev'.id
+      | `Root -> Printf.eprintf "> %d: root\n" ev.id
+    ) g.events
 
   (** Perform lifetime check on an event graph and throw out LifetimeCheckError if failed. *)
   let lifetime_check (config : Config.compile_config) (g : event_graph) =
     gen_control_set g;
     (* for debugging purposes*)
-    if config.verbose then
+    if config.verbose then (
+      print_graph g;
       print_control_set g
-    else ();
+    );
     (* check lifetime for each use of a wire *)
     List.iter (fun ev ->
       List.iter (fun a ->
@@ -427,7 +535,8 @@ let rec visit_expr (graph : event_graph) (ci : cunit_info)
     let (wires', w) = WireCollection.add_literal lit graph.wires in
     graph.wires <- wires';
     Typing.const_data graph (Some w) ctx.current
-  | Identifier ident -> Typing.context_lookup ctx.typing_ctx ident |> Option.get
+  | Identifier ident ->
+    Typing.context_lookup ctx.typing_ctx ident |> Option.get |> Typing.sync_data graph ctx.current
   | Assign (lval, e') ->
     let td = visit_expr graph ci ctx e' in
     let reg_ident = (
