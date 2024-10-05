@@ -75,6 +75,17 @@ type event_graph = {
   (* the process loops from the start when this event is reached *)
   mutable last_event_id: int;
 }
+
+let print_graph (g: event_graph) =
+  List.iter (fun ev ->
+    match ev.source with
+    | `Later (e1, e2) -> Printf.eprintf "> %d: later %d %d\n" ev.id e1.id e2.id
+    | `Either (e1, e2) -> Printf.eprintf "> %d: either %d %d\n" ev.id e1.id e2.id
+    | `Seq (ev', _) -> Printf.eprintf "> %d: seq %d\n" ev.id ev'.id
+    | `Branch (c, ev') -> Printf.eprintf "> %d: branch %b %d\n" ev.id c.neg ev'.id
+    | `Root -> Printf.eprintf "> %d: root\n" ev.id
+  ) g.events
+
 type proc_graph = {
   name: identifier;
   threads: event_graph list;
@@ -217,6 +228,18 @@ module Typing = struct
   let in_control_set_reg (ev : event) = in_control_set ev.current_regs ev.control_regs
   let in_control_set_endps (ev : event) = in_control_set ev.current_endps ev.control_endps
 
+
+  let print_control_set (g : event_graph) =
+    List.iter (fun ev ->
+      Printf.eprintf "=== Event %d ===\n" ev.id;
+      Utils.StringMap.iter (fun reg_ident r ->
+        Printf.eprintf "Reg %s: %d, %d\n" reg_ident (fst r) (snd r)
+      ) ev.control_regs;
+      Utils.StringMap.iter (fun endp r ->
+        Printf.eprintf "Endpoint %s: %d, %d\n" endp (fst r) (snd r)
+      ) ev.control_endps
+    ) g.events
+
   (** Generate the control set for each event in the event graph. The control set of event
   includes actions that are synchronised at the event. *)
   let gen_control_set (g : event_graph) =
@@ -255,6 +278,7 @@ module Typing = struct
       let (a, b) = Option.get a_opt in
       Some (a, min v b)
     in
+    let last_ev : (event option) ref = ref None in
     List.iter
       (fun (ev : event) ->
         List.iter
@@ -294,15 +318,21 @@ module Typing = struct
             (* Printf.eprintf "FR %d, %d -> %d\n" e1.id e2.id ev.id; *)
             forward_from e1;
             forward_from e2
-          | `Seq (ev', _) | `Branch (_, ev') ->
+          | `Seq (ev', _)  ->
             (* Printf.eprintf "FR %d -> %d\n" ev'.id ev.id; *)
             forward_from ev'
-        )
+          | `Branch (c, ev') ->
+            if c.neg then
+              forward_from (Option.get !last_ev)
+            else
+              forward_from ev'
+        );
+        last_ev := Some ev
       )
       events_rev;
     (* backward pass *)
-    List.iter
-      (fun (ev : event) ->
+    List.iteri
+      (fun idx (ev : event) ->
         let backward_to (ev' : event) =
           ev'.control_regs <- Utils.StringMap.merge (fun _ a b -> opt_update_backward (Option.get a |> snd) b) ev.control_regs ev'.control_regs;
           ev'.control_endps <- Utils.StringMap.merge (fun _ a b -> opt_update_backward (Option.get a |> snd) b) ev.control_endps ev'.control_endps;
@@ -314,13 +344,22 @@ module Typing = struct
           ev.control_endps <- Utils.StringMap.merge (fun _ a b -> opt_update_backward (let v = Option.get a in v + 1) b) !endp_use_cnt ev.control_endps;
           match ev.source with
           | `Root -> ()
-        | `Later (e1, e2) | `Either (e1, e2) -> (* FIXME: handle 'either' correctly *)
+        | `Later (e1, e2) ->
           backward_to e1;
           backward_to e2
-        | `Seq (ev', _) | `Branch (_, ev') ->
+        | `Seq (ev', _) ->
           backward_to ev'
+        | `Either (_e1, e2) ->
+          backward_to e2
+        | `Branch (c, ev') ->
+          if c.neg then
+            backward_to (List.nth g.events (idx + 1))
+          else
+            backward_to ev'
         )
       ) g.events;
+    (* print_control_set g;
+    print_graph g; *)
     (* check for violations of linearity *)
     List.iter
       (fun (ev : event) ->
@@ -343,18 +382,6 @@ module Typing = struct
         ) ev.sustained_actions
       )
       g.events
-
-  let print_control_set (g : event_graph) =
-    List.iter (fun ev ->
-      Printf.eprintf "=== Event %d ===\n" ev.id;
-      Utils.StringMap.iter (fun reg_ident r ->
-        Printf.eprintf "Reg %s: %d, %d\n" reg_ident (fst r) (snd r)
-      ) ev.control_regs;
-      Utils.StringMap.iter (fun endp r ->
-        Printf.eprintf "Endpoint %s: %d, %d\n" endp (fst r) (snd r)
-      ) ev.control_endps
-    ) g.events
-
 
   type _event_pat_match_result =
   {
@@ -435,16 +462,6 @@ module Typing = struct
       (not r.at) && (not r.aft)
     )
 
-  let print_graph (g: event_graph) =
-    List.iter (fun ev ->
-      match ev.source with
-      | `Later (e1, e2) -> Printf.eprintf "> %d: later %d %d\n" ev.id e1.id e2.id
-      | `Either (e1, e2) -> Printf.eprintf "> %d: either %d %d\n" ev.id e1.id e2.id
-      | `Seq (ev', _) -> Printf.eprintf "> %d: seq %d\n" ev.id ev'.id
-      | `Branch (_, ev') -> Printf.eprintf "> %d: branch %d\n" ev.id ev'.id
-      | `Root -> Printf.eprintf "> %d: root\n" ev.id
-    ) g.events
-
   (** Perform lifetime check on an event graph and throw out LifetimeCheckError if failed. *)
   let lifetime_check (config : Config.compile_config) (g : event_graph) =
     gen_control_set g;
@@ -472,38 +489,6 @@ module Typing = struct
       ) ev.actions
     ) g.events
 
-  (* let rec delay_leq_check (a : delay) (b : delay) : bool =
-    match a, b with
-    | _, `Ever -> true
-    | _, `Later (b1, b2) ->
-      (delay_leq_check a b1) || (delay_leq_check a b2)
-    | _, `Earlier (b1, b2) ->
-      (delay_leq_check a b1) && (delay_leq_check a b2)
-    | `Later (a1, a2), _ ->
-      (delay_leq_check a1 b) && (delay_leq_check a2 b)
-    | `Earlier (a1, a2), _ ->
-      (delay_leq_check a1 b) || (delay_leq_check a2 b)
-    | `Root, _ -> true
-    | _, `Root -> false
-    | `Ever, `Seq (b', _) -> delay_leq_check `Ever b'
-    (* only both seq or atomic *)
-    | `Seq (a', da), `Seq (b', db) ->
-      (
-        match da, db with
-        | `Cycles na, `Cycles nb ->
-          let m = min na nb in
-          if na = m then
-            delay_leq_check a' (`Seq (b', `Cycles (nb - m)))
-          else
-            delay_leq_check (`Seq (a', `Cycles (na - m))) b'
-        | `Send ma, `Send mb when ma = mb ->
-          delay_leq_check a' b'
-        | `Recv ma, `Recv mb when ma = mb ->
-          delay_leq_check a' b'
-        | _ ->
-          delay_leq_check a' b
-      ) *)
-
   module BuildContext = struct
     type t = build_context
     let create_empty g : t = {
@@ -515,11 +500,8 @@ module Typing = struct
       {ctx with typing_ctx = context_add ctx.typing_ctx v d}
     let wait g (ctx : t) (other : event) : t =
       {ctx with current = event_create g (`Later (ctx.current, other))}
-    let branch g (ctx : t) (td : timed_data) : t * t =
-      (
-        {ctx with current = event_create g (`Branch ({data = td; neg = false}, ctx.current))},
-        {ctx with current = event_create g (`Branch ({data = td; neg = true}, ctx.current))}
-      )
+    let branch g (ctx : t) (td : timed_data) neg: t  =
+      {ctx with current = event_create g (`Branch ({data = td; neg}, ctx.current))}
   end
 
 
@@ -582,12 +564,11 @@ let rec visit_expr (graph : event_graph) (ci : cunit_info)
     let td1 = visit_expr graph ci ctx e1 in
     (* TODO: type checking *)
     let w1 = Option.get td1.w in
-    let (ctx_true, ctx_false) =
-      let ctx' = BuildContext.wait graph ctx td1.lt.live in
-      BuildContext.branch graph ctx' td1
-    in
-    let td2 = visit_expr graph ci ctx_true e2
-    and td3 = visit_expr graph ci ctx_false e3 in
+    let ctx' = BuildContext.wait graph ctx td1.lt.live in
+    let ctx_true = BuildContext.branch graph ctx' td1 false in
+    let td2 = visit_expr graph ci ctx_true e2 in
+    let ctx_false = BuildContext.branch graph ctx' td1 true in
+    let td3 = visit_expr graph ci ctx_false e3 in
     (* FIXME: the dead time is incorrect *)
     let lt = {live = Typing.event_create graph (`Either (td2.lt.live, td3.lt.live));
       dead = td1.lt.dead @ td2.lt.dead @td3.lt.dead} in
