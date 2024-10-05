@@ -348,7 +348,7 @@ type shared_var_def = {
   ident: identifier;
   assigning_thread: int;
   dtype: data_type;
-  shared_lifetime: sig_lifetime_chan_local;
+  shared_lifetime: sig_lifetime;
 }
 
 type proc_def_body = {

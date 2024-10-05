@@ -28,26 +28,31 @@ let codegen_next printer (g : EventGraph.event_graph) =
     | `Seq (e', d) ->
       (
         match d with
-        | `Cycles 1 -> 
-          Printf.sprintf "assign _thread_%d_event_next%d = _thread_%d_event_current%d;" 
-            g.thread_id e.id g.thread_id e'.id |> print_line
-        | `Cycles n when n > 1 ->
-          [
-            Printf.sprintf "logic [%d:0] _thread_%d_event_counter%d;" (Utils.int_log2 n) g.thread_id e.id;
-            Printf.sprintf "always_ff @(posedge clk_i or negedge rst_ni) begin";
-            Printf.sprintf "  if (~rst_ni) begin";
-            Printf.sprintf "    _thread_%d_event_counter%d <= '0;" g.thread_id e.id;
-            Printf.sprintf "  end else if (_thread_%d_event_current%d) begin" g.thread_id e'.id;
-            Printf.sprintf "    if (_thread_%d_event_counter%d == %d) begin" g.thread_id e.id (n - 1);
-            Printf.sprintf "      _thread_%d_event_counter%d <= '0;" g.thread_id e.id;
-            Printf.sprintf "    end else begin";
-            Printf.sprintf "      _thread_%d_event_counter%d <= _thread_%d_event_counter%d + 1'b1;" g.thread_id e.id g.thread_id e.id;
-            Printf.sprintf "    end";
-            Printf.sprintf "  end";
-            Printf.sprintf "end";
-            Printf.sprintf "assign _thread_%d_event_next%d = _thread_%d_event_current%d && (_thread_%d_event_counter%d == %d);" 
-              g.thread_id e.id g.thread_id e'.id g.thread_id e.id (n - 1);
-          ] |> print_lines
+        | `Cycles n when n >= 1 ->
+          if n == 1 then
+            Printf.sprintf "assign _thread_%d_event_next%d = _thread_%d_event_current%d;" 
+              g.thread_id e.id g.thread_id e'.id |> print_line
+          else
+            [
+              Printf.sprintf "logic [%d:0] _thread_%d_event_counter%d;" (Utils.int_log2 n) g.thread_id e.id;
+              Printf.sprintf "always_ff @(posedge clk_i or negedge rst_ni) begin";
+              Printf.sprintf "  if (~rst_ni) begin";
+              Printf.sprintf "    _thread_%d_event_counter%d <= '0;" g.thread_id e.id;
+              Printf.sprintf "    _thread_%d_event_next%d <= 1'b0;" g.thread_id e.id;
+              Printf.sprintf "  end else if (_thread_%d_event_current%d) begin" g.thread_id e'.id;
+              Printf.sprintf "    if (_thread_%d_event_counter%d == %d) begin" g.thread_id e.id (n - 1);
+              Printf.sprintf "      _thread_%d_event_counter%d <= '0;" g.thread_id e.id;
+              Printf.sprintf "      _thread_%d_event_next%d <= 1'b1;" g.thread_id e.id;
+              Printf.sprintf "    end else begin";
+              Printf.sprintf "      _thread_%d_event_counter%d <= _thread_%d_event_counter%d + 1'b1;" g.thread_id e.id g.thread_id e.id;
+              Printf.sprintf "      _thread_%d_event_next%d <= 1'b0;" g.thread_id e.id;
+              Printf.sprintf "    end";
+              Printf.sprintf "  end else begin";
+              Printf.sprintf "    _thread_%d_event_counter%d <= '0;" g.thread_id e.id;
+              Printf.sprintf "    _thread_%d_event_next%d <= 1'b0;" g.thread_id e.id;
+              Printf.sprintf "  end";
+              Printf.sprintf "end";
+            ] |> print_lines
         | `Cycles _ ->
           failwith "Invalid number of cycles"
         | `Send msg ->

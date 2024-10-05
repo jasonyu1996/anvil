@@ -114,7 +114,7 @@ module Typing = struct
   type global_timed_data = 
   {
     mutable w : wire option;
-    glt : sig_lifetime_chan_local;
+    glt : sig_lifetime;
   }
   type context = timed_data Utils.string_map
   type shared_var_info = {
@@ -268,11 +268,11 @@ let rec visit_expr (graph : event_graph) (ci : cunit_info)
             let local_lt = Typing.{
               live = (match shared_info.value.glt.b with
                   | `Cycles n -> Typing.event_create graph (`Seq (ctx.current, `Cycles n))
-                  | `Message msg -> Typing.event_create graph (`Seq (ctx.current, `Recv {endpoint = ""; msg = msg}))
+                  | `Message msg -> Typing.event_create graph (`Seq (ctx.current, `Recv msg))
                   | `Eternal -> ctx.current);
                 dead = (match shared_info.value.glt.e with
                   | `Cycles n -> `Seq (Typing.delay_of_event ctx.current, `Cycles n)
-                  | `Message msg -> `Seq (Typing.delay_of_event ctx.current, `Recv {endpoint = ""; msg = msg})
+                  | `Message msg -> `Seq (Typing.delay_of_event ctx.current, `Recv msg)
                   | `Eternal -> `Ever)
               } in
               Typing.{
@@ -478,12 +478,12 @@ let rec visit_expr (graph : event_graph) (ci : cunit_info)
       let value_td = visit_expr graph ci ctx value_expr in
       let start_event = match shared_info.value.glt.b with
       | `Cycles n -> Typing.event_create graph (`Seq (ctx.current, `Cycles n))
-      | `Message msg -> Typing.event_create graph (`Seq (ctx.current, `Recv {endpoint = ""; msg = msg}))
+      | `Message msg -> Typing.event_create graph (`Seq (ctx.current, `Recv msg))
       | `Eternal -> ctx.current in
     
     let end_event = match shared_info.value.glt.e with
       | `Cycles n -> Typing.event_create graph (`Seq (start_event, `Cycles n))
-      | `Message msg -> Typing.event_create graph (`Seq (start_event, `Recv {endpoint = ""; msg = msg}))
+      | `Message msg -> Typing.event_create graph (`Seq (start_event, `Recv msg))
       | `Eternal -> Typing.event_create graph `Root in
   
     shared_info.value.w <- value_td.w;

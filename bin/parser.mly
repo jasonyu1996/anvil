@@ -561,7 +561,7 @@ message_specifier:
 ;
 
 shared_var_def:
-  KEYWORD_SHARED; lifetime = lifetime_spec_chan_local; ident = IDENT; COLON; dtype = data_type; KEYWORD_ASSIGNED; KEYWORD_BY; thread_id = INT
+  KEYWORD_SHARED; lifetime = lifetime_spec; ident = IDENT; COLON; dtype = data_type; KEYWORD_ASSIGNED; KEYWORD_BY; thread_id = INT
   {
     {
       ident = ident;
