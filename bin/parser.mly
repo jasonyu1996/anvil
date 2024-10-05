@@ -307,8 +307,8 @@ expr:
   { Anvil.Lang.Debug (Anvil.Lang.DebugPrint (s, v)) }
 | KEYWORD_DFINISH
   { Anvil.Lang.Debug Anvil.Lang.DebugFinish }
-| KEYWORD_SHARED; ident = IDENT; LEFT_PAREN;lifetime = lifetime_spec_chan_local;RIGHT_PAREN; EQUAL; value = expr
-  { Anvil.Lang.SharedAssign (ident, value, lifetime) }
+| KEYWORD_SHARED; ident = IDENT; EQUAL; value = expr
+  { Anvil.Lang.SharedAssign (ident, value) }
 // | KEYWORD_LOOP; body = expr
 //   { Anvil.Lang.Loop body }  
 // ;
@@ -561,12 +561,13 @@ message_specifier:
 ;
 
 shared_var_def:
-  KEYWORD_SHARED; ident = IDENT; COLON; dtype = data_type; KEYWORD_ASSIGNED; KEYWORD_BY; thread_id = INT
+  KEYWORD_SHARED; lifetime = lifetime_spec_chan_local; ident = IDENT; COLON; dtype = data_type; KEYWORD_ASSIGNED; KEYWORD_BY; thread_id = INT
   {
     {
       ident = ident;
       assigning_thread = thread_id;
       dtype = dtype;
+      shared_lifetime = lifetime;
     } : Anvil.Lang.shared_var_def
   }
 ;

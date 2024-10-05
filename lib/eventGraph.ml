@@ -111,11 +111,15 @@ module Typing = struct
     w : wire option;
     lt : lifetime;
   }
-
+  type global_timed_data = 
+  {
+    mutable w : wire option;
+    glt : sig_lifetime_chan_local;
+  }
   type context = timed_data Utils.string_map
   type shared_var_info = {
     assigning_thread : int;
-    mutable value : timed_data option;
+    value : global_timed_data;
     _dtype : data_type;
   }
 
@@ -261,14 +265,20 @@ let rec visit_expr (graph : event_graph) (ci : cunit_info)
         match Hashtbl.find_opt ctx.shared_vars_info ident with
         | Some shared_info ->
           (
-            match shared_info.value with
-            | Some td -> 
+            let local_lt = Typing.{
+              live = (match shared_info.value.glt.b with
+                  | `Cycles n -> Typing.event_create graph (`Seq (ctx.current, `Cycles n))
+                  | `Message msg -> Typing.event_create graph (`Seq (ctx.current, `Recv {endpoint = ""; msg = msg}))
+                  | `Eternal -> ctx.current);
+                dead = (match shared_info.value.glt.e with
+                  | `Cycles n -> `Seq (Typing.delay_of_event ctx.current, `Cycles n)
+                  | `Message msg -> `Seq (Typing.delay_of_event ctx.current, `Recv {endpoint = ""; msg = msg})
+                  | `Eternal -> `Ever)
+              } in
               Typing.{
-               w = td.w;
-               lt = Typing.lifetime_immediate ctx.current
-             }
-           | None -> 
-             raise (TypeError ("Shared variable " ^ ident ^ " used before assignment"))
+                w = shared_info.value.w;
+                lt = local_lt
+              }
           )
         | None ->
           raise (TypeError ("Undefined identifier: " ^ ident))
@@ -462,21 +472,21 @@ let rec visit_expr (graph : event_graph) (ci : cunit_info)
         )
       | _ -> raise (TypeError "Invalid variant type name!")
     )
-  | SharedAssign (id, value_expr, lifetime) ->
+  | SharedAssign (id, value_expr) ->
     let shared_info = Hashtbl.find ctx.shared_vars_info id in
     if graph.thread_id = shared_info.assigning_thread then
       let value_td = visit_expr graph ci ctx value_expr in
-      
-      let start_event = match lifetime.b with
+      let start_event = match shared_info.value.glt.b with
       | `Cycles n -> Typing.event_create graph (`Seq (ctx.current, `Cycles n))
       | `Message msg -> Typing.event_create graph (`Seq (ctx.current, `Recv {endpoint = ""; msg = msg}))
       | `Eternal -> ctx.current in
     
-    let end_event = match lifetime.e with
+    let end_event = match shared_info.value.glt.e with
       | `Cycles n -> Typing.event_create graph (`Seq (start_event, `Cycles n))
       | `Message msg -> Typing.event_create graph (`Seq (start_event, `Recv {endpoint = ""; msg = msg}))
       | `Eternal -> Typing.event_create graph `Root in
   
+    shared_info.value.w <- value_td.w;
     let shared_lifetime = Typing.{
       live = start_event;
         dead = Typing.delay_of_event end_event;
@@ -486,8 +496,6 @@ let rec visit_expr (graph : event_graph) (ci : cunit_info)
         w = value_td.w;
         lt = shared_lifetime;
       } in
-      
-      shared_info.value <- Some shared_td;
       shared_td
     else
       raise (TypeError "Shared variable assigned in wrong thread")
@@ -497,11 +505,15 @@ let rec visit_expr (graph : event_graph) (ci : cunit_info)
 let build_proc (ci : cunit_info) (proc : proc_def) : proc_graph =
   let shared_vars_info = Hashtbl.create (List.length proc.body.shared_vars) in
   List.iter (fun sv -> 
-      let r: Typing.shared_var_info = {
-        assigning_thread = sv.assigning_thread;
-        value = None;
-        _dtype = sv.dtype;
-      } in
+    let v: Typing.global_timed_data = {
+      w = None;
+      glt = sv.shared_lifetime;
+    } in
+    let r: Typing.shared_var_info = {
+      assigning_thread = sv.assigning_thread;
+      value = v;
+      _dtype = sv.dtype;
+    } in
       Hashtbl.add shared_vars_info sv.ident r 
     ) proc.body.shared_vars;
     let proc_threads = List.mapi (fun i e ->

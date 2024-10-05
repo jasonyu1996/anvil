@@ -283,7 +283,7 @@ and expr =
   | Debug of debug_op
   | Send of send_pack
   | Recv of recv_pack
-  | SharedAssign of identifier * expr * sig_lifetime_chan_local  (* id, value, lifetime *)
+  | SharedAssign of identifier * expr
 and lvalue =
   | Reg of identifier
   | Indexed of lvalue * index (* lvalue[index] *)
@@ -348,6 +348,7 @@ type shared_var_def = {
   ident: identifier;
   assigning_thread: int;
   dtype: data_type;
+  shared_lifetime: sig_lifetime_chan_local;
 }
 
 type proc_def_body = {
