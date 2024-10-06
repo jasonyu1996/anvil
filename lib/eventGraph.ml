@@ -81,7 +81,13 @@ let print_graph (g: event_graph) =
     match ev.source with
     | `Later (e1, e2) -> Printf.eprintf "> %d: later %d %d\n" ev.id e1.id e2.id
     | `Either (e1, e2) -> Printf.eprintf "> %d: either %d %d\n" ev.id e1.id e2.id
-    | `Seq (ev', _) -> Printf.eprintf "> %d: seq %d\n" ev.id ev'.id
+    | `Seq (ev', a) ->
+      let c = match a with
+      | `Cycles n -> Printf.sprintf "C %d" n
+      | `Send _ -> "S"
+      | `Recv _ -> "R"
+      in
+      Printf.eprintf "> %d: seq %d %s\n" ev.id ev'.id c
     | `Branch (c, ev') -> Printf.eprintf "> %d: branch %b %d\n" ev.id c.neg ev'.id
     | `Root -> Printf.eprintf "> %d: root\n" ev.id
   ) g.events
@@ -360,8 +366,8 @@ module Typing = struct
             backward_to ev'
         )
       ) g.events;
-    print_control_set g;
-    print_graph g;
+    (* print_control_set g;
+    print_graph g; *)
     (* check for violations of linearity *)
     List.iter
       (fun (ev : event) ->
@@ -466,19 +472,27 @@ module Typing = struct
           let get_dist ev' = IntHashtbl.find_opt dist ev'.id |> Option.value ~default:0 in
           (
             fun ev2 d_pat2 ->
-              let d = get_dist ev2 in
-              if n1 <= d then true (* already matching before ev2 *)
-              else (
-                let n_rem = n1 - d in
-                match d_pat2 with
-                | `Eternal -> true
-                | `Cycles n2 -> n_rem <= n2
-                | `Message msg ->
+              match d_pat2 with
+              | `Eternal -> true
+              | `Cycles n2 ->
+                if event_is_successor ev1 ev2 then
+                  let d = get_dist ev2 in
+                  n1 <= d + n2
+                else (
+                  let dist2 = event_max_distance ev2 in
+                  let d = IntHashtbl.find_opt dist2 ev1.id |> Option.value ~default:event_distance_max in
+                  n1 + d <= n2
+                )
+              | `Message msg ->
                   let n2_opt' = event_succ_msg_match_earliest ev2 msg in
                   match n2_opt' with
                   | None -> true (* never matching *)
-                  | Some n2' -> let d' = get_dist n2' in n1 <= d'
-              )
+                  | Some n2' ->
+                    if event_is_predecessor ev1 n2' then
+                      true
+                    else if event_is_successor ev1 n2' then
+                      n1 <= get_dist n2'
+                    else false
           )
         | `Message msg ->
           (
@@ -514,7 +528,6 @@ module Typing = struct
     (* 1. check if lt2's start is a predecessor of lt1's start *)
     (* 2. derive a set of all time points A potentially within lt1 *)
     (* 4. check that end time of lt2 does not match any time point in A *)
-    Printf.eprintf "Checking lt %d %d %b\n" lt1.live.id lt2.live.id (event_is_successor lt1.live lt2.live);
     (* (event_is_successor lt2.live lt1.live) && (
       let r = event_pat_matches lt1.live lt2.dead in
       (not r.at) && (not r.aft)
@@ -549,6 +562,7 @@ module Typing = struct
       List.iter (fun sa ->
         match sa.ty with
         | Send (msg, td) ->
+          (* TODO: check that the message type is not currently borrowed *)
           let msg_d = MessageCollection.lookup_message g.messages msg ci.channel_classes |> Option.get in
           let stype = List.hd msg_d.sig_types in
           let e_dpat = delay_pat_globalise msg.endpoint stype.lifetime.e in
@@ -788,8 +802,9 @@ let build_proc (config : Config.compile_config) (ci : cunit_info) (proc : proc_d
       last_event_id = 0;
     } in
     (* Bruteforce treatment: just run twice *)
-    let _ = visit_expr graph ci (BuildContext.create_empty graph) (Wait (e, e)) in
-    Typing.lifetime_check config ci graph;
+    let tmp_graph = {graph with last_event_id = 0} in
+    let _ = visit_expr tmp_graph ci (BuildContext.create_empty tmp_graph) (Wait (e, e)) in
+    Typing.lifetime_check config ci tmp_graph;
     (* discard after type checking *)
     let td = visit_expr graph ci (BuildContext.create_empty graph) e in
     graph.last_event_id <- td.lt.live.id;  (* Set last_event_id for each graph *)
