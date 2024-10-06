@@ -162,7 +162,8 @@ module Typing = struct
         | `Either (e1, e2) ->
           e1.outs <- n::e1.outs;
           e2.outs <- n::e2.outs
-        | `Branch (_, ev') ->
+        | `Branch (_, ev')
+        | `Seq (ev', _) ->
           ev'.outs <- n::ev'.outs
         | _ -> ()
       );
@@ -314,7 +315,7 @@ module Typing = struct
         (
           match ev.source with
           | `Root -> ()
-          | `Later (e1, e2) | `Either (e1, e2) -> (* FIXME: handle 'either' correctly *)
+          | `Later (e1, e2) | `Either (e1, e2) ->
             (* Printf.eprintf "FR %d, %d -> %d\n" e1.id e2.id ev.id; *)
             forward_from e1;
             forward_from e2
@@ -358,8 +359,8 @@ module Typing = struct
             backward_to ev'
         )
       ) g.events;
-    (* print_control_set g;
-    print_graph g; *)
+    print_control_set g;
+    print_graph g;
     (* check for violations of linearity *)
     List.iter
       (fun (ev : event) ->
@@ -394,7 +395,7 @@ module Typing = struct
   let find_controller (endpts : identifier list) =
     List.find_opt
       (fun ev ->
-        List.for_all (fun endpt -> in_control_set_reg ev endpt) endpts
+        List.for_all (fun endpt -> in_control_set_endps ev endpt) endpts
       )
 
   let find_first_msg_after (ev : event) (msg: Lang.message_specifier) =
@@ -406,64 +407,121 @@ module Typing = struct
         ) ev'.sustained_actions
       )
 
-  let event_pat_bounds (ev_pat : event_pat) : (event * event) list =
-    List.filter_map (fun (ev, dpat) ->
-      match dpat with
-      | `Eternal -> None
-      | `Cycles _n -> Some (ev, ev) (* FIXME: incorrect *)
-      | `Message msg -> (
-        let preds = event_predecessors ev
-        and succs = event_successors ev in
-        let pred_controller = find_controller [msg.endpoint] (List.rev preds) |> Option.get in
-        let succ_controller = find_controller [msg.endpoint] succs |> Option.get in
-        let le_match = find_first_msg_after pred_controller msg |> Option.get
-        and ri_match = find_first_msg_after succ_controller msg |> Option.get in
-        Some (le_match, ri_match)
-      )
-    ) ev_pat
+  let event_succ_msg_match_earliest (ev : event) (msg : message_specifier) =
+    let preds = event_predecessors ev in
+    let pred_controller = find_controller [msg.endpoint] (List.rev preds) |> Option.get in
+    find_first_msg_after pred_controller msg
 
-  (** When does the event take place relative to the event pattern? *)
-  let event_pat_matches (ev : event) (ev_pat : event_pat) =
-    let res = ref {bef = false; aft = false; at = false} in
-    let bs = event_pat_bounds ev_pat in
-    if (List.length ev_pat) <> (List.length bs) then
-      res := {!res with bef = true}
-    else ();
-    let succs = event_successors ev |> List.tl |> List.map (fun x -> x.id) |> Utils.IntSet.of_list in
-    let preds = event_predecessors ev |> List.tl |> List.map (fun x -> x.id) |> Utils.IntSet.of_list in
-    List.iter (fun (le, ri) ->
-      let le_in_preds = Utils.IntSet.mem le.id preds
-      and ri_in_succs = Utils.IntSet.mem ri.id succs in
-      if ri_in_succs then
-        res := {!res with bef = true}
-      else ();
-      if le_in_preds then
-        res := {!res with aft = true}
-      else ();
-      if (le_in_preds && ri_in_succs) || le.id = ev.id || ri.id = ev.id then
-        res := {!res with at = true}
-      else ();
-      if (not le_in_preds) && (not ri_in_succs) && le.id <> ev.id && ri.id <> ev.id then
-        res := {bef = true; aft = true; at = true}
-      else ()
-    ) bs;
-    Printf.eprintf "Event pat: %d %b %b %b\n" ev.id !res.bef !res.at !res.aft;
-    !res
+  let event_succ_msg_match_latest (ev : event) (msg : message_specifier) =
+    let succs = event_successors ev in
+    let succ_controller = find_controller [msg.endpoint] succs |> Option.get in
+    find_first_msg_after succ_controller msg
+
+  module IntHashtbl = Hashtbl.Make(Int)
+  let event_distance_max = 1 lsl 20
+  let event_succ_distance non_succ_dist msg_dist_f either_dist_f (ev : event) =
+    let succs = event_successors ev in
+    let dist = IntHashtbl.create 8 in
+    IntHashtbl.add dist ev.id 0;
+    let get_dist ev' = IntHashtbl.find_opt dist ev'.id |> Option.value ~default:non_succ_dist in
+    let set_dist ev' d = IntHashtbl.add dist ev'.id d in
+    List.tl succs |> List.iter (fun ev' ->
+      let d = match ev'.source with
+      | `Root -> raise (LifetimeCheckError "Unexpected root!")
+      | `Later (ev1, ev2) -> max (get_dist ev1) (get_dist ev2)
+      | `Seq (ev1, ad) ->
+        let d1 = get_dist ev1 in
+        (
+          match ad with
+          | `Cycles n' -> d1 + n'
+          | `Send _ | `Recv _ -> msg_dist_f d1
+        )
+      | `Branch (_, ev1) -> get_dist ev1
+      | `Either (ev1, ev2) -> either_dist_f (get_dist ev1) (get_dist ev2)
+      in
+      set_dist ev' (min d event_distance_max)
+    );
+    dist
+
+  let event_min_distance =
+    event_succ_distance 0 (fun d -> d) min
+
+  let event_max_distance =
+    event_succ_distance event_distance_max (fun _ -> event_distance_max) max
+
+  (** Is ev_pat1 matched always no later than ev_pat2 is matched?
+  Produce a conservative result.
+  Only length 1 ev_pat1 supported. *)
+  let event_pat_rel (ev_pat1 : event_pat) (ev_pat2 : event_pat) =
+    if (List.length ev_pat1) <> 1 then
+      false
+    else (
+      let (ev1, d_pat1) = List.hd ev_pat1 in
+      let check_f = match d_pat1 with
+        | `Eternal -> fun _ev2 d_pat2 -> d_pat2 = `Eternal
+        | `Cycles n1 ->
+          (* compute the min possible cycle distance from n1 to successors *)
+          let dist = event_min_distance ev1 in
+          let get_dist ev' = IntHashtbl.find_opt dist ev'.id |> Option.value ~default:0 in
+          (
+            fun ev2 d_pat2 ->
+              let d = get_dist ev2 in
+              if n1 <= d then true (* already matching before ev2 *)
+              else (
+                let n_rem = n1 - d in
+                match d_pat2 with
+                | `Eternal -> true
+                | `Cycles n2 -> n_rem <= n2
+                | `Message msg ->
+                  let n2_opt' = event_succ_msg_match_earliest ev2 msg in
+                  match n2_opt' with
+                  | None -> true (* never matching *)
+                  | Some n2' -> let d' = get_dist n2' in n1 <= d'
+              )
+          )
+        | `Message msg ->
+          (
+            let ri1_opt = event_succ_msg_match_latest ev1 msg in (* latest estimated *)
+            match ri1_opt with
+            | None -> fun _ _ -> true (* End of the second loop. Don't handle *)
+            | Some ri1 ->
+              fun ev2 d_pat2 -> (
+                match d_pat2 with
+                | `Eternal -> true
+                | `Cycles n2 -> (* earliest estimate *)
+                  if event_is_predecessor ev2 ri1 then true
+                  else (
+                    let dist = event_max_distance ev2 in
+                    let d = IntHashtbl.find_opt dist ri1.id |> Option.value ~default:event_distance_max in
+                    d <= n2
+                  )
+                | `Message msg2 ->
+                  (
+                    let le2_opt = event_succ_msg_match_earliest ev2 msg2 in
+                    match le2_opt with
+                    | None -> true
+                    | Some le2 -> event_is_predecessor le2 ri1
+                  )
+              )
+          )
+      in
+      List.for_all (fun (ev2, d_pat2) -> check_f ev2 d_pat2) ev_pat2
+    )
 
   (** Check that lt1 is always fully covered by lt2 *)
   let lifetime_in_range (lt1 : lifetime) (lt2 : lifetime) =
     (* 1. check if lt2's start is a predecessor of lt1's start *)
     (* 2. derive a set of all time points A potentially within lt1 *)
     (* 4. check that end time of lt2 does not match any time point in A *)
-    (* FIXME: not considering lt1's dead time now *)
     Printf.eprintf "Checking lt %d %d %b\n" lt1.live.id lt2.live.id (event_is_successor lt1.live lt2.live);
-    (event_is_successor lt2.live lt1.live) && (
+    (* (event_is_successor lt2.live lt1.live) && (
       let r = event_pat_matches lt1.live lt2.dead in
       (not r.at) && (not r.aft)
-    )
+    ) *)
+    (event_is_successor lt2.live lt1.live) && (event_pat_rel lt1.dead lt2.dead)
 
   (** Perform lifetime check on an event graph and throw out LifetimeCheckError if failed. *)
-  let lifetime_check (config : Config.compile_config) (g : event_graph) =
+  let lifetime_check (config : Config.compile_config) (ci : cunit_info) (g : event_graph) =
     gen_control_set g;
     (* for debugging purposes*)
     if config.verbose then (
@@ -486,7 +544,17 @@ module Typing = struct
             else ()
           ) tds
         | _ -> ()
-      ) ev.actions
+      ) ev.actions;
+      List.iter (fun sa ->
+        match sa.ty with
+        | Send (msg, td) ->
+          let msg_d = MessageCollection.lookup_message g.messages msg ci.channel_classes |> Option.get in
+          let stype = List.hd msg_d.sig_types in
+          let e_dpat = delay_pat_globalise msg.endpoint stype.lifetime.e in
+          if lifetime_in_range {live = ev; dead = [(sa.until, e_dpat)]} td.lt |> not then
+            raise (LifetimeCheckError "Value not live long enough in message send!")
+        | Recv _ -> ()
+      ) ev.sustained_actions
     ) g.events
 
   module BuildContext = struct
@@ -549,7 +617,10 @@ let rec visit_expr (graph : event_graph) (ci : cunit_info)
     let td1 = visit_expr graph ci ctx e1 in
     (
       match idents, td1.w with
-      | [], None | ["_"], _  -> visit_expr graph ci ctx e2
+      | [], None | ["_"], _ ->
+        let td = visit_expr graph ci ctx e2 in
+        let lt = Typing.lifetime_intersect graph td1.lt td.lt in
+        {td with lt} (* forcing the bound value to be awaited *)
       | [ident], _ ->
         let ctx' = BuildContext.add_binding ctx ident td1 in
         visit_expr graph ci ctx' e2
@@ -569,7 +640,6 @@ let rec visit_expr (graph : event_graph) (ci : cunit_info)
     let td2 = visit_expr graph ci ctx_true e2 in
     let ctx_false = BuildContext.branch graph ctx' td1 true in
     let td3 = visit_expr graph ci ctx_false e3 in
-    (* FIXME: the dead time is incorrect *)
     let lt = {live = Typing.event_create graph (`Either (td2.lt.live, td3.lt.live));
       dead = td1.lt.dead @ td2.lt.dead @td3.lt.dead} in
     (
@@ -606,8 +676,6 @@ let rec visit_expr (graph : event_graph) (ci : cunit_info)
     )
   | Send send_pack ->
     let td = visit_expr graph ci ctx send_pack.send_data in
-    let _msg = MessageCollection.lookup_message graph.messages send_pack.send_msg_spec ci.channel_classes |> Option.get in
-    (* TODO: lifetime checking *)
     let ntd = Typing.send_msg_data graph send_pack.send_msg_spec ctx.current in
     ctx.current.sustained_actions <-
       {
@@ -718,9 +786,12 @@ let build_proc (config : Config.compile_config) (ci : cunit_info) (proc : proc_d
       regs = proc.body.regs;
       last_event_id = 0;
     } in
+    (* Bruteforce treatment: just run twice *)
+    let _ = visit_expr graph ci (BuildContext.create_empty graph) (Wait (e, e)) in
+    Typing.lifetime_check config ci graph;
+    (* discard after type checking *)
     let td = visit_expr graph ci (BuildContext.create_empty graph) e in
     graph.last_event_id <- td.lt.live.id;  (* Set last_event_id for each graph *)
-    Typing.lifetime_check config graph;
     graph
   ) proc.body.loops in
   {name = proc.name; threads = proc_threads};
