@@ -208,10 +208,11 @@ module Typing = struct
   let send_msg_data g (msg : message_specifier) (current : event) =
     let live_event = event_create g (`Seq (current, `Send msg)) in
     {w = None; lt = {live = live_event; dead = [(live_event, `Eternal)]}}
-  let recv_msg_data g (w : wire option) (msg : message_specifier) (_msg_def : message_def) (current : event) =
+  let recv_msg_data g (w : wire option) (msg : message_specifier) (msg_def : message_def) (current : event) =
     let event_received = event_create g (`Seq (current, `Recv msg)) in
-    (* FIXME: take into consideration the lifetime signature *)
-    {w; lt = {live = event_received; dead = [(event_received, `Eternal)]}}
+    let stype = List.hd msg_def.sig_types in
+    let e = delay_pat_globalise msg.endpoint stype.lifetime.e in
+    {w; lt = {live = event_received; dead = [(event_received, e)]}}
 
   let context_add (ctx : context) (v : identifier) (d : timed_data) : context =
     Utils.StringMap.add v d ctx
