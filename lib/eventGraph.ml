@@ -534,6 +534,17 @@ module Typing = struct
     ) *)
     (event_is_successor lt2.live lt1.live) && (event_pat_rel lt1.dead lt2.dead)
 
+  (** Definitely disjoint? *)
+  let lifetime_disjoint lt1 lt2 =
+    assert (List.length lt1.dead = 1);
+    (* to be disjoint, either r1 <= l2 or r2 <= l1 *)
+    if event_pat_rel lt1.dead [(lt2.live, `Cycles 0)] then
+      true
+    else
+      List.for_all (fun de -> event_pat_rel [de] [(lt1.live, `Cycles 0)]) lt2.dead
+
+  module StringHashtbl = Hashtbl.Make(String)
+
   (** Perform lifetime check on an event graph and throw out LifetimeCheckError if failed. *)
   let lifetime_check (config : Config.compile_config) (ci : cunit_info) (g : event_graph) =
     gen_control_set g;
@@ -542,13 +553,24 @@ module Typing = struct
       print_graph g;
       print_control_set g
     );
+    let reg_borrows = StringHashtbl.create 8 in
+    let msg_borrows = StringHashtbl.create 8 in
     (* check lifetime for each use of a wire *)
+    let not_borrowed_and_add tbl s lt =
+      let borrows = StringHashtbl.find_opt tbl s |> Option.value ~default:[] in
+      let not_borrowed = List.for_all (lifetime_disjoint lt) borrows in
+      if not_borrowed then StringHashtbl.replace tbl s (lt::borrows);
+      not_borrowed
+    in
     List.iter (fun ev ->
       List.iter (fun a ->
         match a with
-        | RegAssign (_reg_ident, td) ->
-          (* TODO: check that the register is not currently borrowed *)
-          if lifetime_in_range (lifetime_immediate ev) td.lt |> not then
+        | RegAssign (reg_ident, td) ->
+          let lt = lifetime_immediate ev in
+          if not_borrowed_and_add reg_borrows reg_ident lt |> not then
+            raise (LifetimeCheckError "Attempted assignment to a borrowed register!")
+          else ();
+          if lifetime_in_range lt td.lt |> not then
             raise (LifetimeCheckError "Value does not live long enough in reg assignment!")
           else ()
         | DebugPrint (_, tds) ->
@@ -562,11 +584,14 @@ module Typing = struct
       List.iter (fun sa ->
         match sa.ty with
         | Send (msg, td) ->
-          (* TODO: check that the message type is not currently borrowed *)
           let msg_d = MessageCollection.lookup_message g.messages msg ci.channel_classes |> Option.get in
           let stype = List.hd msg_d.sig_types in
           let e_dpat = delay_pat_globalise msg.endpoint stype.lifetime.e in
-          if lifetime_in_range {live = ev; dead = [(sa.until, e_dpat)]} td.lt |> not then
+          let lt = {live = ev; dead = [(sa.until, e_dpat)]} in
+          if not_borrowed_and_add msg_borrows (string_of_msg_spec msg) lt |> not then
+            raise (LifetimeCheckError "Potentially conflicting message sending!")
+          else ();
+          if lifetime_in_range lt td.lt |> not then
             raise (LifetimeCheckError "Value not live long enough in message send!")
         | Recv _ -> ()
       ) ev.sustained_actions
@@ -676,6 +701,7 @@ let rec visit_expr (graph : event_graph) (ci : cunit_info)
     let r = List.find (fun (r : Lang.reg_def) -> r.name = reg_ident) graph.regs in
     let (wires', w) = WireCollection.add_reg_read ci.typedefs r graph.wires in
     graph.wires <- wires';
+    (* FIXME: lifetime needs to be inferred from use *)
     {w = Some w; lt = Typing.lifetime_const ctx.current}
   | Debug op ->
     (
