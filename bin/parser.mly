@@ -39,6 +39,7 @@
 %token KEYWORD_IN           (* in *)
 %token KEYWORD_LEFT         (* left *)
 %token KEYWORD_RIGHT        (* right *)
+%token KEYWORD_PUT          (* put *)
 %token KEYWORD_LOGIC        (* logic *)
 %token KEYWORD_FOREIGN      (* foreign *)
 %token KEYWORD_IF           (* if *)
@@ -260,6 +261,10 @@ expr:
   { Anvil.Lang.Tuple ([]) }
 | LEFT_PAREN; e = expr; RIGHT_PAREN
   { e }
+| KEYWORD_PUT; ident = IDENT; EQUAL; v = expr
+  { Anvil.Lang.SharedAssign (ident, v) }
+| KEYWORD_PUT; ident = IDENT; EQUAL; v = expr; SEMICOLON; body = expr
+  { Anvil.Lang.LetIn (["_"], Anvil.Lang.SharedAssign (ident, v), body) }
 | KEYWORD_LET; binding = IDENT; EQUAL; v = expr; KEYWORD_IN; body = expr
   { Anvil.Lang.LetIn ([binding], v, body) }
 | KEYWORD_LET; LEFT_PAREN; bindings = separated_list(COMMA, IDENT); RIGHT_PAREN; EQUAL; v = expr; KEYWORD_IN; body = expr
@@ -307,8 +312,7 @@ expr:
   { Anvil.Lang.Debug (Anvil.Lang.DebugPrint (s, v)) }
 | KEYWORD_DFINISH
   { Anvil.Lang.Debug Anvil.Lang.DebugFinish }
-| KEYWORD_SHARED; ident = IDENT; EQUAL; value = expr
-  { Anvil.Lang.SharedAssign (ident, value) }
+
 // | KEYWORD_LOOP; body = expr
 //   { Anvil.Lang.Loop body }  
 // ;
