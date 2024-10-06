@@ -34,7 +34,9 @@ let codegen_next printer (g : EventGraph.event_graph) =
               g.thread_id e.id g.thread_id e'.id |> print_line
           else
             [
-              Printf.sprintf "logic [%d:0] _thread_%d_event_counter%d;" (Utils.int_log2 n) g.thread_id e.id;
+              failwith "Multiple cycles not supported yet";
+              (* Fix Me *)
+              (* Printf.sprintf "logic [%d:0] _thread_%d_event_counter%d;" (Utils.int_log2 n) g.thread_id e.id;
               Printf.sprintf "always_ff @(posedge clk_i or negedge rst_ni) begin";
               Printf.sprintf "  if (~rst_ni) begin";
               Printf.sprintf "    _thread_%d_event_counter%d <= '0;" g.thread_id e.id;
@@ -51,7 +53,7 @@ let codegen_next printer (g : EventGraph.event_graph) =
               Printf.sprintf "    _thread_%d_event_counter%d <= '0;" g.thread_id e.id;
               Printf.sprintf "    _thread_%d_event_next%d <= 1'b0;" g.thread_id e.id;
               Printf.sprintf "  end";
-              Printf.sprintf "end";
+              Printf.sprintf "end"; *)
             ] |> print_lines
         | `Cycles _ ->
           failwith "Invalid number of cycles"
