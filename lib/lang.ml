@@ -15,12 +15,12 @@ let string_of_msg_spec (msg_spec : message_specifier) : string =
   msg_spec.endpoint ^ "::" ^ msg_spec.msg
 
 (* TODO: more complex patterns *)
-(** A delay pattern that matches a set of delays.
-- [`Cycles]: elapse of a number of cycles
-- [`Message]: sending/receiving of a message of a specific type
-- [`Eternal]: matches no delays
-*)
-type delay_pat = [ `Cycles of int | `Message of message_specifier | `Eternal ]
+(** A delay pattern that matches a set of delays. *)
+type delay_pat = [
+  | `Cycles of int (** elapse of a number of cycles *)
+  | `Message of message_specifier (** sending/receiving of a message of a specific type *)
+  | `Eternal (** matches no delays *)
+]
 
 (** A delay pattern local to a specific channel. Being channel-local means that the message type
 does not include an endpoint name component. *)
@@ -62,22 +62,18 @@ let sig_lifetime_null : sig_lifetime =
 let sig_lifetime_const : sig_lifetime =
   { b = `Cycles 0; e = `Eternal }
 
-(** Type definition without named type.
-- [`Variant]: ADT sum type
-- [`Record]: ADT product type
-- [`Opaque]: type reserved for internal purposes
-*)
+(** Type definition without named type. *)
 type 'a data_type_generic_no_named = [
   | `Logic
   | `Array of 'a * int
-  | `Variant of (identifier * 'a option) list
-  | `Record of (identifier * 'a) list
+  | `Variant of (identifier * 'a option) list (** ADT sum type *)
+  | `Record of (identifier * 'a) list (** ADT product type *)
   | `Tuple of 'a list
-  | `Opaque of identifier (* reserved named type *)
+  | `Opaque of identifier (** type reserved for internal purposes *)
 ]
 
 type 'a data_type_generic = [
-  | `Named of identifier (* named type *)
+  | `Named of identifier (** named type *)
   | 'a data_type_generic_no_named
 ]
 
@@ -157,25 +153,19 @@ type reg_def_list = reg_def list
 
 type message_direction = In | Out
 
-(** Synchronisation mode of a message type.
-- {!Dynamic}: dynamic synchronisation, e.g., through [valid]/[ack] handshakes
-- {!Dependent}: we have some static knowledge about when the synchronisation takes place
-
-{b Currently ignored.}
-*)
+(** Synchronisation mode of a message type. *)
 type message_sync_mode =
-  | Dynamic
-  | Dependent of delay_pat_chan_local
+  | Dynamic (** dynamic synchronisation, e.g., through [valid]/[ack] handshakes *)
+  | Dependent of delay_pat_chan_local (** we have some static knowledge about
+              when the synchronisation takes place. {b Currently ignored.} *)
 
-(** A message type definition, as part of a channel definition.
-- {!sig_types}: the signal types of the values carried in the message.
-*)
+(** A message type definition, as part of a channel definition. *)
 type message_def = {
   name: identifier;
   dir: message_direction;
-  send_sync: message_sync_mode; (* how to synchronise when data is available *)
-  recv_sync: message_sync_mode; (* how to synchronise when data is acknowledged *)
-  sig_types: sig_type_chan_local list;
+  send_sync: message_sync_mode; (** how to synchronise when data is available *)
+  recv_sync: message_sync_mode; (** how to synchronise when data is acknowledged *)
+  sig_types: sig_type_chan_local list; (** the signal types of the values carried in the message *)
 }
 
 (** A channel class definition, containing a list of message type definitions. *)
@@ -184,12 +174,11 @@ type channel_class_def = {
   messages: message_def list;
 }
 
-(** The visibility of a channel.
-- {!BothForeign}: not visible locally, must be passed to other processes
-- {!LeftForeign}: the left endpoint is not visible locally but the right one is
-- {!RightForeign}: the right endpoint is not visible locally but the left one is
-*)
-type channel_visibility = BothForeign | LeftForeign | RightForeign
+(** The visibility of a channel. *)
+type channel_visibility =
+| BothForeign (** not visible locally, must be passed to other processes *)
+| LeftForeign (** the left endpoint is not visible locally but the right one is *)
+| RightForeign (** the right endpoint is not visible locally but the left one is *)
 
 (** A channel (instantiation of a channel class) definition. *)
 type channel_def = {
@@ -315,13 +304,7 @@ and constructor_spec = {
   variant: identifier;
 }
 
-(** An expression. This is the basic building block for a program.
-- {!Read}: reading a value from a register (leading to a borrow)
-- {!Record}: constructing a record-type value
-- {!Indirect}: a member of a record ([a.b])
-- {!Index}: an element of an array ([a[3]])
-- {!Wait}: [a => b]
-*)
+(** An expression. This is the basic building block for a program. *)
 and expr =
   | Literal of literal
   | Identifier of identifier
@@ -331,30 +314,26 @@ and expr =
   | Unop of unop * expr
   | Tuple of expr list
   | LetIn of identifier list * expr * expr
-  | Wait of expr * expr
+  | Wait of expr * expr (** [a => b] *)
   | Cycle of int
   | IfExpr of expr * expr * expr
   (* construct a variant type value with a constructor *)
   | Construct of constructor_spec * expr option
-  | Record of identifier * (identifier * expr) list
-  | Index of expr * index
-  | Indirect of expr * identifier
+  | Record of identifier * (identifier * expr) list (** constructing a record-type value *)
+  | Index of expr * index (** an element of an array ([a[3]]) *)
+  | Indirect of expr * identifier (** a member of a record ([a.b]) *)
   | Concat of expr list
   | Match of expr * ((match_pattern * expr option) list)
-  | Read of identifier
+  | Read of identifier (** reading a value from a register (leading to a borrow) *)
   | Debug of debug_op
   | Send of send_pack
   | Recv of recv_pack
 
-(** A "location" that can be assigned to.
-- {!Reg}: a register
-- {!Index}: indexing another {!lvalue}. Unimplemented
-- {!Indirected}: indirection through another {!lvalue}. Unimplemented
-*)
+(** A "location" that can be assigned to. *)
 and lvalue =
-  | Reg of identifier
-  | Indexed of lvalue * index (* lvalue[index] *)
-  | Indirected of lvalue * identifier (* lvalue.field *)
+  | Reg of identifier (** a register *)
+  | Indexed of lvalue * index (** lvalue[index]. Unimplemented *)
+  | Indirected of lvalue * identifier (** lvalue.field. Unimplemented *)
 
 (** Indexing, either a single point or a range. *)
 and index =
@@ -388,30 +367,23 @@ type endpoint_direction = Left | Right
 
 (** Endpoint definition. A pair is
 created once a channel class
-is instantiated.
-- {!dir}: direction of the endpoint
-- {!foreign}: must this endpoint be passed to other processes rather than
-  used within this process?
-- {!opp}: if the endpoint is created locally, the other endpoint associated
-  with the same channel
-*)
+is instantiated. *)
 type endpoint_def = {
   name: identifier;
   channel_class: identifier;
-  dir: endpoint_direction;
+  dir: endpoint_direction; (** direction of the endpoint *)
   (* used by this process? *)
-  foreign: bool;
-  (* the other end, if available *)
-  opp: identifier option;
+  foreign: bool; (** must this endpoint be passed to other processes rather than
+  used within this process? *)
+  opp: identifier option; (** if the endpoint is created locally, the other endpoint associated
+  with the same channel *)
 }
 
-(** A spawn of a process.
-- {!params}: names of the endpoints passed to the spawned process
-*)
+(** A spawn of a process. *)
 type spawn_def = {
   proc: identifier;
   (* channels to pass as args *)
-  params: identifier list;
+  params: identifier list; (** names of the endpoints passed to the spawned process *)
 }
 
 (** Process body. *)
@@ -425,15 +397,12 @@ type proc_def_body = {
   loops: expr list;
 }
 
-(** Process definition.
-- {!args}: endpoints passed from outside
-- {!body}: process body
-*)
+(** Process definition. *)
 type proc_def = {
   name: string;
   (* arguments are endpoints passed from outside *)
-  args: endpoint_def list;
-  body: proc_def_body;
+  args: endpoint_def list; (** endpoints passed from outside *)
+  body: proc_def_body; (** process body *)
 }
 
 (** A compilation unit, corresponding to a source file. *)

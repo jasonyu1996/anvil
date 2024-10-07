@@ -15,15 +15,11 @@ event graphs.
 type wire = WireCollection.wire
 type wire_collection = WireCollection.t
 
-(** An event that may lead to delay in time.
-- [`Cycles]: elapse of a specific number of cycles
-- [`Send]: sending of a message
-- [`Recv]: receiving of a message
-*)
+(** An event that may lead to delay in time. *)
 type atomic_delay = [
-  | `Cycles of int
-  | `Send of Lang.message_specifier
-  | `Recv of Lang.message_specifier
+  | `Cycles of int (** elapse of a specific number of cycles *)
+  | `Send of Lang.message_specifier (** sending of a message *)
+  | `Recv of Lang.message_specifier (** receiving of a message *)
 ]
 
 (** Describe a time window that starts with an eventl ({!live}) and ends with an
@@ -33,26 +29,18 @@ type lifetime = {
   dead : event_pat;
 }
 
-(** Data with a lifetime and potentially borrowing from a set of registers.
-- {!w}: the {!type:wire} carrying the underlying raw data
-- {!lt}: lifetime of the data
-- {!reg_borrows}: each is tuple of (name of register, starting event of the borrow)
-*)
+(** Data with a lifetime and potentially borrowing from a set of registers. *)
 and timed_data = {
-  w : wire option;
-  lt : lifetime;
-  reg_borrows : (Lang.identifier * event) list;
+  w : wire option; (** the {!type:wire} carrying the underlying raw data *)
+  lt : lifetime; (** lifetime of the data *)
+  reg_borrows : (Lang.identifier * event) list; (** each is tuple of (name of register, starting event of the borrow) *)
 }
 
-(** An action that is performed instantly when an event is reached.
-- {!DebugPrint}: debug print ([dprint])
-- {!DebugFinish}: [dfinish]
-- {!RegAssign}: register assignment (technically this is not performed instantly)
-*)
+(** An action that is performed instantly when an event is reached. *)
 and action =
-  | DebugPrint of string * timed_data list
-  | DebugFinish
-  | RegAssign of string * timed_data
+  | DebugPrint of string * timed_data list (** debug print ([dprint]) *)
+  | DebugFinish (** [dfinish] *)
+  | RegAssign of string * timed_data (** register assignment (technically this is not performed instantly) *)
 
 (** Type of an action that may take multiple cycles. Those
 are basically those that synchronise through message passing. *)
@@ -61,8 +49,6 @@ and sustained_action_type =
   | Recv of Lang.message_specifier
 
 (** A condition.
-- {!data}: the time data evaluated in the condition
-- {!neg}: is the data negated?
 
 Currently, an [if-then-else] expression produces a pair of events representing
 the two cases respectively and both are associated with conditions.
@@ -70,8 +56,8 @@ The [then-] case is associated with a condition with [false] as {!neg}, whereas
 the [else-] case is associated with a condition with [true] as {!neg}.
 *)
 and condition = {
-  data : timed_data;
-  neg : bool;
+  data : timed_data; (** the time data evaluated in the condition *)
+  neg : bool; (** is the data negated? *)
 }
 
 (** An event pattern. Matched when a {{!Lang.delay_pat}delay pattern} is first satisfied
@@ -79,40 +65,30 @@ after a certain event is reached.
 *)
 and event_pat = (event * Lang.delay_pat) list
 
-(** An event.
-- {!id}: an integral identifier of the event, unique within the event graph
-- {!actions}: instant actions that take place when this event is reached
-- {!sustained_actions}: actions that may take multiple cycles and start when this event is reached
-- {!source}: under what circumstances is this event reached. {i Those are effectively the edges in the event graph}
-- {!control_regs}, {!control_endps}, {!current_regs}, {!current_endps}: used for lifetime checking
-- {!outs}: the outbound edges, i.e., the events that directly depend on this event
-*)
+(** An event. *)
 and event = {
-  id : int;
-  mutable actions: action list;
-  mutable sustained_actions : sustained_action list;
-  source: event_source;
+  id : int; (** an integral identifier of the event, unique within the event graph *)
+  mutable actions: action list; (** instant actions that take place when this event is reached *)
+  mutable sustained_actions : sustained_action list; (** actions that may take multiple cycles and
+                                                      start when this event is reached*)
+  source: event_source; (** under what circumstances is this event reached.
+                      {i Those are effectively the edges in the event graph} *)
   (* for lifetime checking *)
   mutable control_regs: (int * int) Utils.string_map;
   mutable control_endps: (int * int) Utils.string_map;
   mutable current_regs : (int * int) Utils.string_map;
   mutable current_endps : (int * int) Utils.string_map;
-  mutable outs : event list;
+  (** used for lifetime checking *)
+  mutable outs : event list; (** the outbound edges, i.e., the events that directly depend on this event *)
 }
 
-(** Describes when an event is reached.
-- [`Root]: at the beginning of the thread (initially already reached)
-- [`Later]: reached when both events have been reached
-- [`Seq]: reached when a {{!atomic_delay}delay} takes place after another event is reached
-- [`Branch]: reached when a {{!condition}condition} is satisfied after another event is reached
-- [`Either]: reached when either of the two events is reached
-*)
+(** Describes when an event is reached. *)
 and event_source = [
-  | `Root
-  | `Later of event * event
-  | `Seq of event * atomic_delay
-  | `Branch of condition * event
-  | `Either of event * event (* joining if-then-else branches *)
+  | `Root (** at the beginning of the thread (initially already reached) *)
+  | `Later of event * event (** reached when both events have been reached *)
+  | `Seq of event * atomic_delay (** reached when a {{!atomic_delay}delay} takes place after another event is reached *)
+  | `Branch of condition * event (** reached when a {{!condition}condition} is satisfied after another event is reached *)
+  | `Either of event * event (** reached when either of the two events is reached *)
 ]
 
 (** An action that starts at an event but may last multiple cycles.
@@ -122,18 +98,15 @@ and sustained_action = {
   ty : sustained_action_type
 }
 
-(** An event graph, usually corresponding to a single looping thread.
-- {!thread_id}: unique identifier of the looping thread
-- {!channels}: all channel definitions.
-  Note these do not include the channels passed from outside the process
-- {!messages}: all messages referenceable from within the process, including those through channels passed from outside
-*)
+(** An event graph, usually corresponding to a single looping thread. *)
 type event_graph = {
-  thread_id : int;
+  thread_id : int; (** unique identifier of the looping thread *)
   mutable events : event list;
   mutable wires : WireCollection.t;
-  channels : Lang.channel_def list;
-  messages : MessageCollection.t;
+  channels : Lang.channel_def list; (** all channel definitions.
+          Note these do not include the channels passed from outside the process *)
+  messages : MessageCollection.t; (** all messages referenceable from within the process,
+            including those through channels passed from outside*)
   spawns : Lang.spawn_def list;
   regs: Lang.reg_def list;
   mutable last_event_id: int;
