@@ -1,3 +1,5 @@
+(** Handy utility definitions. *)
+
 module StringMap :
   sig
     type key = string
@@ -43,6 +45,7 @@ module StringMap :
     val to_seq_from : key -> 'a t -> (key * 'a) Seq.t
     val add_seq : (key * 'a) Seq.t -> 'a t -> 'a t
     val of_seq : (key * 'a) Seq.t -> 'a t
+    val of_list : (key * 'a) list -> 'a t
   end
 type 'a string_map = 'a StringMap.t
 module StringSet :
@@ -141,6 +144,12 @@ module IntSet :
     val of_seq : elt Seq.t -> t
   end
 type int_set = IntSet.t
+
+(** [int_log2 v] computes the smallest [n] such that [2^n >= v] *)
 val int_log2 : int -> int
-val map_of_list : (string * 'a) list -> 'a string_map
+
+(** [list_match_reorder order data] where rearranges elements in [data] so they match [order].
+If [data] and [order] are of different lengths or if the sets of strings do not match,
+[None] is returned instead.
+*)
 val list_match_reorder : string list -> (string * 'a) list -> 'a list option

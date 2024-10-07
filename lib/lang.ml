@@ -1,5 +1,11 @@
+(** This module includes definitions relevant to the language constructs, including
+those that are part of the AST created during parsing. *)
+
 type identifier = string
 
+(** This identifies a message type within the context of a process.
+It consists of the {{!endpoint}endpoint name} and the {{!msg}message type name}.
+*)
 type message_specifier = {
   endpoint : identifier;
   msg : identifier;
@@ -9,9 +15,15 @@ let string_of_msg_spec (msg_spec : message_specifier) : string =
   msg_spec.endpoint ^ "::" ^ msg_spec.msg
 
 (* TODO: more complex patterns *)
+(** A delay pattern that matches a set of delays.
+- [`Cycles]: elapse of a number of cycles
+- [`Message]: sending/receiving of a message of a specific type
+- [`Eternal]: matches no delays
+*)
 type delay_pat = [ `Cycles of int | `Message of message_specifier | `Eternal ]
 
-(* delay_pat definition that is local to a specific channel *)
+(** A delay pattern local to a specific channel. Being channel-local means that the message type
+does not include an endpoint name component. *)
 type delay_pat_chan_local = [ `Cycles of int | `Message of identifier | `Eternal ]
 
 let string_of_delay_pat (t : delay_pat) : string =
@@ -20,7 +32,12 @@ let string_of_delay_pat (t : delay_pat) : string =
   | `Message msg_spec -> Printf.sprintf "%s" (string_of_msg_spec msg_spec)
   | `Eternal -> "E"
 
+(** Lifetime signature consisting of a pair of {{!sig_lifetime.b}beginning} and {{!sig_lifetime.e}ending} delay patterns.
+The beginning delay pattern is currently ignored.
+*)
 type sig_lifetime = { b: delay_pat; e: delay_pat;}
+
+(** Same as {!sig_lifetime} but local to a channel. *)
 type sig_lifetime_chan_local = { b: delay_pat_chan_local; e: delay_pat_chan_local; }
 
 let string_of_lifetime (lt : sig_lifetime) : string =
@@ -45,7 +62,11 @@ let sig_lifetime_null : sig_lifetime =
 let sig_lifetime_const : sig_lifetime =
   { b = `Cycles 0; e = `Eternal }
 
-(* type definition *)
+(** Type definition without named type.
+- [`Variant]: ADT sum type
+- [`Record]: ADT product type
+- [`Opaque]: type reserved for internal purposes
+*)
 type 'a data_type_generic_no_named = [
   | `Logic
   | `Array of 'a * int
@@ -60,23 +81,30 @@ type 'a data_type_generic = [
   | 'a data_type_generic_no_named
 ]
 
+(** A data type after resolution (no named type). *)
 type resolved_data_type = resolved_data_type data_type_generic_no_named
+
+(** A data type. *)
 type data_type = data_type data_type_generic
 
+(** A type definition ([type name = body])*)
 and type_def = {
   name: identifier;
   body: data_type;
 }
 
+(** Number of bits required to hold the tag for a variant type. *)
 let variant_tag_size (v: [< `Variant of (identifier * data_type option) list]) : int =
   match v with
   | `Variant vlist -> List.length vlist |> Utils.int_log2
 
+(** Data type a variant type constructor. *)
 let variant_lookup_dtype (v: [< `Variant of (identifier * data_type option) list]) (cstr: identifier) : data_type option =
   match v with
   | `Variant vlist ->
       List.find_opt (fun x -> (fst x) = cstr) vlist |> Option.map snd |> Option.join
 
+(** Index of a variant type constructor. *)
 let variant_lookup_index (v: [< `Variant of (identifier * data_type option) list]) (cstr: identifier) : int option =
   let res : int option ref = ref None in
   match v with
@@ -94,24 +122,31 @@ type 'a sig_type_general = {
   lifetime: 'a;
 }
 
+(** Signal type, including both data type and the lifetime signature. *)
 type sig_type = sig_lifetime sig_type_general
+
+(** Same as {!sig_type} but local to a channel. *)
 type sig_type_chan_local = sig_lifetime_chan_local sig_type_general
 
+(** Convert a channel-local delay pattern to a global (process context) delay pattern. *)
 let delay_pat_globalise (endpoint : identifier) (t : delay_pat_chan_local) : delay_pat =
   match t with
   | `Message msg -> `Message {endpoint = endpoint; msg = msg}
   | `Cycles n -> `Cycles n
   | `Eternal -> `Eternal
 
+(** Convert a channel-local lifetime signature to a global (process context) lifetime signature. *)
 let lifetime_globalise (endpoint : identifier) (lt : sig_lifetime_chan_local) : sig_lifetime =
   { b = delay_pat_globalise endpoint lt.b; e = delay_pat_globalise endpoint lt.e }
 
+(** Convert a channel-local signal type to a global (process context) signal type. *)
 let sig_type_globalise (endpoint : identifier) (s : sig_type_chan_local) : sig_type =
   {
     dtype = s.dtype;
     lifetime = lifetime_globalise endpoint s.lifetime
   }
 
+(** A register definition. {!reg_def.init} specifies the initial value of the register. *)
 type reg_def = {
   name: string;
   dtype: data_type;
@@ -122,11 +157,19 @@ type reg_def_list = reg_def list
 
 type message_direction = In | Out
 
+(** Synchronisation mode of a message type.
+- {!Dynamic}: dynamic synchronisation, e.g., through [valid]/[ack] handshakes
+- {!Dependent}: we have some static knowledge about when the synchronisation takes place
+
+{b Currently ignored.}
+*)
 type message_sync_mode =
   | Dynamic
   | Dependent of delay_pat_chan_local
 
-(* message definition *)
+(** A message type definition, as part of a channel definition.
+- {!sig_types}: the signal types of the values carried in the message.
+*)
 type message_def = {
   name: identifier;
   dir: message_direction;
@@ -135,13 +178,20 @@ type message_def = {
   sig_types: sig_type_chan_local list;
 }
 
+(** A channel class definition, containing a list of message type definitions. *)
 type channel_class_def = {
   name: identifier;
   messages: message_def list;
 }
 
+(** The visibility of a channel.
+- {!BothForeign}: not visible locally, must be passed to other processes
+- {!LeftForeign}: the left endpoint is not visible locally but the right one is
+- {!RightForeign}: the right endpoint is not visible locally but the left one is
+*)
 type channel_visibility = BothForeign | LeftForeign | RightForeign
 
+(** A channel (instantiation of a channel class) definition. *)
 type channel_def = {
   channel_class: identifier;
   endpoint_left: identifier;
@@ -250,10 +300,13 @@ let string_of_unop (unop: unop) : string =
   | AndAll -> "&"
   | OrAll -> "|"
 
+(** Information specified in a message send operation. *)
 type send_pack = {
   send_msg_spec: message_specifier;
   send_data: expr;
 }
+
+(** Information specified in a message receive operation. *)
 and recv_pack = {
   recv_msg_spec: message_specifier;
 }
@@ -261,6 +314,14 @@ and constructor_spec = {
   variant_ty_name: identifier;
   variant: identifier;
 }
+
+(** An expression. This is the basic building block for a program.
+- {!Read}: reading a value from a register (leading to a borrow)
+- {!Record}: constructing a record-type value
+- {!Indirect}: a member of a record ([a.b])
+- {!Index}: an element of an array ([a[3]])
+- {!Wait}: [a => b]
+*)
 and expr =
   | Literal of literal
   | Identifier of identifier
@@ -284,13 +345,23 @@ and expr =
   | Debug of debug_op
   | Send of send_pack
   | Recv of recv_pack
+
+(** A "location" that can be assigned to.
+- {!Reg}: a register
+- {!Index}: indexing another {!lvalue}. Unimplemented
+- {!Indirected}: indirection through another {!lvalue}. Unimplemented
+*)
 and lvalue =
   | Reg of identifier
   | Indexed of lvalue * index (* lvalue[index] *)
   | Indirected of lvalue * identifier (* lvalue.field *)
+
+(** Indexing, either a single point or a range. *)
 and index =
   | Single of expr
   | Range of expr * expr
+
+(** Pattern in an arm of a {{!Match}match} expression. *)
 and match_pattern = {
   cstr: identifier; (* constructor identifier *)
   bind_name: identifier option; (* name of the binding for the unboxed value *)
@@ -312,8 +383,18 @@ type cycle_proc = {
   sigs: sig_def list;
 }
 
+(** Direction of an endpoint. *)
 type endpoint_direction = Left | Right
 
+(** Endpoint definition. A pair is
+created once a channel class
+is instantiated.
+- {!dir}: direction of the endpoint
+- {!foreign}: must this endpoint be passed to other processes rather than
+  used within this process?
+- {!opp}: if the endpoint is created locally, the other endpoint associated
+  with the same channel
+*)
 type endpoint_def = {
   name: identifier;
   channel_class: identifier;
@@ -324,12 +405,16 @@ type endpoint_def = {
   opp: identifier option;
 }
 
+(** A spawn of a process.
+- {!params}: names of the endpoints passed to the spawned process
+*)
 type spawn_def = {
   proc: identifier;
   (* channels to pass as args *)
   params: identifier list;
 }
 
+(** Process body. *)
 type proc_def_body = {
   (* new channels available to this process *)
   channels: channel_def list;
@@ -340,7 +425,10 @@ type proc_def_body = {
   loops: expr list;
 }
 
-(* process definition *)
+(** Process definition.
+- {!args}: endpoints passed from outside
+- {!body}: process body
+*)
 type proc_def = {
   name: string;
   (* arguments are endpoints passed from outside *)
@@ -348,6 +436,7 @@ type proc_def = {
   body: proc_def_body;
 }
 
+(** A compilation unit, corresponding to a source file. *)
 type compilation_unit = {
   channel_classes: channel_class_def list;
   type_defs: type_def list;
@@ -368,6 +457,7 @@ let cunit_add_proc
   (c : compilation_unit) (p : proc_def) : compilation_unit =
   {c with procs = p::c.procs}
 
+(** Reverse a message direction. *)
 let reverse (msg_dir : message_direction) : message_direction =
   match msg_dir with
   | In -> Out

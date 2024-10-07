@@ -1,4 +1,9 @@
-(* A wire described results of untimed computation *)
+(** A wire describes results of untimed computation.
+This module provides definitions for creating and managing wires and wire collections.
+
+The type {!t} maintains a collection of wires.
+The [add_*] functions create new wires and add them to the collection.
+*)
 
 
 module Wire = struct
