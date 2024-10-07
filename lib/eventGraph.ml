@@ -120,7 +120,6 @@ module Typing = struct
   type shared_var_info = {
     assigning_thread : int;
     value : global_timed_data;
-    _dtype : data_type;
   }
 
   type build_context = {
@@ -520,7 +519,6 @@ let build_proc (ci : cunit_info) (proc : proc_def) : proc_graph =
     let r: Typing.shared_var_info = {
       assigning_thread = sv.assigning_thread;
       value = v;
-      _dtype = sv.dtype;
     } in
       Hashtbl.add shared_vars_info sv.ident r 
     ) proc.body.shared_vars;

@@ -568,12 +568,11 @@ message_specifier:
 ;
 
 shared_var_def:
-  KEYWORD_SHARED; lifetime = lifetime_spec; ident = IDENT; COLON; dtype = data_type; KEYWORD_ASSIGNED; KEYWORD_BY; thread_id = INT
+  KEYWORD_SHARED; LEFT_PAREN; lifetime = lifetime_spec; RIGHT_PAREN; ident = IDENT; KEYWORD_ASSIGNED; KEYWORD_BY; thread_id = INT
   {
     {
       ident = ident;
       assigning_thread = thread_id;
-      dtype = dtype;
       shared_lifetime = lifetime;
     } : Anvil.Lang.shared_var_def
   }

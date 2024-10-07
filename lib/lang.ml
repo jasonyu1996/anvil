@@ -348,7 +348,6 @@ type spawn_def = {
 type shared_var_def = {
   ident: identifier;
   assigning_thread: int;
-  dtype: data_type;
   shared_lifetime: sig_lifetime;
 }
 
