@@ -52,7 +52,7 @@ loop {
 }
 loop
 {
-    x=>
+    sync x
     dprint "x = %d" (x)
 }
     

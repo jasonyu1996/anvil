@@ -2,3 +2,4 @@
 /obj_dir/
 /*.sv
 /*_driver.cpp
+/*.out

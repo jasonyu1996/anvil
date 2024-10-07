@@ -256,16 +256,12 @@ let rec visit_expr (graph : event_graph) (ci : cunit_info)
     let (wires', w) = WireCollection.add_literal lit graph.wires in
     graph.wires <- wires';
     Typing.const_data graph (Some w) ctx.current
-  | Identifier ident ->
+  | Sync (ident, e') ->
     (
-      match Typing.context_lookup ctx.typing_ctx ident with
-      | Some td -> td
-      | None ->
-      (
-        match Hashtbl.find_opt ctx.shared_vars_info ident with
-        | Some shared_info ->
-          (
-            let local_lt = Typing.{
+      match Hashtbl.find_opt ctx.shared_vars_info ident with
+      | Some shared_info ->
+        (
+          let local_lt = Typing.{
               live = (match shared_info.value.glt.b with
                   | `Cycles n -> Typing.event_create graph (`Seq (ctx.current, `Cycles n))
                   | `Message msg -> Typing.event_create graph (`Seq (ctx.current, `Recv msg))
@@ -275,14 +271,23 @@ let rec visit_expr (graph : event_graph) (ci : cunit_info)
                   | `Message msg -> `Seq (Typing.delay_of_event ctx.current, `Recv msg)
                   | `Eternal -> `Ever)
               } in
-              Typing.{
+              let local_td = Typing.{
                 w = shared_info.value.w;
                 lt = local_lt
-              }
+              } in
+              let ctx' = BuildContext.wait graph ctx local_lt.live in
+              let new_ctx = BuildContext.add_binding ctx' ident local_td in
+              visit_expr graph ci new_ctx e'
           )
         | None ->
           raise (TypeError ("Undefined identifier: " ^ ident))
       )
+  | Identifier ident ->
+    (
+      match Typing.context_lookup ctx.typing_ctx ident with
+      | Some td -> td
+      | None ->
+          raise (TypeError ("Undefined identifier: " ^ ident))
     )
   | Assign (lval, e') ->
     let td = visit_expr graph ci ctx e' in

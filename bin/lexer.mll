@@ -77,6 +77,7 @@ rule read =
   | "match"   { KEYWORD_MATCH }
   | "with"    { KEYWORD_WITH }
   | "dyn"     { KEYWORD_DYN }
+  | "sync"    { KEYWORD_SYNC }
   | "wait"    { KEYWORD_WAIT }
   | "cycle"   { KEYWORD_CYCLE }
   | "reg"     { KEYWORD_REG }

@@ -271,6 +271,7 @@ and expr =
   | LetIn of identifier list * expr * expr
   | Wait of expr * expr
   | Cycle of int
+  | Sync of identifier * expr
   | IfExpr of expr * expr * expr
   (* construct a variant type value with a constructor *)
   | Construct of constructor_spec * expr option

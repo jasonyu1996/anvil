@@ -56,6 +56,7 @@
 %token KEYWORD_SET          (* set *)
 %token KEYWORD_MATCH        (* match *)
 %token KEYWORD_WITH         (* with *)
+%token KEYWORD_SYNC         (* sync *)
 %token KEYWORD_DYN          (* dyn *)
 %token KEYWORD_WAIT         (* wait *)
 %token KEYWORD_CYCLE        (* cycle *)
@@ -261,6 +262,8 @@ expr:
   { Anvil.Lang.Tuple ([]) }
 | LEFT_PAREN; e = expr; RIGHT_PAREN
   { e }
+| KEYWORD_SYNC; ident = IDENT; e = expr
+  { Anvil.Lang.Sync (ident, e) }
 | KEYWORD_PUT; ident = IDENT; EQUAL; v = expr
   { Anvil.Lang.SharedAssign (ident, v) }
 | KEYWORD_PUT; ident = IDENT; EQUAL; v = expr; SEMICOLON; body = expr
