@@ -22,6 +22,7 @@ type lifetime = {
 and timed_data = {
   w : wire option;
   lt : lifetime;
+  reg_borrows : (identifier * event) list;
 }
 and action =
   | DebugPrint of string * timed_data list
@@ -198,27 +199,29 @@ module Typing = struct
 
   let cycles_data g (n : int) (current : event) =
     let live_event = event_create g (`Seq (current, `Cycles n)) in
-    {w = None; lt = {live = live_event; dead = [(live_event, `Eternal)]}}
+    {w = None; lt = {live = live_event; dead = [(live_event, `Eternal)]}; reg_borrows = []}
   let sync_data g (current : event) (td: timed_data) =
     let ev = event_create g (`Later (current, td.lt.live)) in
     {td with lt = {td.lt with live = ev}}
 
-  let const_data _g (w : wire option) (current : event) = {w; lt = lifetime_const current}
-  let merged_data g (w : wire option) (current : event) (lts : lifetime list) =
+  let const_data _g (w : wire option) (current : event) = {w; lt = lifetime_const current; reg_borrows = []}
+  let merged_data g (w : wire option) (current : event) (tds : timed_data list) =
+    let lts = List.map (fun x -> x.lt) tds in
     match lts with
     | [] -> const_data g w current
     | lt::lts' ->
       let lt' = List.fold_left (lifetime_intersect g) lt lts' in
-      {w; lt = lt'}
-  let derived_data (w : wire option) (lt : lifetime) = {w; lt}
+      let reg_borrows' = List.concat_map (fun x -> x.reg_borrows) tds in
+      {w; lt = lt'; reg_borrows = reg_borrows'}
+  let derived_data (w : wire option) (td : timed_data) = {td with w}
   let send_msg_data g (msg : message_specifier) (current : event) =
     let live_event = event_create g (`Seq (current, `Send msg)) in
-    {w = None; lt = {live = live_event; dead = [(live_event, `Eternal)]}}
+    {w = None; lt = {live = live_event; dead = [(live_event, `Eternal)]}; reg_borrows = []}
   let recv_msg_data g (w : wire option) (msg : message_specifier) (msg_def : message_def) (current : event) =
     let event_received = event_create g (`Seq (current, `Recv msg)) in
     let stype = List.hd msg_def.sig_types in
     let e = delay_pat_globalise msg.endpoint stype.lifetime.e in
-    {w; lt = {live = event_received; dead = [(event_received, e)]}}
+    {w; lt = {live = event_received; dead = [(event_received, e)]}; reg_borrows = []}
 
   let context_add (ctx : context) (v : identifier) (d : timed_data) : context =
     Utils.StringMap.add v d ctx
@@ -391,13 +394,6 @@ module Typing = struct
       )
       g.events
 
-  type _event_pat_match_result =
-  {
-    bef: bool;
-    aft: bool;
-    at: bool;
-  }
-
   (** evs must be in topological order*)
   let find_controller (endpts : identifier list) =
     List.find_opt
@@ -556,18 +552,67 @@ module Typing = struct
     let reg_borrows = StringHashtbl.create 8 in
     let msg_borrows = StringHashtbl.create 8 in
     (* check lifetime for each use of a wire *)
+    let not_borrowed tbl s lt =
+      let borrows = StringHashtbl.find_opt tbl s |> Option.value ~default:[] in
+      List.for_all (lifetime_disjoint lt) borrows
+    in
     let not_borrowed_and_add tbl s lt =
       let borrows = StringHashtbl.find_opt tbl s |> Option.value ~default:[] in
       let not_borrowed = List.for_all (lifetime_disjoint lt) borrows in
       if not_borrowed then StringHashtbl.replace tbl s (lt::borrows);
       not_borrowed
     in
-    List.iter (fun ev ->
-      List.iter (fun a ->
+    let borrow_add tbl s lt =
+      let borrows = StringHashtbl.find_opt tbl s |> Option.value ~default:[] in
+      StringHashtbl.replace tbl s (lt::borrows)
+    in
+    let visit_actions a_visitor sa_visitor =
+      List.iter (fun ev ->
+        List.iter (a_visitor ev) ev.actions;
+        List.iter (sa_visitor ev) ev.sustained_actions
+      )
+    in
+    (* add all required borrows of registers first *)
+    (* the time pat until which td lives *)
+    let delay_pat_reduce_cycles n dpat =
+      match dpat with
+      | `Cycles n' -> `Cycles (max 0 (n' - n))
+      | _ -> dpat
+    in
+    let td_to_live_until = ref [] in
+    visit_actions
+      (fun ev a ->
+        match a with
+        | RegAssign (_, td) ->
+          (* `Cycles 0 rather than 1 because in the last cycle it is okay to update the register *)
+          td_to_live_until := (td, (ev, `Cycles 0))::!td_to_live_until
+        | DebugPrint (_, tds) ->
+          let ns = List.map (fun td -> (td, (ev, `Cycles 0))) tds in
+          td_to_live_until := ns @ !td_to_live_until
+        | DebugFinish -> ()
+      )
+      (fun _ev sa ->
+        match sa.ty with
+        | Send (msg, td) ->
+          let msg_d = MessageCollection.lookup_message g.messages msg ci.channel_classes |> Option.get in
+          let stype = List.hd msg_d.sig_types in
+          let e_dpat = delay_pat_globalise msg.endpoint stype.lifetime.e |> delay_pat_reduce_cycles 1 in
+          td_to_live_until := (td, (sa.until, e_dpat))::!td_to_live_until
+        | Recv _ -> ()
+      )
+      g.events;
+    List.iter (fun (td, dead) ->
+      List.iter (fun (reg_ident, live) ->
+        borrow_add reg_borrows reg_ident {live; dead = [dead]}
+      ) td.reg_borrows
+    ) !td_to_live_until;
+    (* check register and message borrows *)
+    visit_actions
+      (fun ev a ->
         match a with
         | RegAssign (reg_ident, td) ->
           let lt = lifetime_immediate ev in
-          if not_borrowed_and_add reg_borrows reg_ident lt |> not then
+          if not_borrowed reg_borrows reg_ident lt |> not then
             raise (LifetimeCheckError "Attempted assignment to a borrowed register!")
           else ();
           if lifetime_in_range lt td.lt |> not then
@@ -580,8 +625,8 @@ module Typing = struct
             else ()
           ) tds
         | _ -> ()
-      ) ev.actions;
-      List.iter (fun sa ->
+      )
+      (fun ev sa ->
         match sa.ty with
         | Send (msg, td) ->
           let msg_d = MessageCollection.lookup_message g.messages msg ci.channel_classes |> Option.get in
@@ -594,8 +639,8 @@ module Typing = struct
           if lifetime_in_range lt td.lt |> not then
             raise (LifetimeCheckError "Value not live long enough in message send!")
         | Recv _ -> ()
-      ) ev.sustained_actions
-    ) g.events
+      )
+      g.events
 
   module BuildContext = struct
     type t = build_context
@@ -645,13 +690,13 @@ let rec visit_expr (graph : event_graph) (ci : cunit_info)
     and w2 = Option.get td2.w in
     let (wires', w) = WireCollection.add_binary ci.typedefs binop w1 w2 graph.wires in
     graph.wires <- wires';
-    Typing.merged_data graph (Some w) ctx.current [td1.lt; td2.lt]
+    Typing.merged_data graph (Some w) ctx.current [td1; td2]
   | Unop (unop, e') ->
     let td = visit_expr graph ci ctx e' in
     let w' = Option.get td.w in
     let (wires', w) = WireCollection.add_unary ci.typedefs unop w' graph.wires in
     graph.wires <- wires';
-    Typing.derived_data (Some w) td.lt
+    Typing.derived_data (Some w) td
   | Tuple [] -> Typing.const_data graph None ctx.current
   | LetIn (idents, e1, e2) ->
     let td1 = visit_expr graph ci ctx e1 in
@@ -682,13 +727,14 @@ let rec visit_expr (graph : event_graph) (ci : cunit_info)
     let td3 = visit_expr graph ci ctx_false e3 in
     let lt = {live = Typing.event_create graph (`Either (td2.lt.live, td3.lt.live));
       dead = td1.lt.dead @ td2.lt.dead @td3.lt.dead} in
+    let reg_borrows' = td1.reg_borrows @ td2.reg_borrows @ td3.reg_borrows in
     (
       match td2.w, td3.w with
-      | None, None -> {w = None; lt}
+      | None, None -> {w = None; lt; reg_borrows = reg_borrows'}
       | Some w2, Some w3 ->
         let (wires', w) = WireCollection.add_switch ci.typedefs [(w1, w2)] w3 graph.wires in
         graph.wires <- wires';
-        {w = Some w; lt}
+        {w = Some w; lt; reg_borrows = reg_borrows'}
       | _ -> raise (TypeError "Invalid if expression!")
     )
   | Concat es ->
@@ -696,13 +742,13 @@ let rec visit_expr (graph : event_graph) (ci : cunit_info)
     let ws = List.map (fun (td : timed_data) -> Option.get td.w) tds in
     let (wires', w) = WireCollection.add_concat ci.typedefs ws graph.wires in
     graph.wires <- wires';
-    Typing.merged_data graph (Some w) ctx.current (List.map (fun (td : timed_data) -> td.lt) tds)
+    Typing.merged_data graph (Some w) ctx.current tds
   | Read reg_ident ->
     let r = List.find (fun (r : Lang.reg_def) -> r.name = reg_ident) graph.regs in
     let (wires', w) = WireCollection.add_reg_read ci.typedefs r graph.wires in
     graph.wires <- wires';
     (* FIXME: lifetime needs to be inferred from use *)
-    {w = Some w; lt = Typing.lifetime_const ctx.current}
+    {w = Some w; lt = Typing.lifetime_const ctx.current; reg_borrows = [(reg_ident, ctx.current)]}
   | Debug op ->
     (
       match op with
@@ -710,10 +756,10 @@ let rec visit_expr (graph : event_graph) (ci : cunit_info)
         let timed_ws = List.map (visit_expr graph ci ctx) e_list in
         ctx.current.actions <- (DebugPrint (s, timed_ws))::ctx.current.actions;
         (* TODO: incorrect lifetime *)
-        {w = None; lt = Typing.lifetime_const ctx.current}
+        {w = None; lt = Typing.lifetime_const ctx.current; reg_borrows = []}
       | DebugFinish ->
         ctx.current.actions <- DebugFinish::ctx.current.actions;
-        {w = None; lt = Typing.lifetime_const ctx.current}
+        {w = None; lt = Typing.lifetime_const ctx.current; reg_borrows = []}
     )
   | Send send_pack ->
     let td = visit_expr graph ci ctx send_pack.send_data in
@@ -762,8 +808,7 @@ let rec visit_expr (graph : event_graph) (ci : cunit_info)
             let ws = List.rev_map (fun ({w; _} : timed_data) -> Option.get w) tds in
             let (wires', w) = WireCollection.add_concat ci.typedefs ws graph.wires in
             graph.wires <- wires';
-            List.map (fun ({lt; _} : timed_data) -> lt) tds |>
-            Typing.merged_data graph (Some w) ctx.current
+            Typing.merged_data graph (Some w) ctx.current tds
           | _ -> raise (TypeError "Invalid record type value!")
         )
       | _ -> raise (TypeError "Invalid record type name!")

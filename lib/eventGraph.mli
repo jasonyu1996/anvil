@@ -14,6 +14,7 @@ type lifetime = {
 and timed_data = {
   w : wire option;
   lt : lifetime;
+  reg_borrows : (Lang.identifier * event) list;
 }
 and action =
   | DebugPrint of string * timed_data list
