@@ -284,7 +284,7 @@ and expr =
   | Debug of debug_op
   | Send of send_pack
   | Recv of recv_pack
-  | SharedAssign of identifier * expr
+  | SharedAssign of identifier * expr * (expr option)
 and lvalue =
   | Reg of identifier
   | Indexed of lvalue * index (* lvalue[index] *)

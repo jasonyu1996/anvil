@@ -265,9 +265,9 @@ expr:
 | KEYWORD_SYNC; ident = IDENT; e = expr
   { Anvil.Lang.Sync (ident, e) }
 | KEYWORD_PUT; ident = IDENT; EQUAL; v = expr
-  { Anvil.Lang.SharedAssign (ident, v) }
+  { Anvil.Lang.SharedAssign (ident, v, None) }
 | KEYWORD_PUT; ident = IDENT; EQUAL; v = expr; SEMICOLON; body = expr
-  { Anvil.Lang.LetIn (["_"], Anvil.Lang.SharedAssign (ident, v), body) }
+  { Anvil.Lang.SharedAssign (ident, v, Some body) }
 | KEYWORD_LET; binding = IDENT; EQUAL; v = expr; KEYWORD_IN; body = expr
   { Anvil.Lang.LetIn ([binding], v, body) }
 | KEYWORD_LET; LEFT_PAREN; bindings = separated_list(COMMA, IDENT); RIGHT_PAREN; EQUAL; v = expr; KEYWORD_IN; body = expr

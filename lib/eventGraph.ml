@@ -477,7 +477,7 @@ let rec visit_expr (graph : event_graph) (ci : cunit_info)
         )
       | _ -> raise (TypeError "Invalid variant type name!")
     )
-  | SharedAssign (id, value_expr) ->
+  | SharedAssign (id, value_expr, body_expr) ->
     let shared_info = Hashtbl.find ctx.shared_vars_info id in
     if graph.thread_id = shared_info.assigning_thread then
       let value_td = visit_expr graph ci ctx value_expr in
@@ -487,8 +487,8 @@ let rec visit_expr (graph : event_graph) (ci : cunit_info)
       | `Eternal -> ctx.current in
     
     let end_event = match shared_info.value.glt.e with
-      | `Cycles n -> Typing.event_create graph (`Seq (start_event, `Cycles n))
-      | `Message msg -> Typing.event_create graph (`Seq (start_event, `Recv msg))
+      | `Cycles n -> Typing.event_create graph (`Seq (ctx.current, `Cycles n))
+      | `Message msg -> Typing.event_create graph (`Seq (ctx.current, `Recv msg))
       | `Eternal -> Typing.event_create graph `Root in
   
     shared_info.value.w <- value_td.w;
@@ -496,12 +496,15 @@ let rec visit_expr (graph : event_graph) (ci : cunit_info)
       live = start_event;
         dead = Typing.delay_of_event end_event;
       } in
-      
       let shared_td = Typing.{
         w = value_td.w;
         lt = shared_lifetime;
       } in
-      shared_td
+      match body_expr with
+      | Some body_expr ->
+        let new_ctx = BuildContext.add_binding ctx id shared_td in
+        visit_expr graph ci new_ctx body_expr
+      | None -> shared_td
     else
       raise (TypeError "Shared variable assigned in wrong thread")
   | _ -> raise (UnimplementedError "Unimplemented expression!")

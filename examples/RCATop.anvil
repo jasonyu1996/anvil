@@ -39,7 +39,7 @@ chan RCAch =
 
 proc full_adder(ch : left addCh) =
 
-shared #20 - #30 x : logic[4] assigned by 0
+shared ch::req - #10 x : logic[4] assigned by 0
 
 loop {
     
