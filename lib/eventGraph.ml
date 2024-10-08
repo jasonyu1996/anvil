@@ -4,38 +4,56 @@ open Except
 type wire = WireCollection.wire
 type wire_collection = WireCollection.t
 
-
 type cunit_info = {
   typedefs : TypedefMap.t;
   channel_classes : channel_class_def list;
 }
 
-type action =
-  | DebugPrint of string * wire list
+type atomic_delay = [
+  | `Cycles of int
+  | `Send of Lang.message_specifier
+  | `Recv of Lang.message_specifier
+]
+
+type lifetime = {
+  live : event;
+  dead : event_pat;
+}
+and timed_data = {
+  w : wire option;
+  lt : lifetime;
+  reg_borrows : (identifier * event) list;
+}
+and action =
+  | DebugPrint of string * timed_data list
   | DebugFinish
-  | RegAssign of string * wire
-
-type sustained_action_type =
-  | Send of message_specifier * wire
+  | RegAssign of string * timed_data
+and sustained_action_type =
+  | Send of message_specifier * timed_data
   | Recv of message_specifier
-
-type condition = {
-  w : wire;
+and condition = {
+  data : timed_data;
   neg : bool;
 }
-
-type event = {
+and event_pat = (event * Lang.delay_pat) list
+and event = {
   id : int;
   mutable actions: action list;
   mutable sustained_actions : sustained_action list;
   source: event_source;
+  (* for lifetime checking *)
+  mutable control_regs: (int * int) Utils.string_map;
+  mutable control_endps: (int * int) Utils.string_map;
+  mutable current_regs : (int * int) Utils.string_map;
+  mutable current_endps : (int * int) Utils.string_map;
+  mutable outs : event list;
 }
 and event_source = [
   | `Root
   | `Later of event * event
-  | `Earlier of event * event
   | `Seq of event * atomic_delay
   | `Branch of condition * event
+  | `Either of event * event (* joining if-then-else branches *)
 ]
 (* sustained actions are in effect when current is reached and until
   is not reached *)
@@ -57,61 +75,31 @@ type event_graph = {
   (* the process loops from the start when this event is reached *)
   mutable last_event_id: int;
 }
+
+let print_graph (g: event_graph) =
+  List.iter (fun ev ->
+    match ev.source with
+    | `Later (e1, e2) -> Printf.eprintf "> %d: later %d %d\n" ev.id e1.id e2.id
+    | `Either (e1, e2) -> Printf.eprintf "> %d: either %d %d\n" ev.id e1.id e2.id
+    | `Seq (ev', a) ->
+      let c = match a with
+      | `Cycles n -> Printf.sprintf "C %d" n
+      | `Send _ -> "S"
+      | `Recv _ -> "R"
+      in
+      Printf.eprintf "> %d: seq %d %s\n" ev.id ev'.id c
+    | `Branch (c, ev') -> Printf.eprintf "> %d: branch %b %d\n" ev.id c.neg ev'.id
+    | `Root -> Printf.eprintf "> %d: root\n" ev.id
+  ) g.events
+
 type proc_graph = {
   name: identifier;
   threads: event_graph list;
 }
-let string_of_delay (d : delay) : string =
-  let buf = Buffer.create 16 in
-  let rec append_string_of_delay = function
-    | `Ever -> Buffer.add_string buf "oo"
-    | `Root -> ()
-    | `Later (d1, d2) ->
-      Buffer.add_char buf '<';
-      append_string_of_delay d1;
-      Buffer.add_string buf ", ";
-      append_string_of_delay d2;
-      Buffer.add_char buf '>'
-    | `Earlier (d1, d2) ->
-      Buffer.add_char buf '[';
-      append_string_of_delay d1;
-      Buffer.add_string buf ", ";
-      append_string_of_delay d2;
-      Buffer.add_char buf ']'
-    | `Seq (d', dd) ->
-      append_string_of_delay d';
-      Buffer.add_string buf " => ";
-      (
-        match dd with
-        | `Cycles n -> Buffer.add_string buf @@ string_of_int n
-        | `Send msg ->
-          Lang.string_of_msg_spec msg |> Printf.sprintf "S(%s)" |> Buffer.add_string buf
-        | `Recv msg ->
-          Lang.string_of_msg_spec msg |> Printf.sprintf "R(%s)" |> Buffer.add_string buf
-      )
-  in
-  append_string_of_delay d;
-  Buffer.contents buf
 
-type plain_lifetime = {
-  live: delay;
-  dead: delay;
-}
-
-let string_of_plain_lifetime (lt : plain_lifetime) : string =
-  Printf.sprintf "{%s, %s}" (string_of_delay lt.live) (string_of_delay lt.dead)
-
+exception LifetimeCheckError of string
 module Typing = struct
-  type lifetime = {
-    live : event;
-    dead : delay;
-  }
-
-  type timed_data = {
-    w : wire option;
-    lt : lifetime;
-  }
-  type global_timed_data = 
+  type global_timed_data =
   {
     mutable w : wire option;
     glt : sig_lifetime;
@@ -128,48 +116,121 @@ module Typing = struct
     shared_vars_info : (identifier, shared_var_info) Hashtbl.t;
   }
 
+  let event_traverse (ev : event) visitor : event list =
+    let visited = Seq.return ev.id |> Utils.IntSet.of_seq |> ref in
+    let q = Seq.return ev |> Queue.of_seq in
+    let res = ref [] in
+    let add_to_queue ev' =
+      if Utils.IntSet.mem ev'.id !visited |> not then (
+        visited := Utils.IntSet.add ev'.id !visited;
+        Queue.add ev' q
+      )
+      else ()
+    in
+    while Queue.is_empty q |> not do
+      let cur = Queue.pop q in
+      res := cur::!res;
+      visitor add_to_queue cur
+    done;
+    !res
+
+  (** Compute predecessors of an event in the event graph.
+    Result in topological order
+  *)
+  let event_predecessors (ev : event) : event list =
+    let visitor add_to_queue cur =
+      match cur.source with
+      | `Later (e1, e2)
+      | `Either (e1, e2) ->
+        add_to_queue e1;
+        add_to_queue e2
+      | `Branch (_, ev')
+      | `Seq (ev', _) ->
+        add_to_queue ev'
+      | _ -> ()
+    in
+    event_traverse ev visitor
+
+  (* Result in topological order *)
+  let event_successors (ev : event) : event list =
+    let visitor add_to_queue cur =
+      List.iter add_to_queue cur.outs
+    in
+    event_traverse ev visitor |> List.rev
+
+  let event_is_successor (ev : event) (ev' : event) =
+    event_successors ev |> List.exists (fun x -> x.id = ev'.id)
+
+  let event_is_predecessor (ev : event) (ev' : event) =
+    event_predecessors ev |> List.exists (fun x -> x.id = ev'.id)
+
+
   let event_create g source =
-    let n = {actions = []; sustained_actions = []; source; id = List.length g.events} in
-    g.events <- n::g.events;
-    n
+    let event_create_inner () =
+      let n = {actions = []; sustained_actions = []; source; id = List.length g.events;
+        control_regs = Utils.StringMap.empty; control_endps = Utils.StringMap.empty;
+        current_regs = Utils.StringMap.empty; current_endps = Utils.StringMap.empty;
+        outs = []} in
+      g.events <- n::g.events;
+      (
+        match source with
+        | `Later (e1, e2)
+        | `Either (e1, e2) ->
+          e1.outs <- n::e1.outs;
+          e2.outs <- n::e2.outs
+        | `Branch (_, ev')
+        | `Seq (ev', _) ->
+          ev'.outs <- n::ev'.outs
+        | _ -> ()
+      );
+      n
+    in
+    (
+      match source with
+      | `Later (e1, e2) -> (
+        if event_is_successor e1 e2 then
+          e2
+        else if event_is_predecessor e1 e2 then
+          e1
+        else
+          event_create_inner ()
+      )
+      | _ -> event_create_inner ()
+    )
 
-  let rec delay_of_event (e : event) : delay =
-    match e.source with
-    | `Root -> `Root
-    | `Later (e1, e2) -> `Later (delay_of_event e1, delay_of_event e2)
-    | `Earlier (e1, e2) -> `Earlier (delay_of_event e1, delay_of_event e2)
-    | `Seq (e', d) -> `Seq (delay_of_event e', d)
-    | `Branch (_, e') -> delay_of_event e'
-
-  let lifetime_plainify (lt : lifetime) : plain_lifetime =
-    {
-      live = delay_of_event lt.live;
-      dead = lt.dead;
-    }
-
-  let lifetime_const current = {live = current; dead = `Ever}
-  let lifetime_immediate current = {live = current; dead = `Seq (delay_of_event current, `Cycles 1)}
+  let lifetime_const current = {live = current; dead = [(current, `Eternal)]}
+  let lifetime_immediate current = {live = current; dead = [(current, `Cycles 1)]}
   let lifetime_intersect g (a : lifetime) (b : lifetime) =
     {
       live = event_create g (`Later (a.live, b.live));
-      dead = `Earlier (a.dead, b.dead);
+      dead = a.dead @ b.dead;
     }
 
-  let cycles_data g (n : int) (current : event) = {w = None; lt = {live = event_create g (`Seq (current, `Cycles n)); dead = `Ever}}
-  let const_data _g (w : wire option) (current : event) = {w; lt = lifetime_const current}
-  let merged_data g (w : wire option) (current : event) (lts : lifetime list) =
+  let cycles_data g (n : int) (current : event) =
+    let live_event = event_create g (`Seq (current, `Cycles n)) in
+    {w = None; lt = {live = live_event; dead = [(live_event, `Eternal)]}; reg_borrows = []}
+  let sync_data g (current : event) (td: timed_data) =
+    let ev = event_create g (`Later (current, td.lt.live)) in
+    {td with lt = {td.lt with live = ev}}
+
+  let const_data _g (w : wire option) (current : event) = {w; lt = lifetime_const current; reg_borrows = []}
+  let merged_data g (w : wire option) (current : event) (tds : timed_data list) =
+    let lts = List.map (fun x -> x.lt) tds in
     match lts with
     | [] -> const_data g w current
     | lt::lts' ->
       let lt' = List.fold_left (lifetime_intersect g) lt lts' in
-      {w; lt = lt'}
-  let derived_data (w : wire option) (lt : lifetime) = {w; lt}
+      let reg_borrows' = List.concat_map (fun x -> x.reg_borrows) tds in
+      {w; lt = lt'; reg_borrows = reg_borrows'}
+  let derived_data (w : wire option) (td : timed_data) = {td with w}
   let send_msg_data g (msg : message_specifier) (current : event) =
-    {w = None; lt = {live = event_create g (`Seq (current, `Send msg)); dead = `Ever}}
-  let recv_msg_data g (w : wire option) (msg : message_specifier) (_msg_def : message_def) (current : event) =
+    let live_event = event_create g (`Seq (current, `Send msg)) in
+    {w = None; lt = {live = live_event; dead = [(live_event, `Eternal)]}; reg_borrows = []}
+  let recv_msg_data g (w : wire option) (msg : message_specifier) (msg_def : message_def) (current : event) =
     let event_received = event_create g (`Seq (current, `Recv msg)) in
-    (* FIXME: take into consideration the lifetime signature *)
-    {w; lt = {live = event_received; dead = `Ever}}
+    let stype = List.hd msg_def.sig_types in
+    let e = delay_pat_globalise msg.endpoint stype.lifetime.e in
+    {w; lt = {live = event_received; dead = [(event_received, e)]}; reg_borrows = []}
 
   let context_add (ctx : context) (v : identifier) (d : timed_data) : context =
     Utils.StringMap.add v d ctx
@@ -177,44 +238,418 @@ module Typing = struct
   let context_lookup (ctx : context) (v : identifier) = Utils.StringMap.find_opt v ctx
   (* checks if lt lives at least as long as required *)
 
-  let rec delay_leq_check (a : delay) (b : delay) : bool =
-    match a, b with
-    | _, `Ever -> true
-    | _, `Later (b1, b2) ->
-      (delay_leq_check a b1) || (delay_leq_check a b2)
-    | _, `Earlier (b1, b2) ->
-      (delay_leq_check a b1) && (delay_leq_check a b2)
-    | `Later (a1, a2), _ ->
-      (delay_leq_check a1 b) && (delay_leq_check a2 b)
-    | `Earlier (a1, a2), _ ->
-      (delay_leq_check a1 b) || (delay_leq_check a2 b)
-    | `Root, _ -> true
-    | _, `Root -> false
-    | `Ever, `Seq (b', _) -> delay_leq_check `Ever b'
-    (* only both seq or atomic *)
-    | `Seq (a', da), `Seq (b', db) ->
-      (
-        match da, db with
-        | `Cycles na, `Cycles nb ->
-          let m = min na nb in
-          if na = m then
-            delay_leq_check a' (`Seq (b', `Cycles (nb - m)))
+  let in_control_set (cur : (int * int) Utils.string_map) (cnt : (int * int) Utils.string_map) (s : identifier) =
+    let (pre, post) = Utils.StringMap.find s cnt in
+    if Utils.StringMap.find s cur |> fst = 0 then
+      pre + 1 = post
+    else
+      pre + 2 = post
+
+  let in_control_set_reg (ev : event) = in_control_set ev.current_regs ev.control_regs
+  let in_control_set_endps (ev : event) = in_control_set ev.current_endps ev.control_endps
+
+
+  let print_control_set (g : event_graph) =
+    List.iter (fun ev ->
+      Printf.eprintf "=== Event %d ===\n" ev.id;
+      Utils.StringMap.iter (fun reg_ident r ->
+        Printf.eprintf "Reg %s: %d, %d\n" reg_ident (fst r) (snd r)
+      ) ev.control_regs;
+      Utils.StringMap.iter (fun endp r ->
+        Printf.eprintf "Endpoint %s: %d, %d\n" endp (fst r) (snd r)
+      ) ev.control_endps
+    ) g.events
+
+  (** Generate the control set for each event in the event graph. The control set of event
+  includes actions that are synchronised at the event. *)
+  let gen_control_set (g : event_graph) =
+    let events_rev = List.rev g.events in
+    let all_endpoints = g.messages.endpoints @ g.messages.args in
+    let reg_assign_cnt_empty = List.map (fun (r : reg_def) -> (r.name, 0)) g.regs
+      |> List.to_seq |> Utils.StringMap.of_seq
+    and endp_use_cnt_empty =
+        List.map (fun (e : endpoint_def) -> (e.name, 0)) all_endpoints
+          |> List.to_seq |> Utils.StringMap.of_seq
+    in
+    let reg_assign_cnt = ref reg_assign_cnt_empty
+    and endp_use_cnt = ref endp_use_cnt_empty in
+    let control_regs_init = Seq.repeat (0, Int.max_int) |> Seq.take (List.length g.regs)
+          |> Seq.zip (List.map (fun (r : reg_def) -> r.name) g.regs |> List.to_seq) |> Utils.StringMap.of_seq
+    and control_endps_init = Seq.repeat (0, Int.max_int) |> Seq.take (List.length all_endpoints)
+          |> Seq.zip (List.map (fun (ep : endpoint_def) -> ep.name) all_endpoints |> List.to_seq)
+          |> Utils.StringMap.of_seq in
+    List.iter
+      (fun (ev : event) ->
+        ev.control_regs <- control_regs_init;
+        ev.current_regs <- control_regs_init;
+        ev.control_endps <- control_endps_init;
+        ev.current_endps <- control_endps_init;
+      )
+      events_rev;
+
+    let opt_incr (a_opt : int option) =
+      let a = Option.get a_opt in
+      Some (a + 1)
+    in
+    let opt_update_forward (v : int) (a_opt : (int * int) option) =
+      let (a, b) = Option.get a_opt in
+      Some (max v a, b)
+    and opt_update_backward (v : int) (a_opt : (int * int) option) =
+      let (a, b) = Option.get a_opt in
+      Some (a, min v b)
+    in
+    let last_ev : (event option) ref = ref None in
+    List.iter
+      (fun (ev : event) ->
+        List.iter
+          (fun (a : action) ->
+            match a with
+            | RegAssign (reg_ident, _) -> (
+              reg_assign_cnt := Utils.StringMap.update reg_ident opt_incr !reg_assign_cnt;
+              let v = Utils.StringMap.find reg_ident !reg_assign_cnt in
+              ev.current_regs <- Utils.StringMap.update reg_ident (opt_update_forward v) ev.current_regs;
+              ev.current_regs <- Utils.StringMap.update reg_ident (opt_update_backward v) ev.current_regs
+            )
+            | _ -> ()
+          )
+          ev.actions;
+        List.iter
+          (fun (a : sustained_action) ->
+            match a.ty with
+            | Send (ms, _) | Recv ms -> (
+              endp_use_cnt := Utils.StringMap.update ms.endpoint opt_incr !endp_use_cnt;
+              let v = Utils.StringMap.find ms.endpoint !endp_use_cnt in
+              ev.current_endps <- Utils.StringMap.update ms.endpoint (opt_update_forward v) ev.current_endps;
+              ev.current_endps <- Utils.StringMap.update ms.endpoint (opt_update_backward v) ev.current_endps
+            )
+          )
+          ev.sustained_actions;
+        (* forward pass *)
+        let forward_from (ev' : event) =
+          ev.control_regs <- Utils.StringMap.merge (fun _ a b -> opt_update_forward (Option.get a |> fst) b) ev'.control_regs ev.control_regs;
+          ev.control_endps <- Utils.StringMap.merge (fun _ a b -> opt_update_forward (Option.get a |> fst) b) ev'.control_endps ev.control_endps;
+          ev.control_regs <- Utils.StringMap.merge (fun _ a b -> opt_update_forward (Option.get a |> fst) b) ev'.current_regs ev.control_regs;
+          ev.control_endps <- Utils.StringMap.merge (fun _ a b -> opt_update_forward (Option.get a |> fst) b) ev'.current_endps ev.control_endps
+        in
+        (
+          match ev.source with
+          | `Root -> ()
+          | `Later (e1, e2) | `Either (e1, e2) ->
+            (* Printf.eprintf "FR %d, %d -> %d\n" e1.id e2.id ev.id; *)
+            forward_from e1;
+            forward_from e2
+          | `Seq (ev', _)  ->
+            (* Printf.eprintf "FR %d -> %d\n" ev'.id ev.id; *)
+            forward_from ev'
+          | `Branch (c, ev') ->
+            if c.neg then
+              forward_from (Option.get !last_ev)
+            else
+              forward_from ev'
+        );
+        last_ev := Some ev
+      )
+      events_rev;
+    (* backward pass *)
+    List.iteri
+      (fun idx (ev : event) ->
+        let backward_to (ev' : event) =
+          ev'.control_regs <- Utils.StringMap.merge (fun _ a b -> opt_update_backward (Option.get a |> snd) b) ev.control_regs ev'.control_regs;
+          ev'.control_endps <- Utils.StringMap.merge (fun _ a b -> opt_update_backward (Option.get a |> snd) b) ev.control_endps ev'.control_endps;
+          ev'.control_regs <- Utils.StringMap.merge (fun _ a b -> opt_update_backward (Option.get a |> snd) b) ev.current_regs ev'.control_regs;
+          ev'.control_endps <- Utils.StringMap.merge (fun _ a b -> opt_update_backward (Option.get a |> snd) b) ev.current_endps ev'.control_endps
+        in
+        (
+          ev.control_regs <- Utils.StringMap.merge (fun _ a b -> opt_update_backward (let v = Option.get a in v + 1) b) !reg_assign_cnt ev.control_regs;
+          ev.control_endps <- Utils.StringMap.merge (fun _ a b -> opt_update_backward (let v = Option.get a in v + 1) b) !endp_use_cnt ev.control_endps;
+          match ev.source with
+          | `Root -> ()
+        | `Later (e1, e2) ->
+          backward_to e1;
+          backward_to e2
+        | `Seq (ev', _) ->
+          backward_to ev'
+        | `Either (_e1, e2) ->
+          backward_to e2
+        | `Branch (c, ev') ->
+          if c.neg then
+            backward_to (List.nth g.events (idx + 1))
           else
-            delay_leq_check (`Seq (a', `Cycles (na - m))) b'
-        | `Send ma, `Send mb when ma = mb ->
-          delay_leq_check a' b'
-        | `Recv ma, `Recv mb when ma = mb ->
-          delay_leq_check a' b'
-        | _ ->
-          delay_leq_check a' b
+            backward_to ev'
+        )
+      ) g.events;
+    (* print_control_set g;
+    print_graph g; *)
+    (* check for violations of linearity *)
+    List.iter
+      (fun (ev : event) ->
+        List.iter (fun (a : action) ->
+          match a with
+          | RegAssign (reg_ident, _) -> (
+            if in_control_set_reg ev reg_ident |> not then
+              raise (LifetimeCheckError "Non-linearizable register assignment!")
+            else ()
+          )
+          | _ -> ()
+        ) ev.actions;
+        List.iter (fun (sa : sustained_action) ->
+          match sa.ty with
+          | Send (ms, _) | Recv ms -> (
+            if in_control_set_endps ev ms.endpoint |> not then
+              raise (LifetimeCheckError "Non-linearizable endpoint use!")
+            else ()
+          )
+        ) ev.sustained_actions
+      )
+      g.events
+
+  (** evs must be in topological order*)
+  let find_controller (endpts : identifier list) =
+    List.find_opt
+      (fun ev ->
+        List.for_all (fun endpt -> in_control_set_endps ev endpt) endpts
       )
 
-  let lifetime_check (lt : lifetime) (req : lifetime) : bool =
-    (* requires lt.live <= req.live && lt.dead >= req.dead *)
-    let lt_live_delay = delay_of_event lt.live
-    and req_live_delay = delay_of_event req.live in
-    (delay_leq_check lt_live_delay req_live_delay) &&
-      (delay_leq_check req.dead lt.dead)
+  let find_first_msg_after (ev : event) (msg: Lang.message_specifier) =
+    event_successors ev |> List.tl |> List.find_opt
+      (fun ev' ->
+        List.exists (fun sa ->
+          match sa.ty with
+          | Send (msg', _) | Recv msg' -> msg' = msg
+        ) ev'.sustained_actions
+      )
+
+  let event_succ_msg_match_earliest (ev : event) (msg : message_specifier) =
+    let preds = event_predecessors ev in
+    let pred_controller = find_controller [msg.endpoint] (List.rev preds) |> Option.get in
+    find_first_msg_after pred_controller msg
+
+  let event_succ_msg_match_latest (ev : event) (msg : message_specifier) =
+    let succs = event_successors ev in
+    let succ_controller = find_controller [msg.endpoint] succs |> Option.get in
+    find_first_msg_after succ_controller msg
+
+  module IntHashtbl = Hashtbl.Make(Int)
+  let event_distance_max = 1 lsl 20
+  let event_succ_distance non_succ_dist msg_dist_f either_dist_f (ev : event) =
+    let succs = event_successors ev in
+    let dist = IntHashtbl.create 8 in
+    IntHashtbl.add dist ev.id 0;
+    let get_dist ev' = IntHashtbl.find_opt dist ev'.id |> Option.value ~default:non_succ_dist in
+    let set_dist ev' d = IntHashtbl.add dist ev'.id d in
+    List.tl succs |> List.iter (fun ev' ->
+      let d = match ev'.source with
+      | `Root -> raise (LifetimeCheckError "Unexpected root!")
+      | `Later (ev1, ev2) -> max (get_dist ev1) (get_dist ev2)
+      | `Seq (ev1, ad) ->
+        let d1 = get_dist ev1 in
+        (
+          match ad with
+          | `Cycles n' -> d1 + n'
+          | `Send _ | `Recv _ -> msg_dist_f d1
+        )
+      | `Branch (_, ev1) -> get_dist ev1
+      | `Either (ev1, ev2) -> either_dist_f (get_dist ev1) (get_dist ev2)
+      in
+      set_dist ev' (min d event_distance_max)
+    );
+    dist
+
+  let event_min_distance =
+    event_succ_distance 0 (fun d -> d) min
+
+  let event_max_distance =
+    event_succ_distance event_distance_max (fun _ -> event_distance_max) max
+
+  (** Is ev_pat1 matched always no later than ev_pat2 is matched?
+  Produce a conservative result.
+  Only length 1 ev_pat1 supported. *)
+  let event_pat_rel (ev_pat1 : event_pat) (ev_pat2 : event_pat) =
+    if (List.length ev_pat1) <> 1 then
+      false
+    else (
+      let (ev1, d_pat1) = List.hd ev_pat1 in
+      let check_f = match d_pat1 with
+        | `Eternal -> fun _ev2 d_pat2 -> d_pat2 = `Eternal
+        | `Cycles n1 ->
+          (* compute the min possible cycle distance from n1 to successors *)
+          let dist = event_min_distance ev1 in
+          let get_dist ev' = IntHashtbl.find_opt dist ev'.id |> Option.value ~default:0 in
+          (
+            fun ev2 d_pat2 ->
+              match d_pat2 with
+              | `Eternal -> true
+              | `Cycles n2 ->
+                if event_is_successor ev1 ev2 then
+                  let d = get_dist ev2 in
+                  n1 <= d + n2
+                else (
+                  let dist2 = event_max_distance ev2 in
+                  let d = IntHashtbl.find_opt dist2 ev1.id |> Option.value ~default:event_distance_max in
+                  n1 + d <= n2
+                )
+              | `Message msg ->
+                  let n2_opt' = event_succ_msg_match_earliest ev2 msg in
+                  match n2_opt' with
+                  | None -> true (* never matching *)
+                  | Some n2' ->
+                    if event_is_predecessor ev1 n2' then
+                      true
+                    else if event_is_successor ev1 n2' then
+                      n1 <= get_dist n2'
+                    else false
+          )
+        | `Message msg ->
+          (
+            let ri1_opt = event_succ_msg_match_latest ev1 msg in (* latest estimated *)
+            match ri1_opt with
+            | None -> fun _ _ -> true (* End of the second loop. Don't handle *)
+            | Some ri1 ->
+              fun ev2 d_pat2 -> (
+                match d_pat2 with
+                | `Eternal -> true
+                | `Cycles n2 -> (* earliest estimate *)
+                  if event_is_predecessor ev2 ri1 then true
+                  else (
+                    let dist = event_max_distance ev2 in
+                    let d = IntHashtbl.find_opt dist ri1.id |> Option.value ~default:event_distance_max in
+                    d <= n2
+                  )
+                | `Message msg2 ->
+                  (
+                    let le2_opt = event_succ_msg_match_earliest ev2 msg2 in
+                    match le2_opt with
+                    | None -> true
+                    | Some le2 -> event_is_predecessor le2 ri1
+                  )
+              )
+          )
+      in
+      List.for_all (fun (ev2, d_pat2) -> check_f ev2 d_pat2) ev_pat2
+    )
+
+  (** Check that lt1 is always fully covered by lt2 *)
+  let lifetime_in_range (lt1 : lifetime) (lt2 : lifetime) =
+    (* 1. check if lt2's start is a predecessor of lt1's start *)
+    (* 2. derive a set of all time points A potentially within lt1 *)
+    (* 4. check that end time of lt2 does not match any time point in A *)
+    (* (event_is_successor lt2.live lt1.live) && (
+      let r = event_pat_matches lt1.live lt2.dead in
+      (not r.at) && (not r.aft)
+    ) *)
+    (event_is_successor lt2.live lt1.live) && (event_pat_rel lt1.dead lt2.dead)
+
+  (** Definitely disjoint? *)
+  let lifetime_disjoint lt1 lt2 =
+    assert (List.length lt1.dead = 1);
+    (* to be disjoint, either r1 <= l2 or r2 <= l1 *)
+    if event_pat_rel lt1.dead [(lt2.live, `Cycles 0)] then
+      true
+    else
+      List.for_all (fun de -> event_pat_rel [de] [(lt1.live, `Cycles 0)]) lt2.dead
+
+  module StringHashtbl = Hashtbl.Make(String)
+
+  (** Perform lifetime check on an event graph and throw out LifetimeCheckError if failed. *)
+  let lifetime_check (config : Config.compile_config) (ci : cunit_info) (g : event_graph) =
+    gen_control_set g;
+    (* for debugging purposes*)
+    if config.verbose then (
+      print_graph g;
+      print_control_set g
+    );
+    let reg_borrows = StringHashtbl.create 8 in
+    let msg_borrows = StringHashtbl.create 8 in
+    (* check lifetime for each use of a wire *)
+    let not_borrowed tbl s lt =
+      let borrows = StringHashtbl.find_opt tbl s |> Option.value ~default:[] in
+      List.for_all (lifetime_disjoint lt) borrows
+    in
+    let not_borrowed_and_add tbl s lt =
+      let borrows = StringHashtbl.find_opt tbl s |> Option.value ~default:[] in
+      let not_borrowed = List.for_all (lifetime_disjoint lt) borrows in
+      if not_borrowed then StringHashtbl.replace tbl s (lt::borrows);
+      not_borrowed
+    in
+    let borrow_add tbl s lt =
+      let borrows = StringHashtbl.find_opt tbl s |> Option.value ~default:[] in
+      StringHashtbl.replace tbl s (lt::borrows)
+    in
+    let visit_actions a_visitor sa_visitor =
+      List.iter (fun ev ->
+        List.iter (a_visitor ev) ev.actions;
+        List.iter (sa_visitor ev) ev.sustained_actions
+      )
+    in
+    (* add all required borrows of registers first *)
+    (* the time pat until which td lives *)
+    let delay_pat_reduce_cycles n dpat =
+      match dpat with
+      | `Cycles n' -> `Cycles (max 0 (n' - n))
+      | _ -> dpat
+    in
+    let td_to_live_until = ref [] in
+    visit_actions
+      (fun ev a ->
+        match a with
+        | RegAssign (_, td) ->
+          (* `Cycles 0 rather than 1 because in the last cycle it is okay to update the register *)
+          td_to_live_until := (td, (ev, `Cycles 0))::!td_to_live_until
+        | DebugPrint (_, tds) ->
+          let ns = List.map (fun td -> (td, (ev, `Cycles 0))) tds in
+          td_to_live_until := ns @ !td_to_live_until
+        | DebugFinish -> ()
+      )
+      (fun _ev sa ->
+        match sa.ty with
+        | Send (msg, td) ->
+          let msg_d = MessageCollection.lookup_message g.messages msg ci.channel_classes |> Option.get in
+          let stype = List.hd msg_d.sig_types in
+          let e_dpat = delay_pat_globalise msg.endpoint stype.lifetime.e |> delay_pat_reduce_cycles 1 in
+          td_to_live_until := (td, (sa.until, e_dpat))::!td_to_live_until
+        | Recv _ -> ()
+      )
+      g.events;
+    List.iter (fun (td, dead) ->
+      List.iter (fun (reg_ident, live) ->
+        borrow_add reg_borrows reg_ident {live; dead = [dead]}
+      ) td.reg_borrows
+    ) !td_to_live_until;
+    (* check register and message borrows *)
+    visit_actions
+      (fun ev a ->
+        match a with
+        | RegAssign (reg_ident, td) ->
+          let lt = lifetime_immediate ev in
+          if not_borrowed reg_borrows reg_ident lt |> not then
+            raise (LifetimeCheckError "Attempted assignment to a borrowed register!")
+          else ();
+          if lifetime_in_range lt td.lt |> not then
+            raise (LifetimeCheckError "Value does not live long enough in reg assignment!")
+          else ()
+        | DebugPrint (_, tds) ->
+          List.iter (fun td ->
+            if lifetime_in_range (lifetime_immediate ev) td.lt |> not then
+              raise (LifetimeCheckError "Value does not live long enough in debug print!")
+            else ()
+          ) tds
+        | _ -> ()
+      )
+      (fun ev sa ->
+        match sa.ty with
+        | Send (msg, td) ->
+          let msg_d = MessageCollection.lookup_message g.messages msg ci.channel_classes |> Option.get in
+          let stype = List.hd msg_d.sig_types in
+          let e_dpat = delay_pat_globalise msg.endpoint stype.lifetime.e in
+          let lt = {live = ev; dead = [(sa.until, e_dpat)]} in
+          if not_borrowed_and_add msg_borrows (string_of_msg_spec msg) lt |> not then
+            raise (LifetimeCheckError "Potentially conflicting message sending!")
+          else ();
+          if lifetime_in_range lt td.lt |> not then
+            raise (LifetimeCheckError "Value not live long enough in message send!")
+        | Recv _ -> ()
+      )
+      g.events
 
   module BuildContext = struct
     type t = build_context
@@ -228,28 +663,18 @@ module Typing = struct
       {ctx with typing_ctx = context_add ctx.typing_ctx v d}
     let wait g (ctx : t) (other : event) : t =
       {ctx with current = event_create g (`Later (ctx.current, other))}
-    let branch g (ctx : t) (w : wire) : t * t =
-      (
-        {ctx with current = event_create g (`Branch ({w; neg = false}, ctx.current))},
-        {ctx with current = event_create g (`Branch ({w; neg = true}, ctx.current))}
-      )
+    let branch g (ctx : t) (td : timed_data) neg: t  =
+      {ctx with current = event_create g (`Branch ({data = td; neg}, ctx.current))}
   end
 
 
 end
 
-exception BorrowCheckError of string * plain_lifetime * plain_lifetime
-
 type build_context = Typing.build_context
 module BuildContext = Typing.BuildContext
 
-let lifetime_check_except lt req emsg =
-  if not @@ Typing.lifetime_check lt req then
-    raise (BorrowCheckError (emsg, Typing.lifetime_plainify lt, Typing.lifetime_plainify req))
-  else ()
-
 let rec visit_expr (graph : event_graph) (ci : cunit_info)
-                   (ctx : build_context) (e : expr) : Typing.timed_data =
+                   (ctx : build_context) (e : expr) : timed_data =
   match e with
   | Literal lit ->
     let (wires', w) = WireCollection.add_literal lit graph.wires in
@@ -261,18 +686,19 @@ let rec visit_expr (graph : event_graph) (ci : cunit_info)
       | Some shared_info ->
         (
           let local_lt = Typing.{
-              live = (match shared_info.value.glt.b with
-                  | `Cycles n -> Typing.event_create graph (`Seq (ctx.current, `Cycles n))
-                  | `Message msg -> Typing.event_create graph (`Seq (ctx.current, `Recv msg))
-                  | `Eternal -> ctx.current);
+                live = (match shared_info.value.glt.b with
+                    | `Cycles n -> Typing.event_create graph (`Seq (ctx.current, `Cycles n))
+                    | `Message msg -> Typing.event_create graph (`Seq (ctx.current, `Recv msg))
+                    | `Eternal -> ctx.current);
                 dead = (match shared_info.value.glt.e with
-                  | `Cycles n -> `Seq (Typing.delay_of_event ctx.current, `Cycles n)
-                  | `Message msg -> `Seq (Typing.delay_of_event ctx.current, `Recv msg)
-                  | `Eternal -> `Ever)
+                    | `Cycles n -> [(ctx.current, `Cycles n)]
+                    | `Message msg -> [(ctx.current, `Message msg)]
+                    | `Eternal -> [(ctx.current, `Eternal)])
               } in
               let local_td = Typing.{
                 w = shared_info.value.w;
-                lt = local_lt
+                lt = local_lt;
+                reg_borrows = [];
               } in
               let ctx' = BuildContext.wait graph ctx local_lt.live in
               let new_ctx = BuildContext.add_binding ctx' ident local_td in
@@ -282,16 +708,9 @@ let rec visit_expr (graph : event_graph) (ci : cunit_info)
           raise (TypeError ("Undefined identifier: " ^ ident))
       )
   | Identifier ident ->
-    (
-      match Typing.context_lookup ctx.typing_ctx ident with
-      | Some td -> td
-      | None ->
-          raise (TypeError ("Undefined identifier: " ^ ident))
-    )
+    Typing.context_lookup ctx.typing_ctx ident |> Option.get |> Typing.sync_data graph ctx.current
   | Assign (lval, e') ->
     let td = visit_expr graph ci ctx e' in
-    let w' = Option.get td.w in
-    lifetime_check_except td.lt (Typing.lifetime_immediate ctx.current) "Value does not live long enough in assignment!";
     let reg_ident = (
       let open Lang in
       match lval with
@@ -299,7 +718,7 @@ let rec visit_expr (graph : event_graph) (ci : cunit_info)
         ident
       | _ -> raise (UnimplementedError "Lval with indexing/indirection unimplemented!")
     ) in
-    ctx.current.actions <- (RegAssign (reg_ident, w'))::ctx.current.actions;
+    ctx.current.actions <- (RegAssign (reg_ident, td))::ctx.current.actions;
     Typing.cycles_data graph 1 ctx.current
   | Binop (binop, e1, e2) ->
     let td1 = visit_expr graph ci ctx e1
@@ -308,19 +727,22 @@ let rec visit_expr (graph : event_graph) (ci : cunit_info)
     and w2 = Option.get td2.w in
     let (wires', w) = WireCollection.add_binary ci.typedefs binop w1 w2 graph.wires in
     graph.wires <- wires';
-    Typing.merged_data graph (Some w) ctx.current [td1.lt; td2.lt]
+    Typing.merged_data graph (Some w) ctx.current [td1; td2]
   | Unop (unop, e') ->
     let td = visit_expr graph ci ctx e' in
     let w' = Option.get td.w in
     let (wires', w) = WireCollection.add_unary ci.typedefs unop w' graph.wires in
     graph.wires <- wires';
-    Typing.derived_data (Some w) td.lt
+    Typing.derived_data (Some w) td
   | Tuple [] -> Typing.const_data graph None ctx.current
   | LetIn (idents, e1, e2) ->
     let td1 = visit_expr graph ci ctx e1 in
     (
       match idents, td1.w with
-      | [], None | ["_"], _  -> visit_expr graph ci ctx e2
+      | [], None | ["_"], _ ->
+        let td = visit_expr graph ci ctx e2 in
+        let lt = Typing.lifetime_intersect graph td1.lt td.lt in
+        {td with lt} (* forcing the bound value to be awaited *)
       | [ident], _ ->
         let ctx' = BuildContext.add_binding ctx ident td1 in
         visit_expr graph ci ctx' e2
@@ -335,59 +757,54 @@ let rec visit_expr (graph : event_graph) (ci : cunit_info)
     let td1 = visit_expr graph ci ctx e1 in
     (* TODO: type checking *)
     let w1 = Option.get td1.w in
-    let (ctx_true, ctx_false) =
-      let ctx' = BuildContext.wait graph ctx td1.lt.live in
-      lifetime_check_except td1.lt (Typing.lifetime_immediate ctx.current) "If condition does not live long enough!";
-      BuildContext.branch graph ctx' w1
-    in
-    let td2 = visit_expr graph ci ctx_true e2
-    and td3 = visit_expr graph ci ctx_false e3 in
-    let lt = let open Typing in {live = Typing.event_create graph (`Earlier (td2.lt.live, td3.lt.live));
-      dead = `Earlier (td1.lt.dead, `Earlier (td2.lt.dead, td3.lt.dead))} in
+    let ctx' = BuildContext.wait graph ctx td1.lt.live in
+    let ctx_true = BuildContext.branch graph ctx' td1 false in
+    let td2 = visit_expr graph ci ctx_true e2 in
+    let ctx_false = BuildContext.branch graph ctx' td1 true in
+    let td3 = visit_expr graph ci ctx_false e3 in
+    let lt = {live = Typing.event_create graph (`Either (td2.lt.live, td3.lt.live));
+      dead = td1.lt.dead @ td2.lt.dead @td3.lt.dead} in
+    let reg_borrows' = td1.reg_borrows @ td2.reg_borrows @ td3.reg_borrows in
     (
       match td2.w, td3.w with
-      | None, None -> {w = None; lt}
+      | None, None -> {w = None; lt; reg_borrows = reg_borrows'}
       | Some w2, Some w3 ->
         let (wires', w) = WireCollection.add_switch ci.typedefs [(w1, w2)] w3 graph.wires in
         graph.wires <- wires';
-        {w = Some w; lt}
+        {w = Some w; lt; reg_borrows = reg_borrows'}
       | _ -> raise (TypeError "Invalid if expression!")
     )
   | Concat es ->
     let tds = List.map (visit_expr graph ci ctx) es in
-    let ws = List.map (fun (td : Typing.timed_data) -> Option.get td.w) tds in
+    let ws = List.map (fun (td : timed_data) -> Option.get td.w) tds in
     let (wires', w) = WireCollection.add_concat ci.typedefs ws graph.wires in
     graph.wires <- wires';
-    Typing.merged_data graph (Some w) ctx.current (List.map (fun (td : Typing.timed_data) -> td.lt) tds)
+    Typing.merged_data graph (Some w) ctx.current tds
   | Read reg_ident ->
     let r = List.find (fun (r : Lang.reg_def) -> r.name = reg_ident) graph.regs in
     let (wires', w) = WireCollection.add_reg_read ci.typedefs r graph.wires in
     graph.wires <- wires';
-    {w = Some w; lt = Typing.lifetime_const ctx.current}
+    (* FIXME: lifetime needs to be inferred from use *)
+    {w = Some w; lt = Typing.lifetime_const ctx.current; reg_borrows = [(reg_ident, ctx.current)]}
   | Debug op ->
     (
       match op with
       | DebugPrint (s, e_list) ->
         let timed_ws = List.map (visit_expr graph ci ctx) e_list in
-        let ws = List.map (fun (x : Typing.timed_data) -> Option.get x.w)
-          timed_ws
-        in
-        ctx.current.actions <- (DebugPrint (s, ws))::ctx.current.actions;
+        ctx.current.actions <- (DebugPrint (s, timed_ws))::ctx.current.actions;
         (* TODO: incorrect lifetime *)
-        {w = None; lt = Typing.lifetime_const ctx.current}
+        {w = None; lt = Typing.lifetime_const ctx.current; reg_borrows = []}
       | DebugFinish ->
         ctx.current.actions <- DebugFinish::ctx.current.actions;
-        {w = None; lt = Typing.lifetime_const ctx.current}
+        {w = None; lt = Typing.lifetime_const ctx.current; reg_borrows = []}
     )
   | Send send_pack ->
     let td = visit_expr graph ci ctx send_pack.send_data in
-    let _msg = MessageCollection.lookup_message graph.messages send_pack.send_msg_spec ci.channel_classes |> Option.get in
-    (* TODO: lifetime checking *)
     let ntd = Typing.send_msg_data graph send_pack.send_msg_spec ctx.current in
     ctx.current.sustained_actions <-
       {
         until = ntd.lt.live;
-        ty = Send (send_pack.send_msg_spec, Option.get td.w)
+        ty = Send (send_pack.send_msg_spec, td)
       }::ctx.current.sustained_actions;
     ntd
   | Recv recv_pack ->
@@ -425,11 +842,10 @@ let rec visit_expr (graph : event_graph) (ci : cunit_info)
           match Utils.list_match_reorder (List.map fst record_fields) field_exprs with
           | Some expr_reordered ->
             let tds = List.map (visit_expr graph ci ctx) expr_reordered in
-            let ws = List.rev_map (fun ({w; _} : Typing.timed_data) -> Option.get w) tds in
+            let ws = List.rev_map (fun ({w; _} : timed_data) -> Option.get w) tds in
             let (wires', w) = WireCollection.add_concat ci.typedefs ws graph.wires in
             graph.wires <- wires';
-            List.map (fun ({lt; _} : Typing.timed_data) -> lt) tds |>
-            Typing.merged_data graph (Some w) ctx.current
+            Typing.merged_data graph (Some w) ctx.current tds
           | _ -> raise (TypeError "Invalid record type value!")
         )
       | _ -> raise (TypeError "Invalid record type name!")
@@ -477,27 +893,24 @@ let rec visit_expr (graph : event_graph) (ci : cunit_info)
       | _ -> raise (TypeError "Invalid variant type name!")
     )
   | SharedAssign (id, value_expr, body_expr) ->
+    Printf.eprintf "T = %d\n" (Hashtbl.length ctx.shared_vars_info);
     let shared_info = Hashtbl.find ctx.shared_vars_info id in
     if graph.thread_id = shared_info.assigning_thread then
       let value_td = visit_expr graph ci ctx value_expr in
       let start_event = match shared_info.value.glt.b with
-      | `Cycles n -> Typing.event_create graph (`Seq (ctx.current, `Cycles n))
-      | `Message msg -> Typing.event_create graph (`Seq (ctx.current, `Recv msg))
-      | `Eternal -> ctx.current in
-    
-    let end_event = match shared_info.value.glt.e with
-      | `Cycles n -> Typing.event_create graph (`Seq (ctx.current, `Cycles n))
-      | `Message msg -> Typing.event_create graph (`Seq (ctx.current, `Recv msg))
-      | `Eternal -> Typing.event_create graph `Root in
-  
+        | `Cycles n -> Typing.event_create graph (`Seq (ctx.current, `Cycles n))
+        | `Message msg -> Typing.event_create graph (`Seq (ctx.current, `Recv msg))
+        | `Eternal -> ctx.current in
+
     shared_info.value.w <- value_td.w;
     let shared_lifetime = Typing.{
-      live = start_event;
-        dead = Typing.delay_of_event end_event;
+        live = start_event;
+        dead = [(start_event, shared_info.value.glt.e)];
       } in
-      let shared_td = Typing.{
+      let shared_td = {
         w = value_td.w;
         lt = shared_lifetime;
+        reg_borrows = [];
       } in
       match body_expr with
       | Some body_expr ->
@@ -508,10 +921,11 @@ let rec visit_expr (graph : event_graph) (ci : cunit_info)
       raise (TypeError "Shared variable assigned in wrong thread")
   | _ -> raise (UnimplementedError "Unimplemented expression!")
 
+
 (* Builds the graph representation for each process To Do: Add support for commands outside loop (be executed once or continuosly)*)
-let build_proc (ci : cunit_info) (proc : proc_def) : proc_graph =
+let build_proc (config : Config.compile_config) (ci : cunit_info) (proc : proc_def) : proc_graph =
   let shared_vars_info = Hashtbl.create (List.length proc.body.shared_vars) in
-  List.iter (fun sv -> 
+  List.iter (fun sv ->
     let v: Typing.global_timed_data = {
       w = None;
       glt = sv.shared_lifetime;
@@ -520,7 +934,7 @@ let build_proc (ci : cunit_info) (proc : proc_def) : proc_graph =
       assigning_thread = sv.assigning_thread;
       value = v;
     } in
-      Hashtbl.add shared_vars_info sv.ident r 
+      Hashtbl.add shared_vars_info sv.ident r
     ) proc.body.shared_vars;
     let proc_threads = List.mapi (fun i e ->
       let graph = {
@@ -533,14 +947,20 @@ let build_proc (ci : cunit_info) (proc : proc_def) : proc_graph =
         regs = proc.body.regs;
         last_event_id = 0;
       } in
-      let ctx = BuildContext.create_empty graph in
-      let ctx_with_shared = { ctx with shared_vars_info } in
-      let td = visit_expr graph ci ctx_with_shared e in
-      graph.last_event_id <- td.lt.live.id;
-      graph
+      (* Bruteforce treatment: just run twice *)
+      let tmp_graph = {graph with last_event_id = 0} in
+      let _ = visit_expr tmp_graph ci
+        {(BuildContext.create_empty tmp_graph) with shared_vars_info}
+        (Wait (e, e)) in
+      Typing.lifetime_check config ci tmp_graph;
+      (* discard after type checking *)
+      let ctx = {(BuildContext.create_empty graph) with shared_vars_info} in
+      let td = visit_expr graph ci ctx e in
+        graph.last_event_id <- td.lt.live.id;
+        graph
     ) proc.body.loops in
-  
-    {name = proc.name; threads = proc_threads}
+
+     {name = proc.name; threads = proc_threads}
 
 type event_graph_collection = {
   event_graphs : proc_graph list;
@@ -548,10 +968,10 @@ type event_graph_collection = {
   channel_classes : channel_class_def list;
 }
 
-let build (cunit : compilation_unit) =
+let build (config : Config.compile_config) (cunit : compilation_unit) =
   let typedefs = TypedefMap.of_list cunit.type_defs in
   let ci = { typedefs; channel_classes = cunit.channel_classes } in
-  let graphs = List.concat_map (fun proc -> [build_proc ci proc]) cunit.procs in
+  let graphs = List.map (build_proc config ci) cunit.procs in
   {
     event_graphs = graphs;
     typedefs;

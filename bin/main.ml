@@ -20,13 +20,11 @@ let () =
     in
     close_in in_channel;
     try
-      let event_graphs = Anvil.EventGraph.build cunit in
+      let event_graphs = Anvil.EventGraph.build config cunit in
       Anvil.Codegen.generate stdout config event_graphs
     with
-    | Anvil.EventGraph.BorrowCheckError (msg, lt, req) ->
-      Printf.eprintf "Borrow checking failed: %s\n  Lifetime = %s\n  Required = %s\n" msg
-        (Anvil.EventGraph.string_of_plain_lifetime lt)
-        (Anvil.EventGraph.string_of_plain_lifetime req);
+    | Anvil.EventGraph.LifetimeCheckError msg ->
+      Printf.eprintf "Borrow checking failed: %s\n" msg;
       exit 1
     | Anvil.Except.TypeError msg -> Printf.eprintf "Type error: %s\n" msg; exit 1
     | Anvil.Except.UnimplementedError msg -> Printf.eprintf "Unimplemented error: %s\n" msg; exit 1

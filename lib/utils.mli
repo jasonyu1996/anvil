@@ -1,3 +1,5 @@
+(** Handy utility definitions. *)
+
 module StringMap :
   sig
     type key = string
@@ -43,6 +45,7 @@ module StringMap :
     val to_seq_from : key -> 'a t -> (key * 'a) Seq.t
     val add_seq : (key * 'a) Seq.t -> 'a t -> 'a t
     val of_seq : (key * 'a) Seq.t -> 'a t
+    val of_list : (key * 'a) list -> 'a t
   end
 type 'a string_map = 'a StringMap.t
 module StringSet :
@@ -93,6 +96,60 @@ module StringSet :
     val of_seq : elt Seq.t -> t
   end
 type string_set = StringSet.t
+module IntSet :
+  sig
+    type elt = int
+    type t = Set.Make(Int).t
+    val empty : t
+    val is_empty : t -> bool
+    val mem : elt -> t -> bool
+    val add : elt -> t -> t
+    val singleton : elt -> t
+    val remove : elt -> t -> t
+    val union : t -> t -> t
+    val inter : t -> t -> t
+    val disjoint : t -> t -> bool
+    val diff : t -> t -> t
+    val compare : t -> t -> int
+    val equal : t -> t -> bool
+    val subset : t -> t -> bool
+    val iter : (elt -> unit) -> t -> unit
+    val map : (elt -> elt) -> t -> t
+    val fold : (elt -> 'a -> 'a) -> t -> 'a -> 'a
+    val for_all : (elt -> bool) -> t -> bool
+    val exists : (elt -> bool) -> t -> bool
+    val filter : (elt -> bool) -> t -> t
+    val filter_map : (elt -> elt option) -> t -> t
+    val partition : (elt -> bool) -> t -> t * t
+    val cardinal : t -> int
+    val elements : t -> elt list
+    val min_elt : t -> elt
+    val min_elt_opt : t -> elt option
+    val max_elt : t -> elt
+    val max_elt_opt : t -> elt option
+    val choose : t -> elt
+    val choose_opt : t -> elt option
+    val split : elt -> t -> t * bool * t
+    val find : elt -> t -> elt
+    val find_opt : elt -> t -> elt option
+    val find_first : (elt -> bool) -> t -> elt
+    val find_first_opt : (elt -> bool) -> t -> elt option
+    val find_last : (elt -> bool) -> t -> elt
+    val find_last_opt : (elt -> bool) -> t -> elt option
+    val of_list : elt list -> t
+    val to_seq_from : elt -> t -> elt Seq.t
+    val to_seq : t -> elt Seq.t
+    val to_rev_seq : t -> elt Seq.t
+    val add_seq : elt Seq.t -> t -> t
+    val of_seq : elt Seq.t -> t
+  end
+type int_set = IntSet.t
+
+(** [int_log2 v] computes the smallest [n] such that [2^n >= v] *)
 val int_log2 : int -> int
-val map_of_list : (string * 'a) list -> 'a string_map
+
+(** [list_match_reorder order data] where rearranges elements in [data] so they match [order].
+If [data] and [order] are of different lengths or if the sets of strings do not match,
+[None] is returned instead.
+*)
 val list_match_reorder : string list -> (string * 'a) list -> 'a list option

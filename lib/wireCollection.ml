@@ -1,4 +1,9 @@
-(* A wire described results of untimed computation *)
+(** A wire describes results of untimed computation.
+This module provides definitions for creating and managing wires and wire collections.
+
+The type {!t} maintains a collection of wires.
+The [add_*] functions create new wires and add them to the collection.
+*)
 
 
 module Wire = struct
@@ -8,7 +13,6 @@ module Wire = struct
     id: int;
     source: wire_source;
     dtype: Lang.data_type;
-    borrow_src: borrow_source list; (** Not actually borrowed. Just the dependency. *)
   }
   and wire_source =
     | Literal of Lang.literal
@@ -25,7 +29,6 @@ module Wire = struct
       id;
       source = Literal lit;
       dtype = (Lang.dtype_of_literal lit :> Lang.data_type);
-      borrow_src = [];
     }
 
   let new_binary id typedefs binop w1 w2 =
@@ -43,7 +46,6 @@ module Wire = struct
       id;
       source = Binary (binop, w1, w2);
       dtype = `Array (`Logic, Option.get sz);
-      borrow_src = w1.borrow_src @ w2.borrow_src;
     }
 
   let new_unary id _typedefs unop ow =
@@ -51,7 +53,6 @@ module Wire = struct
       id;
       source = Unary (unop, ow);
       dtype = ow.dtype;
-      borrow_src = ow.borrow_src;
     }
 
   let new_switch id _typedefs sw def =
@@ -59,7 +60,6 @@ module Wire = struct
       id;
       source = Switch (sw, def);
       dtype = def.dtype;
-      borrow_src = def.borrow_src @ (List.concat_map (fun (_, x) -> x.borrow_src) sw);
     }
 
   let new_reg_read id _typedefs (r : Lang.reg_def) =
@@ -67,7 +67,6 @@ module Wire = struct
       id;
       source = RegRead r.name;
       dtype = r.dtype;
-      borrow_src = [r.name]
     }
 
   let new_concat id typedefs ws =
@@ -76,7 +75,6 @@ module Wire = struct
       id;
       source = Concat ws;
       dtype = `Array (`Logic, sz);
-      borrow_src = List.concat_map (fun w -> w.borrow_src) ws
     }
 
   let new_msg_port id _typedefs msg_spec idx msg_def =
@@ -86,7 +84,6 @@ module Wire = struct
       id;
       source = MessagePort (msg_spec, idx);
       dtype = t.dtype;
-      borrow_src = [];
     }
 
   let new_slice id dtype w base_i end_i =
@@ -94,7 +91,6 @@ module Wire = struct
       id;
       source = Slice (w, base_i, end_i);
       dtype;
-      borrow_src = w.borrow_src;
     }
 end
 

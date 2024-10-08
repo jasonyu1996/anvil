@@ -1,0 +1,6 @@
+proc top() =
+    reg a : logic[10]
+    loop {
+        ( cycle 1 => set a := 10'd0 );
+        ( cycle 1 => cycle 1 => set a := 10'd1 )
+    }

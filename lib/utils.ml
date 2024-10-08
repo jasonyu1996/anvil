@@ -4,6 +4,9 @@ type 'a string_map = 'a StringMap.t
 module StringSet = Set.Make(String)
 type string_set = StringSet.t
 
+module IntSet = Set.Make(Int)
+type int_set = IntSet.t
+
 (** min n. 2^n >= v *)
 let int_log2 (v : int) : int =
   let n = ref 1
@@ -13,11 +16,6 @@ let int_log2 (v : int) : int =
     c := !c + 1
   done;
   !c
-
-let map_of_list (l : (string * 'a) list) : 'a string_map =
-  let folder = fun m (s, d) -> StringMap.add s d m in
-  List.fold_left folder StringMap.empty l
-
 
 (* TODO: better error messages *)
 let list_match_reorder (order : string list)

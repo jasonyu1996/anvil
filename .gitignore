@@ -1,5 +1,4 @@
 /_build/
 /*.sv
 *.conflicts
-/*.sh
 /.vscode/

@@ -1,0 +1,51 @@
+type mux_req = {
+    sel: logic;
+    a: logic;
+    b: logic
+}
+
+chan mux_ifc = {
+    left req : (mux_req@#0-#1) @#1 - @#1,
+    right resp : (logic@#0-#1) @req - @req
+}
+
+proc mux_impl (i: left mux_ifc) =
+    loop {
+        cycle 1 => (
+            let req = i::req in
+                req =>
+                let r = if req.sel then req.b else req.a in
+                send i::resp (r) => ()
+        )
+    }
+
+proc mux() =
+    chan foreign mux_l -- mux_r : mux_ifc
+    spawn mux_impl (mux_l)
+    loop {
+        cycle 1 => (
+            send mux_r::req (mux_req::{sel=1'b0; a=1'b0; b=1'b1}) =>
+            let r = recv mux_r::resp in
+            r =>
+            (
+                dprint "Result 1 = %d" (r);
+                cycle 1 => (
+                    send mux_r::req (mux_req::{sel=1'b1; a=1'b0; b=1'b1}) =>
+                    let r = recv mux_r::resp in
+                    r => (
+                        dprint "Result 2 = %d" (r);
+                        cycle 1 => (
+
+                            send mux_r::req (mux_req::{sel=1'b1; a=1'b1; b=1'b0}) =>
+                            let r = recv mux_r::resp in
+                            r =>
+                            (
+                                dprint "Result 3 = %d" (r);
+                                dfinish
+                            )
+                        )
+                    )
+                )
+            )
+        )
+    }

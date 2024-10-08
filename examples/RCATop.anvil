@@ -24,7 +24,7 @@ type add4_res = {
 chan addCh =
 {
     left req :
-    (add1_req@#0-req),
+    (add1_req@#0-#1),
     right res :
     (add1_res@#0-req)
 }
@@ -38,18 +38,17 @@ chan RCAch =
 }
 
 proc full_adder(ch : left addCh) =
-
-shared (ch::req - #10) x assigned by 0
-
+    reg sum : logic[1]
+    reg cout : logic[1]
+    shared (ch::req - #10) x assigned by 0
 loop {
-    
     put x = 4'b1111;
     let r = recv ch::req in
     r => (
-            
         let s=(r.a^r.b^r.cr) in
         let c=((r.a&r.b) | (r.b&r.cr) | (r.cr&r.a)) in
-        send ch::res(add1_res::{sum = s; cout = c})
+        (set sum := s; set cout := c) =>
+        send ch::res(add1_res::{sum = !sum; cout = !cout})
     )
 }
 loop
@@ -57,8 +56,6 @@ loop
     sync x
     dprint "x = %d" (x)
 }
-    
-
 
 proc RCA(ch : left RCAch) =
     chan ch0_le -- ch0_ri : addCh
@@ -85,7 +82,8 @@ loop {
         let r3 = recv ch3_ri::res in
         r3 =>
         // send ch::res(add4_res::{sum = {r3.sum, r2.sum, r1.sum, r0.sum}; cout = r3.cout})
-        send ch::res(add4_res::{sum = {r3.sum, r2.sum, r1.sum, r0.sum}; cout = r3.cout})
+        send ch::res(add4_res::{sum = {r3.sum, r2.sum, r1.sum, r0.sum}; cout = r3.cout}) =>
+        cycle 1
 }
 
 loop {

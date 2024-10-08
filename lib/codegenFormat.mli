@@ -1,3 +1,5 @@
+(** Formatter functions for different constructs during the code generation process. *)
+
 val format_msg_prefix : string -> string -> string
 val format_msg_data_signal_name : string -> string -> int -> string
 val format_msg_valid_signal_name : string -> string -> string
