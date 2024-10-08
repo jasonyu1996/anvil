@@ -1,6 +1,8 @@
 open Lang
 open Except
 
+exception EventGraphError of string * Lang.code_span
+
 type wire = WireCollection.wire
 type wire_collection = WireCollection.t
 
@@ -52,8 +54,8 @@ and event_pat = (event * Lang.delay_pat) list
 and event = {
   id : int;
   graph: event_graph;
-  mutable actions: action list;
-  mutable sustained_actions : sustained_action list;
+  mutable actions: action ast_node list;
+  mutable sustained_actions : sustained_action ast_node list;
   source: event_source;
   (* for lifetime checking *)
   mutable control_regs: (int * int) Utils.string_map;
@@ -320,8 +322,8 @@ module Typing = struct
     List.iter
       (fun (ev : event) ->
         List.iter
-          (fun (a : action) ->
-            match a with
+          (fun (a : action ast_node) ->
+            match a.d with
             | RegAssign (reg_ident, _) -> (
               reg_assign_cnt := Utils.StringMap.update reg_ident opt_incr !reg_assign_cnt;
               let v = Utils.StringMap.find reg_ident !reg_assign_cnt in
@@ -332,8 +334,8 @@ module Typing = struct
           )
           ev.actions;
         List.iter
-          (fun (a : sustained_action) ->
-            match a.ty with
+          (fun (a : sustained_action ast_node) ->
+            match a.d.ty with
             | Send (ms, _) | Recv ms -> (
               endp_use_cnt := Utils.StringMap.update ms.endpoint opt_incr !endp_use_cnt;
               let v = Utils.StringMap.find ms.endpoint !endp_use_cnt in
@@ -401,20 +403,20 @@ module Typing = struct
     (* check for violations of linearity *)
     List.iter
       (fun (ev : event) ->
-        List.iter (fun (a : action) ->
-          match a with
+        List.iter (fun (a : action ast_node) ->
+          match a.d with
           | RegAssign (reg_ident, _) -> (
             if in_control_set_reg ev reg_ident |> not then
-              raise (LifetimeCheckError "Non-linearizable register assignment!")
+              raise (EventGraphError ("Non-linearizable register assignment!", a.span))
             else ()
           )
           | _ -> ()
         ) ev.actions;
-        List.iter (fun (sa : sustained_action) ->
-          match sa.ty with
+        List.iter (fun (sa : sustained_action ast_node) ->
+          match sa.d.ty with
           | Send (ms, _) | Recv ms -> (
             if in_control_set_endps ev ms.endpoint |> not then
-              raise (LifetimeCheckError "Non-linearizable endpoint use!")
+              raise (EventGraphError ("Non-linearizable endpoint use!", sa.span))
             else ()
           )
         ) ev.sustained_actions
@@ -432,7 +434,7 @@ module Typing = struct
     event_successors ev |> List.tl |> List.find_opt
       (fun ev' ->
         List.exists (fun sa ->
-          match sa.ty with
+          match sa.d.ty with
           | Send (msg', _) | Recv msg' -> msg' = msg
         ) ev'.sustained_actions
       )
@@ -609,7 +611,7 @@ module Typing = struct
     let td_to_live_until = ref [] in
     visit_actions
       (fun ev a ->
-        match a with
+        match a.d with
         | RegAssign (_, td) ->
           (* `Cycles 0 rather than 1 because in the last cycle it is okay to update the register *)
           td_to_live_until := (td, (ev, `Cycles 0))::!td_to_live_until
@@ -621,12 +623,12 @@ module Typing = struct
           td_to_live_until := (td, (ev, si.value.glt.e))::!td_to_live_until
       )
       (fun _ev sa ->
-        match sa.ty with
+        match sa.d.ty with
         | Send (msg, td) ->
           let msg_d = MessageCollection.lookup_message g.messages msg ci.channel_classes |> Option.get in
           let stype = List.hd msg_d.sig_types in
           let e_dpat = delay_pat_globalise msg.endpoint stype.lifetime.e |> delay_pat_reduce_cycles 1 in
-          td_to_live_until := (td, (sa.until, e_dpat))::!td_to_live_until
+          td_to_live_until := (td, (sa.d.until, e_dpat))::!td_to_live_until
         | Recv _ -> ()
       )
       g.events;
@@ -638,39 +640,39 @@ module Typing = struct
     (* check register and message borrows *)
     visit_actions
       (fun ev a ->
-        match a with
+        match a.d with
         | RegAssign (reg_ident, td) ->
           let lt = lifetime_immediate ev in
           if not_borrowed reg_borrows reg_ident lt |> not then
-            raise (LifetimeCheckError "Attempted assignment to a borrowed register!")
+            raise (EventGraphError ("Attempted assignment to a borrowed register!", a.span))
           else ();
           if lifetime_in_range lt td.lt |> not then
-            raise (LifetimeCheckError "Value does not live long enough in reg assignment!")
+            raise (EventGraphError ("Value does not live long enough in reg assignment!", a.span))
           else ()
         | DebugPrint (_, tds) ->
           List.iter (fun td ->
             if lifetime_in_range (lifetime_immediate ev) td.lt |> not then
-              raise (LifetimeCheckError "Value does not live long enough in debug print!")
+              raise (EventGraphError ("Value does not live long enough in debug print!", a.span))
             else ()
           ) tds
         | DebugFinish -> ()
         | PutShared (_, si, td) ->
           if lifetime_in_range {live = ev; dead = [(ev, si.value.glt.e)]} td.lt |> not then
-            raise (LifetimeCheckError "Value does not live long enough in put!")
+            raise (EventGraphError ("Value does not live long enough in put!", a.span))
           else ()
       )
       (fun ev sa ->
-        match sa.ty with
+        match sa.d.ty with
         | Send (msg, td) ->
           let msg_d = MessageCollection.lookup_message g.messages msg ci.channel_classes |> Option.get in
           let stype = List.hd msg_d.sig_types in
           let e_dpat = delay_pat_globalise msg.endpoint stype.lifetime.e in
-          let lt = {live = ev; dead = [(sa.until, e_dpat)]} in
+          let lt = {live = ev; dead = [(sa.d.until, e_dpat)]} in
           if not_borrowed_and_add msg_borrows (string_of_msg_spec msg) lt |> not then
-            raise (LifetimeCheckError "Potentially conflicting message sending!")
+            raise (EventGraphError ("Potentially conflicting message sending!", sa.span))
           else ();
           if lifetime_in_range lt td.lt |> not then
-            raise (LifetimeCheckError "Value not live long enough in message send!")
+            raise (EventGraphError ("Value not live long enough in message send!", sa.span))
         | Recv _ -> ()
       )
       g.events
@@ -699,8 +701,8 @@ type build_context = Typing.build_context
 module BuildContext = Typing.BuildContext
 
 let rec visit_expr (graph : event_graph) (ci : cunit_info)
-                   (ctx : build_context) (e : expr) : timed_data =
-  match e with
+                   (ctx : build_context) (e : expr_node) : timed_data =
+  match e.d with
   | Literal lit ->
     let (wires', w) = WireCollection.add_literal lit graph.wires in
     graph.wires <- wires';
@@ -709,10 +711,14 @@ let rec visit_expr (graph : event_graph) (ci : cunit_info)
     (
       match Hashtbl.find_opt ctx.shared_vars_info ident with
         | Some shared_info -> Typing.sync_event_data graph ident shared_info.value ctx.current
-        | None -> raise (TypeError ("Undefined identifier: " ^ ident))
+        | None -> raise (EventGraphError (("Undefined identifier: " ^ ident), e.span))
     )
   | Identifier ident ->
-    Typing.context_lookup ctx.typing_ctx ident |> Option.get |> Typing.sync_data graph ctx.current
+    (
+      match Typing.context_lookup ctx.typing_ctx ident with
+      | Some td -> Typing.sync_data graph ctx.current td
+      | None -> raise (EventGraphError (("Undefined identifier: " ^ ident), e.span))
+    )
   | Assign (lval, e') ->
     let td = visit_expr graph ci ctx e' in
     let reg_ident = (
@@ -720,9 +726,9 @@ let rec visit_expr (graph : event_graph) (ci : cunit_info)
       match lval with
       | Reg ident ->
         ident
-      | _ -> raise (UnimplementedError "Lval with indexing/indirection unimplemented!")
+      | _ -> raise (EventGraphError ("Lval with indexing/indirection unimplemented!", e.span))
     ) in
-    ctx.current.actions <- (RegAssign (reg_ident, td))::ctx.current.actions;
+    ctx.current.actions <- (RegAssign (reg_ident, td) |> tag_with_span e.span)::ctx.current.actions;
     Typing.cycles_data graph 1 ctx.current
   | Binop (binop, e1, e2) ->
     let td1 = visit_expr graph ci ctx e1
@@ -750,7 +756,7 @@ let rec visit_expr (graph : event_graph) (ci : cunit_info)
       | [ident], _ ->
         let ctx' = BuildContext.add_binding ctx ident td1 in
         visit_expr graph ci ctx' e2
-      | _ -> raise (TypeError "Discarding expression results!")
+      | _ -> raise (EventGraphError ("Discarding expression results!", e.span))
     )
   | Wait (e1, e2) ->
     let td1 = visit_expr graph ci ctx e1 in
@@ -776,7 +782,7 @@ let rec visit_expr (graph : event_graph) (ci : cunit_info)
         let (wires', w) = WireCollection.add_switch ci.typedefs [(w1, w2)] w3 graph.wires in
         graph.wires <- wires';
         {w = Some w; lt; reg_borrows = reg_borrows'}
-      | _ -> raise (TypeError "Invalid if expression!")
+      | _ -> raise (EventGraphError ("Invalid if expression!", e.span))
     )
   | Concat es ->
     let tds = List.map (visit_expr graph ci ctx) es in
@@ -794,28 +800,28 @@ let rec visit_expr (graph : event_graph) (ci : cunit_info)
       match op with
       | DebugPrint (s, e_list) ->
         let timed_ws = List.map (visit_expr graph ci ctx) e_list in
-        ctx.current.actions <- (DebugPrint (s, timed_ws))::ctx.current.actions;
-        (* TODO: incorrect lifetime *)
+        ctx.current.actions <- (DebugPrint (s, timed_ws) |> tag_with_span e.span)::ctx.current.actions;
         {w = None; lt = Typing.lifetime_const ctx.current; reg_borrows = []}
       | DebugFinish ->
-        ctx.current.actions <- DebugFinish::ctx.current.actions;
+        ctx.current.actions <- (tag_with_span e.span DebugFinish)::ctx.current.actions;
         {w = None; lt = Typing.lifetime_const ctx.current; reg_borrows = []}
     )
   | Send send_pack ->
     let td = visit_expr graph ci ctx send_pack.send_data in
     let ntd = Typing.send_msg_data graph send_pack.send_msg_spec ctx.current in
     ctx.current.sustained_actions <-
-      {
+      ({
         until = ntd.lt.live;
         ty = Send (send_pack.send_msg_spec, td)
-      }::ctx.current.sustained_actions;
+      } |> tag_with_span e.span)::ctx.current.sustained_actions;
     ntd
   | Recv recv_pack ->
     let msg = MessageCollection.lookup_message graph.messages recv_pack.recv_msg_spec ci.channel_classes |> Option.get in
     let (wires', w) = WireCollection.add_msg_port ci.typedefs recv_pack.recv_msg_spec 0 msg graph.wires in
     graph.wires <- wires';
     let ntd = Typing.recv_msg_data graph (Some w) recv_pack.recv_msg_spec msg ctx.current in
-    ctx.current.sustained_actions <- {until = ntd.lt.live; ty = Recv recv_pack.recv_msg_spec}::ctx.current.sustained_actions;
+    ctx.current.sustained_actions <-
+      ({until = ntd.lt.live; ty = Recv recv_pack.recv_msg_spec} |> tag_with_span e.span)::ctx.current.sustained_actions;
     ntd
   | Indirect (e', fieldname) ->
     let td = visit_expr graph ci ctx e' in
@@ -849,9 +855,9 @@ let rec visit_expr (graph : event_graph) (ci : cunit_info)
             let (wires', w) = WireCollection.add_concat ci.typedefs ws graph.wires in
             graph.wires <- wires';
             Typing.merged_data graph (Some w) ctx.current tds
-          | _ -> raise (TypeError "Invalid record type value!")
+          | _ -> raise (EventGraphError ("Invalid record type value!", e.span))
         )
-      | _ -> raise (TypeError "Invalid record type name!")
+      | _ -> raise (EventGraphError ("Invalid record type name!", e.span))
     )
   | Construct (cstr_spec, cstr_expr_opt) ->
     (
@@ -891,9 +897,9 @@ let rec visit_expr (graph : event_graph) (ci : cunit_info)
             end in
             graph.wires <- wires';
             Typing.const_data graph (Some new_w) ctx.current
-          | _ -> raise (TypeError "Invalid variant construct expression!")
+          | _ -> raise (EventGraphError ("Invalid variant construct expression!", e.span))
         )
-      | _ -> raise (TypeError "Invalid variant type name!")
+      | _ -> raise (EventGraphError ("Invalid variant type name!", e.span))
     )
   | SharedAssign (id, value_expr) ->
     let shared_info = Hashtbl.find ctx.shared_vars_info id in
@@ -901,15 +907,15 @@ let rec visit_expr (graph : event_graph) (ci : cunit_info)
       let value_td = visit_expr graph ci ctx value_expr in
       if not ctx.lt_check_phase then (
         if (Option.is_some shared_info.value.w) || (Option.is_some shared_info.assigned_at) then
-          raise (TypeError "Shared value can only be assigned in one place!");
+          raise (EventGraphError ("Shared value can only be assigned in one place!", e.span));
         shared_info.value.w <- value_td.w;
         shared_info.assigned_at <- Some ctx.current;
       );
-      ctx.current.actions <- (PutShared (id, shared_info, value_td))::ctx.current.actions;
+      ctx.current.actions <- (PutShared (id, shared_info, value_td) |> tag_with_span e.span)::ctx.current.actions;
       Typing.const_data graph None ctx.current
     else
-      raise (TypeError "Shared variable assigned in wrong thread")
-  | _ -> raise (UnimplementedError "Unimplemented expression!")
+      raise (EventGraphError ("Shared variable assigned in wrong thread", e.span))
+  | _ -> raise (EventGraphError ("Unimplemented expression!", e.span))
 
 
 (* Builds the graph representation for each process To Do: Add support for commands outside loop (be executed once or continuosly)*)
@@ -942,7 +948,7 @@ let build_proc (config : Config.compile_config) (ci : cunit_info) (proc : proc_d
       let tmp_graph = {graph with last_event_id = 0} in
       let _ = visit_expr tmp_graph ci
         (BuildContext.create_empty tmp_graph shared_vars_info true)
-        (Wait (e, e)) in
+        (dummy_ast_node_of_data (Wait (e, e))) in
       Typing.lifetime_check config ci tmp_graph;
       (* discard after type checking *)
       let ctx = (BuildContext.create_empty graph shared_vars_info false) in

@@ -12,6 +12,9 @@ This module provides the related types and methods to create, manipulate, and ty
 event graphs.
 *)
 
+(** Exception that can be throw during event graph generation *)
+exception EventGraphError of string * Lang.code_span
+
 type wire = WireCollection.wire
 type wire_collection = WireCollection.t
 
@@ -82,9 +85,9 @@ and event_pat = (event * Lang.delay_pat) list
 and event = {
   id : int; (** an integral identifier of the event, unique within the event graph *)
   graph : event_graph;
-  mutable actions: action list; (** instant actions that take place when this event is reached *)
-  mutable sustained_actions : sustained_action list; (** actions that may take multiple cycles and
-                                                      start when this event is reached*)
+  mutable actions: action Lang.ast_node list; (** instant actions that take place when this event is reached *)
+  mutable sustained_actions : sustained_action Lang.ast_node list;
+  (** actions that may take multiple cycles and start when this event is reached*)
   source: event_source; (** under what circumstances is this event reached.
                       {i Those are effectively the edges in the event graph} *)
   (* for lifetime checking *)

@@ -1,0 +1,4 @@
+proc top() =
+    loop {
+        a
+    }

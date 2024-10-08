@@ -66,11 +66,11 @@ let data_type_index (type_defs : t) (dtype : data_type) (ind : index) : (int * i
       begin
         (* TODO: we only support literals as indices for now *)
         match ind with
-        | Single Literal lit ->
+        | Single {d = Literal lit; _} ->
             let lit_val = literal_eval lit in
             if lit_val < 0 || lit_val >= n then None else
               Some (base_size * lit_val, base_size * (lit_val + 1), base_type)
-        | Range (Literal lit_le, Literal lit_ri) ->
+        | Range ({d = Literal lit_le; _}, {d = Literal lit_ri; _}) ->
             let le = literal_eval lit_le
             and ri = literal_eval lit_ri in
             if le < 0 || ri >= n || le > ri then None else

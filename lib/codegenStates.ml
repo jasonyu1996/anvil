@@ -115,7 +115,8 @@ let codegen_actions printer (g : EventGraph.event_graph) =
   let print_event_actions (e : event) =
     if e.actions <> [] then begin
       Printf.sprintf "if (_thread_%d_event_current%d) begin" g.thread_id e.id |> print_line ~lvl_delta_post:1;
-      let print_action = function
+      let print_action (a : action Lang.ast_node) =
+        match a.d with
         | DebugPrint (s, tds) ->
           Printf.sprintf "$display(\"%s\"%s);"
             s
@@ -187,10 +188,10 @@ let codegen_sustained_actions printer (g : EventGraph.event_graph) =
   let print_line = CodegenPrinter.print_line printer in
   let open Lang in
   let print_sa_event (e : EventGraph.event) =
-    List.iter (fun (sa : EventGraph.sustained_action) ->
+    List.iter (fun (sa : EventGraph.sustained_action Lang.ast_node) ->
       let activated = Printf.sprintf "(_thread_%d_event_reached[%d] || _thread_%d_event_current%d) && !_thread_%d_event_reached[%d] && !_thread_%d_event_current%d"
-        g.thread_id e.id g.thread_id e.id g.thread_id sa.until.id g.thread_id sa.until.id in
-      match sa.ty with
+        g.thread_id e.id g.thread_id e.id g.thread_id sa.d.until.id g.thread_id sa.d.until.id in
+      match sa.d.ty with
       | Send (msg, td) ->
         Printf.sprintf "assign %s = %s;"
           (CodegenFormat.format_msg_valid_signal_name (EventGraph.canonicalize_endpoint_name msg.endpoint g) msg.msg)

@@ -88,6 +88,9 @@
 %start <Anvil.Lang.compilation_unit> cunit
 %%
 
+%public %inline node(X):
+  x=X { Anvil.Lang.ast_node_of_data $startpos $endpos x }
+
 cunit:
 | EOF
   { Anvil.Lang.cunit_empty }
@@ -122,7 +125,7 @@ proc_def_body:
       shared_vars = [];
     }
   }
-| KEYWORD_LOOP; LEFT_BRACE thread_prog = expr; RIGHT_BRACE; body=proc_def_body //For thread definitions
+| KEYWORD_LOOP; LEFT_BRACE thread_prog = node(expr); RIGHT_BRACE; body=proc_def_body //For thread definitions
   {
     let open Anvil.Lang in {body with loops = thread_prog::(body.loops) }
   }
@@ -248,7 +251,7 @@ term:
 ;
 //expressions
 expr:
-| KEYWORD_SET; lval = lvalue; COLON_EQ; v = expr //To Ask: Where are we using set
+| KEYWORD_SET; lval = lvalue; COLON_EQ; v = node(expr) //To Ask: Where are we using set
   { Anvil.Lang.Assign (lval, v) }
 | e = term
   { e }
@@ -256,7 +259,7 @@ expr:
   { e }
 | e = bin_expr
   { e }
-| LEFT_PAREN; first_expr = expr; COMMA; tuple = separated_list(COMMA, expr); RIGHT_PAREN
+| LEFT_PAREN; first_expr = node(expr); COMMA; tuple = separated_list(COMMA, node(expr)); RIGHT_PAREN
   { Anvil.Lang.Tuple (first_expr::tuple) }
 | LEFT_PAREN; RIGHT_PAREN
   { Anvil.Lang.Tuple ([]) }
@@ -264,52 +267,52 @@ expr:
   { e }
 | KEYWORD_SYNC; ident = IDENT
   { Anvil.Lang.Sync ident }
-| KEYWORD_PUT; ident = IDENT; COLON_EQ; v = expr
+| KEYWORD_PUT; ident = IDENT; COLON_EQ; v = node(expr)
   { Anvil.Lang.SharedAssign (ident, v) }
-| KEYWORD_LET; binding = IDENT; EQUAL; v = expr; KEYWORD_IN; body = expr
+| KEYWORD_LET; binding = IDENT; EQUAL; v = node(expr); KEYWORD_IN; body = node(expr)
   { Anvil.Lang.LetIn ([binding], v, body) }
-| KEYWORD_LET; LEFT_PAREN; bindings = separated_list(COMMA, IDENT); RIGHT_PAREN; EQUAL; v = expr; KEYWORD_IN; body = expr
+| KEYWORD_LET; LEFT_PAREN; bindings = separated_list(COMMA, IDENT); RIGHT_PAREN; EQUAL; v = node(expr); KEYWORD_IN; body = node(expr)
   { Anvil.Lang.LetIn (bindings, v, body) }
-| v = expr; SEMICOLON; body = expr
+| v = node(expr); SEMICOLON; body = node(expr)
   { Anvil.Lang.LetIn ([], v, body) }
 | KEYWORD_SEND; send_pack = send_pack
   { Anvil.Lang.Send send_pack }
 | KEYWORD_RECV; recv_pack = recv_pack
   { Anvil.Lang.Recv recv_pack }
-| v = expr; EQ_GT; body = expr
+| v = node(expr); EQ_GT; body = node(expr)
   { Anvil.Lang.Wait (v, body) }
-| KEYWORD_IF; cond = expr; KEYWORD_THEN; then_v = expr; KEYWORD_ELSE; else_v = expr
+| KEYWORD_IF; cond = node(expr); KEYWORD_THEN; then_v = node(expr); KEYWORD_ELSE; else_v = node(expr)
   { Anvil.Lang.IfExpr (cond, then_v, else_v) }
 // | KEYWORD_TRY; KEYWORD_SEND; send_pack = send_pack; KEYWORD_THEN;
-//   succ_expr = expr; KEYWORD_ELSE; fail_expr = expr
+//   succ_expr = node(expr); KEYWORD_ELSE; fail_expr = node(expr)
 //   { Anvil.Lang.TrySend (send_pack, succ_expr, fail_expr) }
 // | KEYWORD_TRY; KEYWORD_RECV; recv_pack = recv_pack; KEYWORD_THEN;
-//   succ_expr = expr; KEYWORD_ELSE; fail_expr = expr
+//   succ_expr = node(expr); KEYWORD_ELSE; fail_expr = node(expr)
 //   { Anvil.Lang.TryRecv (recv_pack, succ_expr, fail_expr) }
-// | KEYWORD_SEND; send_pack = send_pack; KEYWORD_THEN; succ_expr = expr
+// | KEYWORD_SEND; send_pack = send_pack; KEYWORD_THEN; succ_expr = node(expr)
 //   { Anvil.Lang.TrySend (send_pack, succ_expr, Anvil.Lang.Tuple []) }
-// | KEYWORD_RECV; recv_pack = recv_pack; KEYWORD_THEN; succ_expr = expr
+// | KEYWORD_RECV; recv_pack = recv_pack; KEYWORD_THEN; succ_expr = node(expr)
 //   { Anvil.Lang.TryRecv (recv_pack, succ_expr, Anvil.Lang.Tuple []) }
 | KEYWORD_CYCLE; n = INT
   { Anvil.Lang.Cycle n }
-| e = expr; LEFT_BRACKET; ind = index; RIGHT_BRACKET
+| e = node(expr); LEFT_BRACKET; ind = index; RIGHT_BRACKET
   { Anvil.Lang.Index (e, ind) }
-| e = expr; PERIOD; fieldname = IDENT
+| e = node(expr); PERIOD; fieldname = IDENT
   { Anvil.Lang.Indirect (e, fieldname) }
-| LEFT_BRACE; components = separated_list(COMMA, expr); RIGHT_BRACE
+| LEFT_BRACE; components = separated_list(COMMA, node(expr)); RIGHT_BRACE
   { Anvil.Lang.Concat components }
-| KEYWORD_MATCH; e = expr; KEYWORD_WITH; match_arm_list = match_arm+; KEYWORD_DONE
+| KEYWORD_MATCH; e = node(expr); KEYWORD_WITH; match_arm_list = match_arm+; KEYWORD_DONE
   { Anvil.Lang.Match (e, match_arm_list) }
 | EXCL; reg_ident = IDENT
   { Anvil.Lang.Read reg_ident }
-| constructor_spec = constructor_spec; e = ioption(expr)
+| constructor_spec = constructor_spec; e = ioption(node(expr))
   { Anvil.Lang.Construct (constructor_spec, e) } %prec CONSTRUCT
 | record_name = IDENT; DOUBLE_COLON; LEFT_BRACE;
   record_fields = separated_nonempty_list(SEMICOLON, record_field_constr);
   RIGHT_BRACE
   { Anvil.Lang.Record (record_name, record_fields) }
   (* debug operations *)
-| KEYWORD_DPRINT; s = STR_LITERAL; LEFT_PAREN; v = separated_list(COMMA, expr); RIGHT_PAREN
+| KEYWORD_DPRINT; s = STR_LITERAL; LEFT_PAREN; v = separated_list(COMMA, node(expr)); RIGHT_PAREN
   { Anvil.Lang.Debug (Anvil.Lang.DebugPrint (s, v)) }
 | KEYWORD_DFINISH
   { Anvil.Lang.Debug Anvil.Lang.DebugFinish }
@@ -325,13 +328,13 @@ constructor_spec:
 ;
 //To Ask: Where is this being used
 %inline record_field_constr:
-  field_name = IDENT; EQUAL; field_value = expr
+  field_name = IDENT; EQUAL; field_value = node(expr)
   { (field_name, field_value) }
 ;
 // The string that sends message
 send_pack:
   msg_specifier = message_specifier;
-  LEFT_PAREN; data = expr; RIGHT_PAREN
+  LEFT_PAREN; data = node(expr); RIGHT_PAREN
   {
     {
       Anvil.Lang.send_msg_spec = msg_specifier;
@@ -350,42 +353,42 @@ recv_pack:
 ;
 
 bin_expr:
-| v1 = expr; DOUBLE_EQ; v2 = expr
+| v1 = node(expr); DOUBLE_EQ; v2 = node(expr)
   { Anvil.Lang.Binop (Anvil.Lang.Eq, v1, v2) }
-| v1 = expr; EXCL_EQ; v2 = expr
+| v1 = node(expr); EXCL_EQ; v2 = node(expr)
   { Anvil.Lang.Binop (Anvil.Lang.Neq, v1, v2) }
-| v1 = expr; DOUBLE_LEFT_ABRACK; v2 = expr
+| v1 = node(expr); DOUBLE_LEFT_ABRACK; v2 = node(expr)
   { Anvil.Lang.Binop (Anvil.Lang.Shl, v1, v2) }
-| v1 = expr; DOUBLE_RIGHT_ABRACK; v2 = expr
+| v1 = node(expr); DOUBLE_RIGHT_ABRACK; v2 = node(expr)
   { Anvil.Lang.Binop (Anvil.Lang.Shr, v1, v2) }
-| v1 = expr; LEFT_ABRACK; v2 = expr
+| v1 = node(expr); LEFT_ABRACK; v2 = node(expr)
   { Anvil.Lang.Binop (Anvil.Lang.Lt, v1, v2) }
-| v1 = expr; RIGHT_ABRACK; v2 = expr
+| v1 = node(expr); RIGHT_ABRACK; v2 = node(expr)
   { Anvil.Lang.Binop (Anvil.Lang.Gt, v1, v2) }
-| v1 = expr; LEFT_ABRACK_EQ; v2 = expr
+| v1 = node(expr); LEFT_ABRACK_EQ; v2 = node(expr)
   { Anvil.Lang.Binop (Anvil.Lang.Lte, v1, v2) }
-| v1 = expr; RIGHT_ABRACK_EQ; v2 = expr
+| v1 = node(expr); RIGHT_ABRACK_EQ; v2 = node(expr)
   { Anvil.Lang.Binop (Anvil.Lang.Gte, v1, v2) }
-| v1 = expr; PLUS; v2 = expr
+| v1 = node(expr); PLUS; v2 = node(expr)
   { Anvil.Lang.Binop (Anvil.Lang.Add, v1, v2) }
-| v1 = expr; MINUS; v2 = expr
+| v1 = node(expr); MINUS; v2 = node(expr)
   { Anvil.Lang.Binop (Anvil.Lang.Sub, v1, v2) }
-| v1 = expr; XOR; v2 = expr
+| v1 = node(expr); XOR; v2 = node(expr)
   { Anvil.Lang.Binop (Anvil.Lang.Xor, v1, v2) }
-| v1 = expr; AND; v2 = expr
+| v1 = node(expr); AND; v2 = node(expr)
   { Anvil.Lang.Binop (Anvil.Lang.And, v1, v2) }
-| v1 = expr; OR; v2 = expr
+| v1 = node(expr); OR; v2 = node(expr)
   { Anvil.Lang.Binop (Anvil.Lang.Or, v1, v2) }
 ;
 // What is UMinus UAND UOR
 un_expr:
-| MINUS; e = expr
+| MINUS; e = node(expr)
   { Anvil.Lang.Unop (Anvil.Lang.Neg, e) } %prec UMINUS
-| TILDE; e = expr
+| TILDE; e = node(expr)
   { Anvil.Lang.Unop (Anvil.Lang.Not, e) }
-| AND; e = expr
+| AND; e = node(expr)
   { Anvil.Lang.Unop (Anvil.Lang.AndAll, e) } %prec UAND
-| OR; e = expr
+| OR; e = node(expr)
   { Anvil.Lang.Unop (Anvil.Lang.OrAll, e) } %prec UOR
 ;
 //To Ask: Where is this being used
@@ -401,9 +404,9 @@ lvalue:
 ;
 
 index:
-| i = expr
+| i = node(expr)
   { Anvil.Lang.Single i }
-| le = expr; COLON; ri = expr
+| le = node(expr); COLON; ri = node(expr)
   { Anvil.Lang.Range (le, ri) }
 ;
 
@@ -420,7 +423,7 @@ match_arm:
 ;
 
 %inline match_arm_body:
-  POINT_TO; e = expr
+  POINT_TO; e = node(expr)
   { e }
 ;
 //Definition of messages: To Do: Doesnt support custom lifetime types, just sync?

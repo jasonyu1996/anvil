@@ -1,7 +1,27 @@
 (** This module includes definitions relevant to the language constructs, including
 those that are part of the AST created during parsing. *)
 
+(** A span of source code. *)
+type code_span = {
+  st : Lexing.position; (** start of the span *)
+  ed : Lexing.position; (** end of the span *)
+}
+
+(** A dummy code span that does not represent any valid span. *)
+let code_span_dummy = { st = Lexing.dummy_pos; ed = Lexing.dummy_pos }
+
 type identifier = string
+
+(** A node in AST. Containing the data plus the code span info. *)
+type 'a ast_node = {
+  span : code_span;
+  d : 'a;
+}
+
+(** Construct an AST node with specified data and span. *)
+let ast_node_of_data st ed d = { span = {st; ed}; d }
+let tag_with_span s d = { span = s; d }
+let dummy_ast_node_of_data d = { span = code_span_dummy; d }
 
 (** This identifies a message type within the context of a process.
 It consists of the {{!endpoint}endpoint name} and the {{!msg}message type name}.
@@ -282,7 +302,7 @@ let string_of_unop (unop: unop) : string =
 (** Information specified in a message send operation. *)
 type send_pack = {
   send_msg_spec: message_specifier;
-  send_data: expr;
+  send_data: expr_node;
 }
 
 (** Information specified in a message receive operation. *)
@@ -299,26 +319,27 @@ and expr =
   | Literal of literal
   | Identifier of identifier
   (* send and recv *)
-  | Assign of lvalue * expr
-  | Binop of binop * expr * expr
-  | Unop of unop * expr
-  | Tuple of expr list
-  | LetIn of identifier list * expr * expr
-  | Wait of expr * expr (** [a => b] *)
+  | Assign of lvalue * expr_node
+  | Binop of binop * expr_node * expr_node
+  | Unop of unop * expr_node
+  | Tuple of expr_node list
+  | LetIn of identifier list * expr_node * expr_node
+  | Wait of expr_node * expr_node (** [a => b] *)
   | Cycle of int
   | Sync of identifier (** synchronise on a shared value *)
-  | IfExpr of expr * expr * expr
-  | Construct of constructor_spec * expr option (** construct a variant type value with a constructor *)
-  | Record of identifier * (identifier * expr) list (** constructing a record-type value *)
-  | Index of expr * index (** an element of an array ([a[3]]) *)
-  | Indirect of expr * identifier (** a member of a record ([a.b]) *)
-  | Concat of expr list
-  | Match of expr * ((match_pattern * expr option) list)
+  | IfExpr of expr_node * expr_node * expr_node
+  | Construct of constructor_spec * expr_node option (** construct a variant type value with a constructor *)
+  | Record of identifier * (identifier * expr_node) list (** constructing a record-type value *)
+  | Index of expr_node * index (** an element of an array ([a[3]]) *)
+  | Indirect of expr_node * identifier (** a member of a record ([a.b]) *)
+  | Concat of expr_node list
+  | Match of expr_node * ((match_pattern * expr_node option) list)
   | Read of identifier (** reading a value from a register (leading to a borrow) *)
   | Debug of debug_op
   | Send of send_pack
   | Recv of recv_pack
-  | SharedAssign of identifier * expr (** make ready a shared value *)
+  | SharedAssign of identifier * expr_node (** make ready a shared value *)
+and expr_node = expr ast_node
 
 (** A "location" that can be assigned to. *)
 and lvalue =
@@ -328,8 +349,8 @@ and lvalue =
 
 (** Indexing, either a single point or a range. *)
 and index =
-  | Single of expr
-  | Range of expr * expr
+  | Single of expr_node
+  | Range of expr_node * expr_node
 
 (** Pattern in an arm of a {{!Match}match} expression. *)
 and match_pattern = {
@@ -337,7 +358,7 @@ and match_pattern = {
   bind_name: identifier option; (* name of the binding for the unboxed value *)
 }
 and debug_op =
-  | DebugPrint of string * expr list
+  | DebugPrint of string * expr_node list
   | DebugFinish
 
 let delay_immediate = `Cycles 0
@@ -349,7 +370,7 @@ type sig_def = {
 }
 
 type cycle_proc = {
-  trans_func: expr;
+  trans_func: expr_node;
   sigs: sig_def list;
 }
 
@@ -392,7 +413,7 @@ type proc_def_body = {
   regs: reg_def list;
   shared_vars: shared_var_def list;  (* New field *)
   (* prog: expr; *)
-  loops: expr list;
+  loops: expr_node list;
 }
 
 (** Process definition. *)
@@ -440,7 +461,7 @@ let rec string_of_expr (e : expr) : string =
   match e with
   | Literal lit -> "Literal " ^ string_of_literal lit
   | Identifier id -> "Identifier " ^ id
-  | Assign (lv, e) -> "Assign (" ^ string_of_lvalue lv ^ ", " ^ string_of_expr e ^ ")"
+  | Assign (lv, n) -> "Assign (" ^ string_of_lvalue lv ^ ", " ^ string_of_expr n.d ^ ")"
   | _ -> "..."
 
 and string_of_lvalue (lv : lvalue) : string =
@@ -451,8 +472,8 @@ and string_of_lvalue (lv : lvalue) : string =
 
 and string_of_index (idx : index) : string =
   match idx with
-  | Single e -> "Single (" ^ string_of_expr e ^ ")"
-  | Range (e1, e2) -> "Range (" ^ string_of_expr e1 ^ ", " ^ string_of_expr e2 ^ ")"
+  | Single e -> "Single (" ^ string_of_expr e.d ^ ")"
+  | Range (e1, e2) -> "Range (" ^ string_of_expr e1.d ^ ", " ^ string_of_expr e2.d ^ ")"
 
 and string_of_literal (lit : literal) : string =
   match lit with
