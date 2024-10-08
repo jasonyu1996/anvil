@@ -239,7 +239,7 @@ module Typing = struct
     let dpat = gtd.glt.e in
     (
       match dpat with
-      | `Cycles n -> Printf.eprintf "Good lord %d\n" n;
+      | `Cycles _ -> ()
       | _ -> raise (UnimplementedError "Non-static lifetime for shared data is unsupported!")
     );
     {w = gtd.w; lt = {live = event_synced; dead = [(event_synced, dpat)]}; reg_borrows = []}
