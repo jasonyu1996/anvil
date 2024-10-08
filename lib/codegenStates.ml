@@ -1,6 +1,8 @@
 let event_is_reg (e : EventGraph.event) =
   match e.source with
-  | `Seq _ | `Root -> true
+  | `Root -> true
+  | `Seq (_, `Sync _) -> false
+  | `Seq _ -> true
   | _ -> false
 
 let codegen_decl printer (g : EventGraph.event_graph) =
@@ -20,7 +22,7 @@ let codegen_decl printer (g : EventGraph.event_graph) =
   List.iter print_next_signal g.events
 
 (* generate the next-cycle signals*)
-let codegen_next printer (g : EventGraph.event_graph) =
+let codegen_next printer (pg : EventGraph.proc_graph) (g : EventGraph.event_graph) =
   let print_line = CodegenPrinter.print_line printer in
   let print_lines = CodegenPrinter.print_lines printer in
   let print_compute_next (e : EventGraph.event) =
@@ -30,7 +32,7 @@ let codegen_next printer (g : EventGraph.event_graph) =
         match d with
         | `Cycles n when n >= 1 ->
           if n == 1 then
-            Printf.sprintf "assign _thread_%d_event_next%d = _thread_%d_event_current%d;" 
+            Printf.sprintf "assign _thread_%d_event_next%d = _thread_%d_event_current%d;"
               g.thread_id e.id g.thread_id e'.id |> print_line
           else
             [
@@ -64,20 +66,25 @@ let codegen_next printer (g : EventGraph.event_graph) =
           failwith "Invalid number of cycles"
         | `Send msg ->
           [
-            Printf.sprintf "assign _thread_%d_event_next%d = !_thread_%d_event_current%d && !_thread_%d_event_reached[%d] &&" 
+            Printf.sprintf "assign _thread_%d_event_next%d = !_thread_%d_event_current%d && !_thread_%d_event_reached[%d] &&"
               g.thread_id e.id g.thread_id e.id g.thread_id e.id;
-            Printf.sprintf "(_thread_%d_event_current%d || _thread_%d_event_reached[%d]) && %s;" 
+            Printf.sprintf "(_thread_%d_event_current%d || _thread_%d_event_reached[%d]) && %s;"
               g.thread_id e'.id g.thread_id e'.id
               (CodegenFormat.format_msg_ack_signal_name (EventGraph.canonicalize_endpoint_name msg.endpoint g) msg.msg)
           ] |> print_lines
         | `Recv msg ->
           [
-            Printf.sprintf "assign _thread_%d_event_next%d = !_thread_%d_event_current%d && !_thread_%d_event_reached[%d] &&" 
+            Printf.sprintf "assign _thread_%d_event_next%d = !_thread_%d_event_current%d && !_thread_%d_event_reached[%d] &&"
               g.thread_id e.id g.thread_id e.id g.thread_id e.id;
-            Printf.sprintf "(_thread_%d_event_current%d || _thread_%d_event_reached[%d]) && %s;" 
+            Printf.sprintf "(_thread_%d_event_current%d || _thread_%d_event_reached[%d]) && %s;"
               g.thread_id e'.id g.thread_id e'.id
               (CodegenFormat.format_msg_valid_signal_name (EventGraph.canonicalize_endpoint_name msg.endpoint g) msg.msg)
           ] |> print_lines
+        | `Sync s ->
+          let si = Hashtbl.find pg.shared_vars_info s in
+          let assigned_at = Option.get si.assigned_at in
+          Printf.sprintf "assign _thread_%d_event_current%d = _thread_%d_event_current%d;"
+            g.thread_id e.id assigned_at.graph.thread_id assigned_at.id |> print_line
       )
     | `Either (e1, e2) ->
       Printf.sprintf "assign _thread_%d_event_current%d = !_thread_%d_event_reached[%d] && (_thread_%d_event_current%d || _thread_%d_event_current%d);"
@@ -120,6 +127,7 @@ let codegen_actions printer (g : EventGraph.event_graph) =
           Printf.sprintf "%s <= %s;"
             (CodegenFormat.format_regname_current reg_ident) (CodegenFormat.format_wirename (Option.get td.w).id)
             |> print_line
+        | PutShared _ -> ()
       in
       List.iter print_action e.actions;
       print_line ~lvl_delta_pre:(-1) "end"
@@ -201,9 +209,10 @@ let codegen_sustained_actions printer (g : EventGraph.event_graph) =
 
 let codegen_states printer
   (graphs : EventGraph.event_graph_collection)
+  (pg : EventGraph.proc_graph)
   (g : EventGraph.event_graph) =
   codegen_decl printer g;
-  codegen_next printer g;
+  codegen_next printer pg g;
   codegen_sustained_actions printer g;
   codegen_transition printer graphs g
 

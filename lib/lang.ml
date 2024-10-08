@@ -316,10 +316,9 @@ and expr =
   | LetIn of identifier list * expr * expr
   | Wait of expr * expr (** [a => b] *)
   | Cycle of int
-  | Sync of identifier * expr
+  | Sync of identifier (** synchronise on a shared value *)
   | IfExpr of expr * expr * expr
-  (* construct a variant type value with a constructor *)
-  | Construct of constructor_spec * expr option
+  | Construct of constructor_spec * expr option (** construct a variant type value with a constructor *)
   | Record of identifier * (identifier * expr) list (** constructing a record-type value *)
   | Index of expr * index (** an element of an array ([a[3]]) *)
   | Indirect of expr * identifier (** a member of a record ([a.b]) *)
@@ -329,7 +328,7 @@ and expr =
   | Debug of debug_op
   | Send of send_pack
   | Recv of recv_pack
-  | SharedAssign of identifier * expr * (expr option)
+  | SharedAssign of identifier * expr (** make ready a shared value *)
 
 (** A "location" that can be assigned to. *)
 and lvalue =

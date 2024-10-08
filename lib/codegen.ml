@@ -205,12 +205,10 @@ let codegen_proc printer (graphs : EventGraph.event_graph_collection) (g : proc_
 
   codegen_regs printer graphs initEvents;
 
-
-
   (* Iterate over all threads to print states *)
   List.iter (fun thread ->
     codegen_post_declare printer graphs thread;
-    CodegenStates.codegen_states printer graphs thread;
+    CodegenStates.codegen_states printer graphs g thread;
   ) g.threads;
 
   CodegenPrinter.print_line printer ~lvl_delta_pre:(-1) "endmodule"

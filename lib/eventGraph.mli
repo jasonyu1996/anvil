@@ -20,7 +20,14 @@ type atomic_delay = [
   | `Cycles of int (** elapse of a specific number of cycles *)
   | `Send of Lang.message_specifier (** sending of a message *)
   | `Recv of Lang.message_specifier (** receiving of a message *)
+  | `Sync of Lang.identifier (** synchronising on a local shared value *)
 ]
+
+type global_timed_data =
+{
+  mutable w : wire option;
+  glt : Lang.sig_lifetime;
+}
 
 (** Describe a time window that starts with an eventl ({!live}) and ends with an
 {{!event_pat}event pattern} ({!dead}) *)
@@ -35,12 +42,18 @@ and timed_data = {
   lt : lifetime; (** lifetime of the data *)
   reg_borrows : (Lang.identifier * event) list; (** each is tuple of (name of register, starting event of the borrow) *)
 }
+and shared_var_info = {
+  assigning_thread : int;
+  value : global_timed_data;
+  mutable assigned_at : event option;
+}
 
 (** An action that is performed instantly when an event is reached. *)
 and action =
   | DebugPrint of string * timed_data list (** debug print ([dprint]) *)
   | DebugFinish (** [dfinish] *)
   | RegAssign of string * timed_data (** register assignment (technically this is not performed instantly) *)
+  | PutShared of string * shared_var_info * timed_data
 
 (** Type of an action that may take multiple cycles. Those
 are basically those that synchronise through message passing. *)
@@ -68,6 +81,7 @@ and event_pat = (event * Lang.delay_pat) list
 (** An event. *)
 and event = {
   id : int; (** an integral identifier of the event, unique within the event graph *)
+  graph : event_graph;
   mutable actions: action list; (** instant actions that take place when this event is reached *)
   mutable sustained_actions : sustained_action list; (** actions that may take multiple cycles and
                                                       start when this event is reached*)
@@ -99,7 +113,7 @@ and sustained_action = {
 }
 
 (** An event graph, usually corresponding to a single looping thread. *)
-type event_graph = {
+and event_graph = {
   thread_id : int; (** unique identifier of the looping thread *)
   mutable events : event list;
   mutable wires : WireCollection.t;
@@ -115,6 +129,7 @@ type event_graph = {
 type proc_graph = {
   name : Lang.identifier;
   threads : event_graph list;
+  shared_vars_info : (Lang.identifier, shared_var_info) Hashtbl.t;
 }
 
 (** A collection of event graphs, corresponding to a compilation unit.
