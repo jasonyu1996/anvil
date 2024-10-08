@@ -517,20 +517,18 @@ field_def:
 ;
 
 lifetime_spec:
-  b_time = timestamp; MINUS; e_time = timestamp
+  e_time = timestamp
   {
     {
-      b = b_time;
       e = e_time;
     } : Anvil.Lang.sig_lifetime
   }
 ;
 
 lifetime_spec_chan_local:
-  b_time = timestamp_chan_local; MINUS; e_time = timestamp_chan_local
+  e_time = timestamp_chan_local
   {
     {
-      b = b_time;
       e = e_time;
     } : Anvil.Lang.sig_lifetime_chan_local
   }

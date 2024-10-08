@@ -1,6 +1,6 @@
 
 chan reg_itfc = {
-    right req : (logic@#0-#2)
+    right req : (logic@#2)
 }
 
 proc reggg(e : right reg_itfc) =

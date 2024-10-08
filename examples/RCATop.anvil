@@ -24,23 +24,23 @@ type add4_res = {
 chan addCh =
 {
     left req :
-    (add1_req@#0-#1),
+    (add1_req@#1),
     right res :
-    (add1_res@#0-req)
+    (add1_res@req)
 }
 
 chan RCAch =
 {
     left req :
-    (add4_req@#0-req),
+    (add4_req@req),
     right res :
-    (add4_res@#0-req)
+    (add4_res@req)
 }
 
 proc full_adder(ch : left addCh) =
     reg sum : logic[1]
     reg cout : logic[1]
-    shared (ch::req - #10) x assigned by 0
+    shared (#10) x assigned by 0
 loop {
     let r = recv ch::req in
     r => (

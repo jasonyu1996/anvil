@@ -1,7 +1,7 @@
 /* This is for the redesigned Anvil language */
 
 chan reg_itfc = {
-    right req : (logic@#0-#1)
+    right req : (logic@#1)
 }
 
 proc reggg(e : right reg_itfc) =

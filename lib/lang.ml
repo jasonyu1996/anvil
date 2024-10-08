@@ -14,7 +14,6 @@ type message_specifier = {
 let string_of_msg_spec (msg_spec : message_specifier) : string =
   msg_spec.endpoint ^ "::" ^ msg_spec.msg
 
-(* TODO: more complex patterns *)
 (** A delay pattern that matches a set of delays. *)
 type delay_pat = [
   | `Cycles of int (** elapse of a number of cycles *)
@@ -32,35 +31,26 @@ let string_of_delay_pat (t : delay_pat) : string =
   | `Message msg_spec -> Printf.sprintf "%s" (string_of_msg_spec msg_spec)
   | `Eternal -> "E"
 
-(** Lifetime signature consisting of a pair of {{!sig_lifetime.b}beginning} and {{!sig_lifetime.e}ending} delay patterns.
-The beginning delay pattern is currently ignored.
-*)
-type sig_lifetime = { b: delay_pat; e: delay_pat;}
+(** Lifetime signature, specifying that the lifetime lasts until matching {{!sig_lifetime.e}ending} delay patterns. *)
+type sig_lifetime = { e: delay_pat; }
 
 (** Same as {!sig_lifetime} but local to a channel. *)
-type sig_lifetime_chan_local = { b: delay_pat_chan_local; e: delay_pat_chan_local; }
+type sig_lifetime_chan_local = { e: delay_pat_chan_local; }
 
 let string_of_lifetime (lt : sig_lifetime) : string =
-  Printf.sprintf "%s-%s" (string_of_delay_pat lt.b) (string_of_delay_pat lt.e)
+  Printf.sprintf "%s" (string_of_delay_pat lt.e)
 
 let sig_lifetime_this_cycle_chan_local : sig_lifetime_chan_local =
-  { b = `Cycles 0; e = `Cycles 1 }
-
-let sig_lifetime_null_chan_local : sig_lifetime_chan_local =
-  { b = `Eternal; e = `Cycles 0 }
+  { e = `Cycles 1 }
 
 let sig_lifetime_const_chan_local : sig_lifetime_chan_local =
-  { b = `Cycles 0; e = `Eternal }
-
+  { e = `Eternal }
 
 let sig_lifetime_this_cycle : sig_lifetime =
-  { b = `Cycles 0; e = `Cycles 1 }
-
-let sig_lifetime_null : sig_lifetime =
-  { b = `Eternal; e = `Cycles 0 }
+  { e = `Cycles 1 }
 
 let sig_lifetime_const : sig_lifetime =
-  { b = `Cycles 0; e = `Eternal }
+  { e = `Eternal }
 
 (** Type definition without named type. *)
 type 'a data_type_generic_no_named = [
@@ -133,7 +123,7 @@ let delay_pat_globalise (endpoint : identifier) (t : delay_pat_chan_local) : del
 
 (** Convert a channel-local lifetime signature to a global (process context) lifetime signature. *)
 let lifetime_globalise (endpoint : identifier) (lt : sig_lifetime_chan_local) : sig_lifetime =
-  { b = delay_pat_globalise endpoint lt.b; e = delay_pat_globalise endpoint lt.e }
+  { e = delay_pat_globalise endpoint lt.e }
 
 (** Convert a channel-local signal type to a global (process context) signal type. *)
 let sig_type_globalise (endpoint : identifier) (s : sig_type_chan_local) : sig_type =
