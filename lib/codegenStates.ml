@@ -28,19 +28,54 @@ let codegen_next printer (g : EventGraph.event_graph) =
     | `Seq (e', d) ->
       (
         match d with
-        | `Cycles 1 -> Printf.sprintf "assign _thread_%d_event_next%d = _thread_%d_event_current%d;" g.thread_id e.id g.thread_id e'.id |> print_line
+        | `Cycles n when n >= 1 ->
+          if n == 1 then
+            Printf.sprintf "assign _thread_%d_event_next%d = _thread_%d_event_current%d;" 
+              g.thread_id e.id g.thread_id e'.id |> print_line
+          else
+            [
+              Printf.sprintf "logic [%d:0] _thread_%d_event_counter%d;" (Utils.int_log2 n) g.thread_id e.id;
+              Printf.sprintf "logic _thread_%d_event_counter_valid%d;" g.thread_id e.id;
+              Printf.sprintf  "logic _thread_%d_event_counter_begin%d;" g.thread_id e.id;
+              Printf.sprintf "always_ff @(posedge clk_i or negedge rst_ni) begin";
+              Printf.sprintf "  if (~rst_ni) begin";
+              Printf.sprintf "    _thread_%d_event_counter%d <= '0;" g.thread_id e.id;
+              Printf.sprintf "    _thread_%d_event_counter_valid%d <= 1'b0;" g.thread_id e.id;
+              Printf.sprintf "    _thread_%d_event_counter_begin%d <= 1'b0;" g.thread_id e.id;
+              Printf.sprintf "  end else if (_thread_%d_event_current%d) begin" g.thread_id e'.id;
+              Printf.sprintf "      _thread_%d_event_counter_begin%d <= 1'b1;" g.thread_id e.id;
+              Printf.sprintf "      _thread_%d_event_counter_valid%d <= 1'b0;" g.thread_id e.id;
+              Printf.sprintf "  end else if (_thread_%d_event_counter_begin%d && !_thread_%d_event_counter_valid%d) begin" g.thread_id e.id g.thread_id e.id;
+              Printf.sprintf "    if (_thread_%d_event_counter%d >= %d) begin" g.thread_id e.id (n - 2);
+              Printf.sprintf "      _thread_%d_event_counter%d <= '0;" g.thread_id e.id;
+              Printf.sprintf "      _thread_%d_event_counter_valid%d <= 1'b1;" g.thread_id e.id;
+              Printf.sprintf "    end else begin";
+              Printf.sprintf "      _thread_%d_event_counter%d <= _thread_%d_event_counter%d + 1'b1;" g.thread_id e.id g.thread_id e.id;
+              Printf.sprintf "    end";
+              Printf.sprintf "  end else begin";
+              Printf.sprintf "    _thread_%d_event_counter%d <= '0;" g.thread_id e.id;
+              Printf.sprintf "    _thread_%d_event_counter_begin%d <= 1'b0;" g.thread_id e.id;
+              Printf.sprintf "    _thread_%d_event_counter_valid%d <= 1'b0;" g.thread_id e.id;
+              Printf.sprintf "  end";
+              Printf.sprintf "end";
+              Printf.sprintf "assign _thread_%d_event_next%d = _thread_%d_event_counter_valid%d;" g.thread_id e.id g.thread_id e.id;
+            ] |> print_lines
         | `Cycles _ ->
-          raise (Except.UnimplementedError "Codegen states for multi cycle event unimplemented!")
+          failwith "Invalid number of cycles"
         | `Send msg ->
           [
-            Printf.sprintf "assign _thread_%d_event_next%d = !_thread_%d_event_current%d && !_thread_%d_event_reached[%d] &&" g.thread_id e.id g.thread_id e.id g.thread_id e.id;
-            Printf.sprintf "(_thread_%d_event_current%d || _thread_%d_event_reached[%d]) && %s;" g.thread_id e'.id g.thread_id e'.id
+            Printf.sprintf "assign _thread_%d_event_next%d = !_thread_%d_event_current%d && !_thread_%d_event_reached[%d] &&" 
+              g.thread_id e.id g.thread_id e.id g.thread_id e.id;
+            Printf.sprintf "(_thread_%d_event_current%d || _thread_%d_event_reached[%d]) && %s;" 
+              g.thread_id e'.id g.thread_id e'.id
               (CodegenFormat.format_msg_ack_signal_name (EventGraph.canonicalize_endpoint_name msg.endpoint g) msg.msg)
           ] |> print_lines
         | `Recv msg ->
           [
-            Printf.sprintf "assign _thread_%d_event_next%d = !_thread_%d_event_current%d && !_thread_%d_event_reached[%d] &&" g.thread_id e.id g.thread_id e.id g.thread_id e.id;
-            Printf.sprintf "(_thread_%d_event_current%d || _thread_%d_event_reached[%d]) && %s;" g.thread_id e'.id g.thread_id e'.id
+            Printf.sprintf "assign _thread_%d_event_next%d = !_thread_%d_event_current%d && !_thread_%d_event_reached[%d] &&" 
+              g.thread_id e.id g.thread_id e.id g.thread_id e.id;
+            Printf.sprintf "(_thread_%d_event_current%d || _thread_%d_event_reached[%d]) && %s;" 
+              g.thread_id e'.id g.thread_id e'.id
               (CodegenFormat.format_msg_valid_signal_name (EventGraph.canonicalize_endpoint_name msg.endpoint g) msg.msg)
           ] |> print_lines
       )

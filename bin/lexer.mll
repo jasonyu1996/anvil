@@ -50,6 +50,10 @@ rule read =
   | "!="      { EXCL_EQ }
   | "|>"      { OR_GT }
   | "!"       { EXCL }
+  | "put"     { KEYWORD_PUT }
+  | "shared"  { KEYWORD_SHARED }
+  | "assigned" { KEYWORD_ASSIGNED }
+  | "by"      { KEYWORD_BY }
   | "loop"    { KEYWORD_LOOP }
   | "proc"    { KEYWORD_PROC }
   | "chan"    { KEYWORD_CHAN }
@@ -73,6 +77,7 @@ rule read =
   | "match"   { KEYWORD_MATCH }
   | "with"    { KEYWORD_WITH }
   | "dyn"     { KEYWORD_DYN }
+  | "sync"    { KEYWORD_SYNC }
   | "wait"    { KEYWORD_WAIT }
   | "cycle"   { KEYWORD_CYCLE }
   | "reg"     { KEYWORD_REG }

@@ -2,5 +2,6 @@
 /obj_dir/
 /*.sv
 /*_driver.cpp
+/*.out
 /outdated/*_driver.cpp
 /outdated/*.sv

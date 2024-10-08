@@ -39,6 +39,7 @@
 %token KEYWORD_IN           (* in *)
 %token KEYWORD_LEFT         (* left *)
 %token KEYWORD_RIGHT        (* right *)
+%token KEYWORD_PUT          (* put *)
 %token KEYWORD_LOGIC        (* logic *)
 %token KEYWORD_FOREIGN      (* foreign *)
 %token KEYWORD_IF           (* if *)
@@ -55,6 +56,7 @@
 %token KEYWORD_SET          (* set *)
 %token KEYWORD_MATCH        (* match *)
 %token KEYWORD_WITH         (* with *)
+%token KEYWORD_SYNC         (* sync *)
 %token KEYWORD_DYN          (* dyn *)
 %token KEYWORD_WAIT         (* wait *)
 %token KEYWORD_CYCLE        (* cycle *)
@@ -69,6 +71,9 @@
 %token <string>DEC_LITERAL  (* decimal literal *)
 %token <string>HEX_LITERAL  (* hexadecimal literal *)
 %token <string>STR_LITERAL
+%token KEYWORD_SHARED       (* shared *)
+%token KEYWORD_ASSIGNED     (* assigned *)
+%token KEYWORD_BY           (* by *)
 %right LEFT_ABRACK RIGHT_ABRACK LEFT_ABRACK_EQ RIGHT_ABRACK_EQ
 %right EXCL_EQ DOUBLE_EQ
 %right KEYWORD_IN
@@ -114,6 +119,7 @@ proc_def_body:
       spawns = [];
       regs = [];
       loops = [];
+      shared_vars = [];
     }
   }
 | KEYWORD_LOOP; LEFT_BRACE thread_prog = expr; RIGHT_BRACE; body=proc_def_body //For thread definitions
@@ -131,6 +137,10 @@ proc_def_body:
 | KEYWORD_SPAWN; spawn_def = spawn; body = proc_def_body // For instantiating processes
   {
     let open Anvil.Lang in {body with spawns = spawn_def::(body.spawns)}
+  }
+| shared_var = shared_var_def; body = proc_def_body
+  {
+    let open Anvil.Lang in {body with shared_vars = shared_var :: body.shared_vars}
   }
 ;
 
@@ -252,6 +262,12 @@ expr:
   { Anvil.Lang.Tuple ([]) }
 | LEFT_PAREN; e = expr; RIGHT_PAREN
   { e }
+| KEYWORD_SYNC; ident = IDENT; e = expr
+  { Anvil.Lang.Sync (ident, e) }
+| KEYWORD_PUT; ident = IDENT; EQUAL; v = expr
+  { Anvil.Lang.SharedAssign (ident, v, None) }
+| KEYWORD_PUT; ident = IDENT; EQUAL; v = expr; SEMICOLON; body = expr
+  { Anvil.Lang.SharedAssign (ident, v, Some body) }
 | KEYWORD_LET; binding = IDENT; EQUAL; v = expr; KEYWORD_IN; body = expr
   { Anvil.Lang.LetIn ([binding], v, body) }
 | KEYWORD_LET; LEFT_PAREN; bindings = separated_list(COMMA, IDENT); RIGHT_PAREN; EQUAL; v = expr; KEYWORD_IN; body = expr
@@ -299,6 +315,7 @@ expr:
   { Anvil.Lang.Debug (Anvil.Lang.DebugPrint (s, v)) }
 | KEYWORD_DFINISH
   { Anvil.Lang.Debug Anvil.Lang.DebugFinish }
+
 // | KEYWORD_LOOP; body = expr
 //   { Anvil.Lang.Loop body }  
 // ;
@@ -547,5 +564,16 @@ message_specifier:
       endpoint = endpoint;
       msg = msg_type;
     } : Anvil.Lang.message_specifier
+  }
+;
+
+shared_var_def:
+  KEYWORD_SHARED; LEFT_PAREN; lifetime = lifetime_spec; RIGHT_PAREN; ident = IDENT; KEYWORD_ASSIGNED; KEYWORD_BY; thread_id = INT
+  {
+    {
+      ident = ident;
+      assigning_thread = thread_id;
+      shared_lifetime = lifetime;
+    } : Anvil.Lang.shared_var_def
   }
 ;
