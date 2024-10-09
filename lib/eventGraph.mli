@@ -150,6 +150,7 @@ type event_graph_collection = {
   event_graphs : proc_graph list;
   typedefs : TypedefMap.t;
   channel_classes : Lang.channel_class_def list;
+  external_event_graphs : proc_graph list;
 }
 
 (** Construct a collection of event graphs from a compilation unit.

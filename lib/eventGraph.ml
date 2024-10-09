@@ -1050,6 +1050,7 @@ type event_graph_collection = {
   event_graphs : proc_graph list;
   typedefs : TypedefMap.t;
   channel_classes : channel_class_def list;
+  external_event_graphs : proc_graph list;
 }
 
 let build (config : Config.compile_config) (cunit : compilation_unit) =
@@ -1060,6 +1061,7 @@ let build (config : Config.compile_config) (cunit : compilation_unit) =
     event_graphs = graphs;
     typedefs;
     channel_classes = cunit.channel_classes;
+    external_event_graphs = []
   }
 
 

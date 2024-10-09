@@ -5,3 +5,4 @@
 /*.out
 /outdated/*_driver.cpp
 /outdated/*.sv
+!/*.anvil.sv

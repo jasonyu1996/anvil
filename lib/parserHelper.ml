@@ -1,4 +1,4 @@
-open Anvil.Lang
+open Lang
 
 exception LiteralConversionError of string
 

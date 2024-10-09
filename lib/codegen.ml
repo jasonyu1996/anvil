@@ -78,7 +78,7 @@ let codegen_spawns printer (graphs : event_graph_collection) (g : event_graph) =
     CodegenPrinter.print_line printer ".clk_i,";
     CodegenPrinter.print_line printer ".rst_ni";
     (* connect the wires *)
-    let proc_other = CodegenHelpers.lookup_proc graphs.event_graphs spawn.proc |> Option.get in
+    let proc_other = CodegenHelpers.lookup_proc graphs.external_event_graphs spawn.proc |> Option.get in
     let proc_other_details = List.hd proc_other.threads; in
     let connect_endpoints = fun (arg_endpoint : endpoint_def) (param_ident : identifier) ->
       let endpoint_local = MessageCollection.lookup_endpoint g.messages param_ident |> Option.get in
@@ -215,16 +215,28 @@ let codegen_proc printer (graphs : EventGraph.event_graph_collection) (g : proc_
 
   CodegenPrinter.print_line printer ~lvl_delta_pre:(-1) "endmodule"
 
-let codegen_preamble printer =
+let generate_preamble out =
   [
     "/* verilator lint_off UNOPTFLAT */";
     "/* verilator lint_off WIDTHTRUNC */"
-  ] |> CodegenPrinter.print_lines printer
+  ] |> List.iter (Printf.fprintf out "%s\n")
+
+let generate_extern_import out file_name =
+  In_channel.with_open_text file_name
+    (fun in_channel ->
+      let eof = ref false in
+      while not !eof do
+        match In_channel.input_line in_channel with
+        | Some line ->
+          Out_channel.output_string out line;
+          Out_channel.output_char out '\n'
+        | None -> eof := true
+      done
+    )
 
 let generate (out : out_channel)
              (_config : Config.compile_config)
              (graphs : EventGraph.event_graph_collection) : unit =
   let printer = CodegenPrinter.create out 2 in
-  codegen_preamble printer;
   List.iter (codegen_proc printer graphs) graphs.event_graphs
 

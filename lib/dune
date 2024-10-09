@@ -1,3 +1,8 @@
+(menhir
+ (modules parser))
+
+(ocamllex lexer)
+
 (library
  (name anvil)
  (public_name anvil))

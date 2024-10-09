@@ -425,15 +425,24 @@ type proc_def = {
   body: proc_def_body; (** process body *)
 }
 
+(** An import directive for importing code from other files. *)
+type import_directive = {
+  file_name : string;
+  is_extern : bool; (** is this import external?
+      Currently an external import means importing SystemVerilog code *)
+}
+
 (** A compilation unit, corresponding to a source file. *)
 type compilation_unit = {
   channel_classes: channel_class_def list;
   type_defs: type_def list;
   procs: proc_def list;
+  imports : import_directive list;
+  _extern_procs : proc_def list; (** processes that are external, usable but not built *)
 }
 
 let cunit_empty : compilation_unit =
-  { channel_classes = []; type_defs = []; procs = [] }
+  { channel_classes = []; type_defs = []; procs = []; imports = []; _extern_procs = [] }
 
 let cunit_add_channel_class
   (c : compilation_unit) (cc : channel_class_def) : compilation_unit =
@@ -445,6 +454,9 @@ let cunit_add_type_def (c : compilation_unit) (ty : type_def) : compilation_unit
 let cunit_add_proc
   (c : compilation_unit) (p : proc_def) : compilation_unit =
   {c with procs = p::c.procs}
+
+let cunit_add_import (c : compilation_unit) (im : import_directive) : compilation_unit =
+  {c with imports = im::c.imports}
 
 (** Reverse a message direction. *)
 let reverse (msg_dir : message_direction) : message_direction =
