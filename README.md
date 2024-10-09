@@ -9,8 +9,10 @@ Software simulation tested with Verilator 5.024.
 ### Usage
 
 ```
-dune exec anvil -- [-verbose] <anvil-source-file>
+dune exec anvil -- [-verbose] [-disable-lt-checks] <anvil-source-file>
 ```
+
+NOTE: To disable lifetime-related checks, pass `-disable-lt-checks`.
 
 ### Examples
 
