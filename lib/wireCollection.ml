@@ -22,7 +22,7 @@ module Wire = struct
     | RegRead of Lang.identifier
     | MessagePort of Lang.message_specifier * int (* index of the port *)
     | Concat of t list
-    | Slice of t * int * int
+    | Slice of t * int * int (** left closed right open *)
 
   let new_literal id lit =
     {
@@ -31,6 +31,7 @@ module Wire = struct
       dtype = (Lang.dtype_of_literal lit :> Lang.data_type);
     }
 
+  (* TODO: error handling *)
   let new_binary id typedefs binop w1 w2 =
     let sz1 = TypedefMap.data_type_size typedefs (w1.dtype :> Lang.data_type)
     and sz2 = TypedefMap.data_type_size typedefs (w2.dtype :> Lang.data_type) in

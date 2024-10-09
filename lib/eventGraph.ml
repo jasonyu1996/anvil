@@ -38,10 +38,15 @@ and shared_var_info = {
   value : global_timed_data;
   mutable assigned_at : event option;
 }
+and lvalue_info = {
+  reg_name : string;
+  range : int * int; (* does not support variable ranges for now; left closed right open *)
+  dtype : data_type;
+}
 and action =
   | DebugPrint of string * timed_data list
   | DebugFinish
-  | RegAssign of string * timed_data
+  | RegAssign of lvalue_info * timed_data
   | PutShared of string * shared_var_info * timed_data
 and sustained_action_type =
   | Send of message_specifier * timed_data
@@ -328,12 +333,13 @@ module Typing = struct
       (fun (ev : event) ->
         List.iter
           (fun (a : action ast_node) ->
+            (* TODO: linearity checks on sub-register granularity *)
             match a.d with
-            | RegAssign (reg_ident, _) -> (
-              reg_assign_cnt := Utils.StringMap.update reg_ident opt_incr !reg_assign_cnt;
-              let v = Utils.StringMap.find reg_ident !reg_assign_cnt in
-              ev.current_regs <- Utils.StringMap.update reg_ident (opt_update_forward v) ev.current_regs;
-              ev.current_regs <- Utils.StringMap.update reg_ident (opt_update_backward v) ev.current_regs
+            | RegAssign (lval_info, _) -> (
+              reg_assign_cnt := Utils.StringMap.update lval_info.reg_name opt_incr !reg_assign_cnt;
+              let v = Utils.StringMap.find lval_info.reg_name !reg_assign_cnt in
+              ev.current_regs <- Utils.StringMap.update lval_info.reg_name (opt_update_forward v) ev.current_regs;
+              ev.current_regs <- Utils.StringMap.update lval_info.reg_name (opt_update_backward v) ev.current_regs
             )
             | _ -> ()
           )
@@ -410,8 +416,8 @@ module Typing = struct
       (fun (ev : event) ->
         List.iter (fun (a : action ast_node) ->
           match a.d with
-          | RegAssign (reg_ident, _) -> (
-            if in_control_set_reg ev reg_ident |> not then
+          | RegAssign (lval_info, _) -> (
+            if in_control_set_reg ev lval_info.reg_name |> not then
               raise (EventGraphError ("Non-linearizable register assignment!", a.span))
             else ()
           )
@@ -646,9 +652,9 @@ module Typing = struct
     visit_actions
       (fun ev a ->
         match a.d with
-        | RegAssign (reg_ident, td) ->
+        | RegAssign (lval_info, td) ->
           let lt = lifetime_immediate ev in
-          if not_borrowed reg_borrows reg_ident lt |> not then
+          if not_borrowed reg_borrows lval_info.reg_name lt |> not then
             raise (EventGraphError ("Attempted assignment to a borrowed register!", a.span))
           else ();
           if lifetime_in_range lt td.lt |> not then
@@ -705,6 +711,28 @@ end
 type build_context = Typing.build_context
 module BuildContext = Typing.BuildContext
 
+let rec lvalue_info_of ci graph span lval =
+  match lval with
+  | Reg ident ->
+    let r = List.find_opt (fun (r : reg_def) -> r.name = ident) graph.regs
+      |> unwrap_or_err ("Undefined register " ^ ident) span in
+    let sz = TypedefMap.data_type_size ci.typedefs r.dtype in
+    {reg_name = ident; range = (0, sz); dtype = r.dtype}
+  | Indexed (lval', idx) ->
+    let lval_info' = lvalue_info_of ci graph span lval' in
+    let (le', ri') = lval_info'.range in
+    let (le, ri, dtype) = TypedefMap.data_type_index ci.typedefs lval_info'.dtype idx
+      |> unwrap_or_err "Invalid lvalue indexing" span in
+    assert (le' + ri <= ri');
+    {lval_info' with range = (le' + le, le' + ri); dtype}
+  | Indirected (lval', fieldname) ->
+    let lval_info' = lvalue_info_of ci graph span lval' in
+    let (le', ri') = lval_info'.range in
+    let (le, ri, dtype) = TypedefMap.data_type_indirect ci.typedefs lval_info'.dtype fieldname
+      |> unwrap_or_err ("Invalid lvalue indirection through field " ^ fieldname) span in
+    assert (le' + ri <= ri');
+    {lval_info' with range = (le' + le, le' + ri); dtype}
+
 let rec visit_expr (graph : event_graph) (ci : cunit_info)
                    (ctx : build_context) (e : expr_node) : timed_data =
   match e.d with
@@ -724,14 +752,8 @@ let rec visit_expr (graph : event_graph) (ci : cunit_info)
         |> Typing.sync_data graph ctx.current
   | Assign (lval, e') ->
     let td = visit_expr graph ci ctx e' in
-    let reg_ident = (
-      let open Lang in
-      match lval with
-      | Reg ident ->
-        ident
-      | _ -> raise (EventGraphError ("Lval with indexing/indirection unimplemented!", e.span))
-    ) in
-    ctx.current.actions <- (RegAssign (reg_ident, td) |> tag_with_span e.span)::ctx.current.actions;
+    let lvi = lvalue_info_of ci graph e.span lval in
+    ctx.current.actions <- (RegAssign (lvi, td) |> tag_with_span e.span)::ctx.current.actions;
     Typing.cycles_data graph 1 ctx.current
   | Binop (binop, e1, e2) ->
     let td1 = visit_expr graph ci ctx e1
@@ -794,7 +816,8 @@ let rec visit_expr (graph : event_graph) (ci : cunit_info)
     graph.wires <- wires';
     List.map snd tds |> Typing.merged_data graph (Some w) ctx.current
   | Read reg_ident ->
-    let r = List.find (fun (r : Lang.reg_def) -> r.name = reg_ident) graph.regs in
+    let r = List.find_opt (fun (r : Lang.reg_def) -> r.name = reg_ident) graph.regs
+      |> unwrap_or_err ("Undefined register " ^ reg_ident) e.span in
     let (wires', w) = WireCollection.add_reg_read ci.typedefs r graph.wires in
     graph.wires <- wires';
     {w = Some w; lt = Typing.lifetime_const ctx.current; reg_borrows = [(reg_ident, ctx.current)]}
@@ -914,7 +937,8 @@ let rec visit_expr (graph : event_graph) (ci : cunit_info)
       | _ -> raise (EventGraphError ("Invalid variant type name!", e.span))
     )
   | SharedAssign (id, value_expr) ->
-    let shared_info = Hashtbl.find ctx.shared_vars_info id in
+    let shared_info = Hashtbl.find_opt ctx.shared_vars_info id
+      |> unwrap_or_err ("Undefined identifier " ^ id) e.span in
     if graph.thread_id = shared_info.assigning_thread then
       let value_td = visit_expr graph ci ctx value_expr in
       if not ctx.lt_check_phase then (

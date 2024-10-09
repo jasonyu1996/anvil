@@ -1,0 +1,11 @@
+type req = {
+    a : logic[4];
+    b : logic[3]
+}
+
+proc subreg() =
+    reg r : req
+    loop {
+        dprint "a = %d, b = %d\n" (!r.a, !r.b);
+        set r.b[1:2] := !r.b[1:2] + 2'd1
+    }

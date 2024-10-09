@@ -51,11 +51,18 @@ and shared_var_info = {
   mutable assigned_at : event option;
 }
 
+(** Lvalue information after resolving indirection and indexing. *)
+and lvalue_info = {
+  reg_name : string;
+  range : int * int; (** range in the register, left-closed right-open *)
+  dtype : Lang.data_type;
+}
+
 (** An action that is performed instantly when an event is reached. *)
 and action =
   | DebugPrint of string * timed_data list (** debug print ([dprint]) *)
   | DebugFinish (** [dfinish] *)
-  | RegAssign of string * timed_data (** register assignment (technically this is not performed instantly) *)
+  | RegAssign of lvalue_info * timed_data (** register assignment (technically this is not performed instantly) *)
   | PutShared of string * shared_var_info * timed_data
 
 (** Type of an action that may take multiple cycles. Those
