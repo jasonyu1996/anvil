@@ -54,7 +54,7 @@ and shared_var_info = {
 (** Lvalue information after resolving indirection and indexing. *)
 and lvalue_info = {
   reg_name : string;
-  range : int * int; (** range in the register, left-closed right-open *)
+  range : timed_data MaybeConst.maybe_int_const * int; (** range in the register, second component is size *)
   dtype : Lang.data_type;
 }
 

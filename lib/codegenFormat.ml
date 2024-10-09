@@ -35,3 +35,9 @@ let format_regname_current (regname : identifier) =
   Printf.sprintf "%s_q" regname
 let format_regname_next (regname : identifier) =
   Printf.sprintf "%s_n" regname
+
+let format_wire_maybe_const (v : WireCollection.wire MaybeConst.maybe_int_const) =
+  let open MaybeConst in
+  match v with
+  | Const n -> Printf.sprintf "%d" n
+  | NonConst w -> format_wirename w.id

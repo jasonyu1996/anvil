@@ -9,6 +9,7 @@ The [add_*] functions create new wires and add them to the collection.
 module Wire = struct
   type borrow_source = string
 
+  (** A wire. *)
   type t = {
     id: int;
     source: wire_source;
@@ -22,7 +23,7 @@ module Wire = struct
     | RegRead of Lang.identifier
     | MessagePort of Lang.message_specifier * int (* index of the port *)
     | Concat of t list
-    | Slice of t * int * int (** left closed right open *)
+    | Slice of t * t MaybeConst.maybe_int_const * int (** third component is size *)
 
   let new_literal id lit =
     {
@@ -36,7 +37,7 @@ module Wire = struct
     let sz1 = TypedefMap.data_type_size typedefs (w1.dtype :> Lang.data_type)
     and sz2 = TypedefMap.data_type_size typedefs (w2.dtype :> Lang.data_type) in
     let sz = let open Lang in match binop with
-    | Add | Sub | Xor | And | Or ->
+    | Add | Sub | Xor | And | Or | Mul ->
       (* TODO: performance improvement *)
       if sz1 = sz2 then
         Some sz1
@@ -87,10 +88,10 @@ module Wire = struct
       dtype = t.dtype;
     }
 
-  let new_slice id dtype w base_i end_i =
+  let new_slice id dtype w base_i len =
     {
       id;
-      source = Slice (w, base_i, end_i);
+      source = Slice (w, base_i, len);
       dtype;
     }
 end
@@ -140,7 +141,7 @@ let add_msg_port (typedefs : TypedefMap.t)
   let w = Wire.new_msg_port id typedefs msg_spec idx msg_def in
   (w::wc, w)
 
-let add_slice (dtype : Lang.data_type) (w : wire) (base_i : int) (end_i : int) (wc : t) : t * wire =
+let add_slice (dtype : Lang.data_type) (w : wire)  base_i len (wc : t) : t * wire =
   let id = List.length wc in
-  let w = Wire.new_slice id dtype w base_i end_i in
+  let w = Wire.new_slice id dtype w base_i len in
   (w::wc, w)

@@ -272,7 +272,7 @@ let dtype_of_literal (lit : literal) : resolved_data_type =
   `Array (`Logic, n)
 
 type binop = Add | Sub | Xor | And | Or | Lt | Gt | Lte | Gte |
-             Shl | Shr | Eq | Neq
+             Shl | Shr | Eq | Neq | Mul
 type unop  = Neg | Not | AndAll | OrAll
 
 (* TODO: these are SV-specific; move elsewhere *)
@@ -291,6 +291,7 @@ let string_of_binop (binop: binop) : string =
   | Shr -> ">>"
   | Eq -> "=="
   | Neq -> "!="
+  | Mul -> "*"
 
 let string_of_unop (unop: unop) : string =
   match unop with
@@ -344,13 +345,13 @@ and expr_node = expr ast_node
 (** A "location" that can be assigned to. *)
 and lvalue =
   | Reg of identifier (** a register *)
-  | Indexed of lvalue * index (** lvalue[index]. Unimplemented *)
-  | Indirected of lvalue * identifier (** lvalue.field. Unimplemented *)
+  | Indexed of lvalue * index (** lvalue[index] *)
+  | Indirected of lvalue * identifier (** lvalue.field *)
 
 (** Indexing, either a single point or a range. *)
 and index =
   | Single of expr_node
-  | Range of expr_node * expr_node
+  | Range of expr_node * expr_node (** a range, the second component is the size which must be literal *)
 
 (** Pattern in an arm of a {{!Match}match} expression. *)
 and match_pattern = {

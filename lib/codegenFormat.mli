@@ -11,3 +11,4 @@ val format_binop : Lang.binop -> string
 val format_unop : Lang.unop -> string
 val format_regname_current : string -> string
 val format_regname_next : string -> string
+val format_wire_maybe_const : WireCollection.wire MaybeConst.maybe_int_const -> string

@@ -143,8 +143,10 @@ let codegen_wire_assignment printer (g : event_graph) (w : WireCollection.wire) 
     | MessagePort (msg, idx) ->
       let msg_endpoint = EventGraph.canonicalize_endpoint_name msg.endpoint g in
       Format.format_msg_data_signal_name msg_endpoint msg.msg idx
-    | Slice (w', base_i, end_i) ->
-      Printf.sprintf "%s[%d:%d]" (Format.format_wirename w'.id) (end_i - 1) base_i
+    | Slice (w', base_i, len) ->
+      Printf.sprintf "%s[%s +: %d]" (Format.format_wirename w'.id)
+        (Format.format_wire_maybe_const base_i)
+        len
   in
   Printf.sprintf "assign %s = %s;" (Format.format_wirename w.id) expr |>
     CodegenPrinter.print_line printer
@@ -214,7 +216,10 @@ let codegen_proc printer (graphs : EventGraph.event_graph_collection) (g : proc_
   CodegenPrinter.print_line printer ~lvl_delta_pre:(-1) "endmodule"
 
 let codegen_preamble printer =
-  CodegenPrinter.print_line printer "/* verilator lint_off UNOPTFLAT */"
+  [
+    "/* verilator lint_off UNOPTFLAT */";
+    "/* verilator lint_off WIDTHTRUNC */"
+  ] |> CodegenPrinter.print_lines printer
 
 let generate (out : out_channel)
              (_config : Config.compile_config)

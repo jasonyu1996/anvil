@@ -3,9 +3,9 @@ type req = {
     b : logic[3]
 }
 
-proc subreg() =
+proc subreg_var() =
     reg r : req
     loop {
         dprint "a = %d, b = %d\n" (!r.a, !r.b);
-        set r.b[1+:2] := !r.b[1+:2] + 2'd1
+        set r.b[!r.a+:2] := !r.b[1+:2] + 2'd1
     }

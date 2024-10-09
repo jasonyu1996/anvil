@@ -54,28 +54,36 @@ let data_type_indirect (type_defs : t) (dtype : data_type) (fieldname : identifi
       in
       List.iter lookup flist;
       let* found_d = !found in
-      Some (!offset, !offset + (data_type_size type_defs found_d), found_d)
+      Some (!offset, data_type_size type_defs found_d, found_d)
   | _ -> None
 
-let data_type_index (type_defs : t) (dtype : data_type) (ind : index) : (int * int * data_type) option =
+let data_type_index (type_defs : t) (expr_eval : expr_node -> 'a)
+    (mul : int -> 'a -> 'a)
+    (dtype : data_type) (ind : index) : ('a MaybeConst.maybe_int_const * int * data_type) option =
   let ( let* ) = Option.bind in
   let* dtype' = data_type_name_resolve type_defs dtype in
+  let get_offset e =
+    let open MaybeConst in
+    match e.d with
+    | Literal lit -> Const (literal_eval lit)
+    | _ -> NonConst (expr_eval e)
+  in
   match dtype' with
-  | `Array (base_type, n) ->
+  | `Array (base_type, _n) ->
       let base_size = data_type_size type_defs base_type in
       begin
-        (* TODO: we only support literals as indices for now *)
         match ind with
-        | Single {d = Literal lit; _} ->
-            let lit_val = literal_eval lit in
-            if lit_val < 0 || lit_val >= n then None else
-              Some (base_size * lit_val, base_size * (lit_val + 1), base_type)
-        | Range ({d = Literal lit_le; _}, {d = Literal lit_ri; _}) ->
-            let le = literal_eval lit_le
-            and ri = literal_eval lit_ri in
-            if le < 0 || ri >= n || le > ri then None else
-              Some (base_size * le, base_size * (ri + 1), `Array (base_type, ri - le + 1))
-        | _ -> None
+        | Single e ->
+            let idx = get_offset e in
+            let le_off = MaybeConst.mul_const base_size mul idx in
+            Some (le_off, base_size, base_type)
+        | Range (e, {d = Literal lit_sz; _}) -> (* size part of the range must be constant *)
+            let idx = get_offset e in
+            let le_off = MaybeConst.mul_const base_size mul idx in
+            let sz = literal_eval lit_sz in
+            (* TODO: bounds check for the const case *)
+            Some (le_off, base_size * sz, `Array (base_type, sz))
+        | Range _ -> None
       end
   | _ -> None
 
@@ -95,7 +103,7 @@ let type_check_binop (type_defs : t) binop dtype1 dtype2 =
     None
   else
   match binop with
-  | Add | Sub | Xor | And | Or ->
+  | Add | Sub | Xor | And | Or | Mul ->
     (* TODO: performance improvement *)
     if dtype1_resolved = dtype2_resolved then
       Some dtype1_resolved

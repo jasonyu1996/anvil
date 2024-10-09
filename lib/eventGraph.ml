@@ -40,7 +40,8 @@ and shared_var_info = {
 }
 and lvalue_info = {
   reg_name : string;
-  range : int * int; (* does not support variable ranges for now; left closed right open *)
+  range : timed_data MaybeConst.maybe_int_const * int;
+  (* left closed right open *)
   dtype : data_type;
 }
 and action =
@@ -711,30 +712,56 @@ end
 type build_context = Typing.build_context
 module BuildContext = Typing.BuildContext
 
-let rec lvalue_info_of ci graph span lval =
+
+let binop_td_const graph ci _ctx span op n td =
+  let w = unwrap_or_err "Invalid value" span td.w in
+  let sz = TypedefMap.data_type_size ci.typedefs w.dtype in
+  let (wires', wconst) = WireCollection.add_literal (WithLength (sz, n)) graph.wires in
+  let (wires', wres) = WireCollection.add_binary ci.typedefs op w wconst wires' in
+  graph.wires <- wires';
+  {td with w = Some wres}
+
+let binop_td_td graph ci ctx span op td1 td2 =
+  let w1 = unwrap_or_err "Invalid value" span td1.w in
+  let w2 = unwrap_or_err "Invalid value" span td2.w in
+  let (wires', wres) = WireCollection.add_binary ci.typedefs op w1 w2 graph.wires in
+  graph.wires <- wires';
+  let open Typing in
+  Typing.merged_data graph (Some wres) ctx.current [td1; td2]
+
+let rec lvalue_info_of graph ci ctx span lval =
+  let binop_td_const = binop_td_const graph ci ctx span
+  and binop_td_td = binop_td_td graph ci ctx span in
   match lval with
   | Reg ident ->
     let r = List.find_opt (fun (r : reg_def) -> r.name = ident) graph.regs
       |> unwrap_or_err ("Undefined register " ^ ident) span in
     let sz = TypedefMap.data_type_size ci.typedefs r.dtype in
-    {reg_name = ident; range = (0, sz); dtype = r.dtype}
+    {reg_name = ident; range = (Const 0, sz); dtype = r.dtype}
   | Indexed (lval', idx) ->
-    let lval_info' = lvalue_info_of ci graph span lval' in
-    let (le', ri') = lval_info'.range in
-    let (le, ri, dtype) = TypedefMap.data_type_index ci.typedefs lval_info'.dtype idx
+    let lval_info' = lvalue_info_of graph ci ctx span lval' in
+    let (le', _len') = lval_info'.range in
+    let (le, len, dtype) =
+      TypedefMap.data_type_index ci.typedefs
+        (visit_expr graph ci ctx)
+        (binop_td_const Mul)
+        lval_info'.dtype idx
       |> unwrap_or_err "Invalid lvalue indexing" span in
-    assert (le' + ri <= ri');
-    {lval_info' with range = (le' + le, le' + ri); dtype}
+    let le_n = MaybeConst.add (binop_td_const Add) (binop_td_td Add) le' le
+    in
+    {lval_info' with range = (le_n, len); dtype}
   | Indirected (lval', fieldname) ->
-    let lval_info' = lvalue_info_of ci graph span lval' in
-    let (le', ri') = lval_info'.range in
-    let (le, ri, dtype) = TypedefMap.data_type_indirect ci.typedefs lval_info'.dtype fieldname
+    let lval_info' = lvalue_info_of graph ci ctx span lval' in
+    let (le', _len') = lval_info'.range in
+    let (le, len, dtype) = TypedefMap.data_type_indirect ci.typedefs lval_info'.dtype fieldname
       |> unwrap_or_err ("Invalid lvalue indirection through field " ^ fieldname) span in
-    assert (le' + ri <= ri');
-    {lval_info' with range = (le' + le, le' + ri); dtype}
-
-let rec visit_expr (graph : event_graph) (ci : cunit_info)
+    let le_n = MaybeConst.add_const le (binop_td_const Add) le'
+    in
+    {lval_info' with range = (le_n, len); dtype}
+and visit_expr (graph : event_graph) (ci : cunit_info)
                    (ctx : build_context) (e : expr_node) : timed_data =
+  let binop_td_const = binop_td_const graph ci ctx
+  and _binop_td_td = binop_td_td graph ci ctx in
   match e.d with
   | Literal lit ->
     let (wires', w) = WireCollection.add_literal lit graph.wires in
@@ -752,7 +779,7 @@ let rec visit_expr (graph : event_graph) (ci : cunit_info)
         |> Typing.sync_data graph ctx.current
   | Assign (lval, e') ->
     let td = visit_expr graph ci ctx e' in
-    let lvi = lvalue_info_of ci graph e.span lval in
+    let lvi = lvalue_info_of graph ci ctx e.span lval in
     ctx.current.actions <- (RegAssign (lvi, td) |> tag_with_span e.span)::ctx.current.actions;
     Typing.cycles_data graph 1 ctx.current
   | Binop (binop, e1, e2) ->
@@ -856,9 +883,9 @@ let rec visit_expr (graph : event_graph) (ci : cunit_info)
   | Indirect (e', fieldname) ->
     let td = visit_expr graph ci ctx e' in
     let w = unwrap_or_err "Invalid value in indirection" e'.span td.w in
-    let (offset_le, offset_ri, new_dtype) = TypedefMap.data_type_indirect ci.typedefs w.dtype fieldname
+    let (offset_le, len, new_dtype) = TypedefMap.data_type_indirect ci.typedefs w.dtype fieldname
       |> unwrap_or_err "Invalid indirection" e.span in
-    let (wires', new_w) = WireCollection.add_slice new_dtype w offset_le offset_ri graph.wires in
+    let (wires', new_w) = WireCollection.add_slice new_dtype w (Const offset_le) len graph.wires in
     graph.wires <- wires';
     {
       td with
@@ -867,9 +894,15 @@ let rec visit_expr (graph : event_graph) (ci : cunit_info)
   | Index (e', ind) ->
     let td = visit_expr graph ci ctx e' in
     let w = unwrap_or_err "Invalid value in indexing" e'.span td.w in
-    let (offset_le, offset_ri, new_dtype) = TypedefMap.data_type_index ci.typedefs w.dtype ind
+    let (offset_le, len, new_dtype) =
+      TypedefMap.data_type_index ci.typedefs
+        (visit_expr graph ci ctx)
+        (binop_td_const e.span Mul)
+        w.dtype ind
       |> unwrap_or_err "Invalid indexing" e.span in
-    let (wires', new_w) = WireCollection.add_slice new_dtype w offset_le offset_ri graph.wires in
+    let wire_of td = unwrap_or_err "Invalid indexing" e.span td.w in
+    let offset_le_w = MaybeConst.map wire_of offset_le in
+    let (wires', new_w) = WireCollection.add_slice new_dtype w offset_le_w len graph.wires in
     graph.wires <- wires';
     {
       td with

@@ -406,8 +406,8 @@ lvalue:
 index:
 | i = node(expr)
   { Anvil.Lang.Single i }
-| le = node(expr); COLON; ri = node(expr)
-  { Anvil.Lang.Range (le, ri) }
+| le = node(expr); PLUS; COLON; sz = node(expr)
+  { Anvil.Lang.Range (le, sz) }
 ;
 
 match_arm:

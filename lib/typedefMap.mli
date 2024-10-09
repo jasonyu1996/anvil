@@ -19,13 +19,17 @@ val data_type_size : t -> Lang.data_type -> int
 [l] and [r] are the boundaries of the offset of the field within the data type,
 and [dtype] is the data type of the field.*)
 val data_type_indirect :
-  t -> Lang.data_type -> string -> (int * int * Lang.data_type) option
+  t ->
+  Lang.data_type -> string -> (int * int * Lang.data_type) option
 
 (** Resolve the indexing of a data type. If valid, return [Some (l, r, dtype)],
 the meaning of which is the same as in {!data_type_indirect}.
 *)
 val data_type_index :
-  t -> Lang.data_type -> Lang.index -> (int * int * Lang.data_type) option
+  t ->
+  (Lang.expr_node -> 'a) ->
+  (int -> 'a -> 'a) ->
+  Lang.data_type -> Lang.index -> ('a MaybeConst.maybe_int_const * int * Lang.data_type) option
 
 (** Look up whether a data type is integral (logic or logic arrays). *)
 val type_is_integral : t -> Lang.data_type -> bool
