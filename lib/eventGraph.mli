@@ -146,7 +146,9 @@ type event_graph_collection = {
 }
 
 (** Construct a collection of event graphs from a compilation unit.
-This also performs lifetime checking and throws {!LifetimeCheckError} upon failure.
+If lifetime checks are not disabled in the configuration,
+this also performs lifetime checking and throws {!LifetimeCheckError}
+and {!EventGraphError} upon failure.
 *)
 val build : Config.compile_config -> Lang.compilation_unit -> event_graph_collection
 

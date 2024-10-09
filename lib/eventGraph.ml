@@ -957,11 +957,13 @@ let build_proc (config : Config.compile_config) (ci : cunit_info) (proc : proc_d
         last_event_id = 0;
       } in
       (* Bruteforce treatment: just run twice *)
-      let tmp_graph = {graph with last_event_id = 0} in
-      let _ = visit_expr tmp_graph ci
-        (BuildContext.create_empty tmp_graph shared_vars_info true)
-        (dummy_ast_node_of_data (Wait (e, e))) in
-      Typing.lifetime_check config ci tmp_graph;
+      if not config.disable_lt_checks then (
+        let tmp_graph = {graph with last_event_id = 0} in
+        let _ = visit_expr tmp_graph ci
+          (BuildContext.create_empty tmp_graph shared_vars_info true)
+          (dummy_ast_node_of_data (Wait (e, e))) in
+        Typing.lifetime_check config ci tmp_graph
+      );
       (* discard after type checking *)
       let ctx = (BuildContext.create_empty graph shared_vars_info false) in
       let td = visit_expr graph ci ctx e in
