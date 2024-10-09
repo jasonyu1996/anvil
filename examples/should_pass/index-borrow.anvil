@@ -1,0 +1,15 @@
+chan ch = {
+    left req : (logic[2]@#2)
+}
+
+
+proc top(e : left ch) =
+    reg r : logic[8]
+    loop {
+        cycle 1 =>
+        let req = recv e::req in
+        req =>
+        cycle 1 =>
+        set r[req] := 1'b1 =>
+        dprint "Value = %d" (!r)
+    }

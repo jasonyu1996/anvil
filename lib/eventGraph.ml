@@ -624,9 +624,16 @@ module Typing = struct
     visit_actions
       (fun ev a ->
         match a.d with
-        | RegAssign (_, td) ->
+        | RegAssign (lval_info, td) ->
           (* `Cycles 0 rather than 1 because in the last cycle it is okay to update the register *)
-          td_to_live_until := (td, (ev, `Cycles 0))::!td_to_live_until
+          td_to_live_until := (td, (ev, `Cycles 0))::!td_to_live_until;
+          let (range_st, _) = lval_info.range in
+          (
+            match range_st with
+            | Const _ -> ()
+            | NonConst range_st_td ->
+              td_to_live_until := (range_st_td, (ev, `Cycles 0))::!td_to_live_until
+          )
         | DebugPrint (_, tds) ->
           let ns = List.map (fun td -> (td, (ev, `Cycles 0))) tds in
           td_to_live_until := ns @ !td_to_live_until
@@ -660,7 +667,14 @@ module Typing = struct
           else ();
           if lifetime_in_range lt td.lt |> not then
             raise (EventGraphError ("Value does not live long enough in reg assignment!", a.span))
-          else ()
+          else ();
+          (
+            match fst lval_info.range with
+            | Const _ -> ()
+            | NonConst range_st_td ->
+              if lifetime_in_range lt range_st_td.lt |> not then
+                raise (EventGraphError ("Lvalue index does not live long enough!", a.span))
+          )
         | DebugPrint (_, tds) ->
           List.iter (fun td ->
             if lifetime_in_range (lifetime_immediate ev) td.lt |> not then
@@ -904,10 +918,12 @@ and visit_expr (graph : event_graph) (ci : cunit_info)
     let offset_le_w = MaybeConst.map wire_of offset_le in
     let (wires', new_w) = WireCollection.add_slice new_dtype w offset_le_w len graph.wires in
     graph.wires <- wires';
-    {
-      td with
-      w = Some new_w
-    }
+    (
+      match offset_le with
+      | Const _ -> {td with w = Some new_w}
+      | NonConst td_offset ->
+          Typing.merged_data graph (Some new_w) ctx.current [td; td_offset]
+    )
   | Record (record_ty_name, field_exprs) ->
     (
       match TypedefMap.data_type_name_resolve ci.typedefs @@ `Named record_ty_name with
