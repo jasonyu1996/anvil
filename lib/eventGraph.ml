@@ -114,6 +114,11 @@ type proc_graph = {
   shared_vars_info : (identifier, shared_var_info) Hashtbl.t;
 }
 
+let unwrap_or_err err_msg err_span opt =
+  match opt with
+  | Some d -> d
+  | None -> raise (EventGraphError (err_msg, err_span))
+
 exception LifetimeCheckError of string
 module Typing = struct
   type context = timed_data Utils.string_map
@@ -709,16 +714,14 @@ let rec visit_expr (graph : event_graph) (ci : cunit_info)
     Typing.const_data graph (Some w) ctx.current
   | Sync ident ->
     (
-      match Hashtbl.find_opt ctx.shared_vars_info ident with
-        | Some shared_info -> Typing.sync_event_data graph ident shared_info.value ctx.current
-        | None -> raise (EventGraphError (("Undefined identifier: " ^ ident), e.span))
+      let shared_info = Hashtbl.find_opt ctx.shared_vars_info ident
+        |> unwrap_or_err ("Undefined identifier: " ^ ident) e.span in
+      Typing.sync_event_data graph ident shared_info.value ctx.current
     )
   | Identifier ident ->
-    (
-      match Typing.context_lookup ctx.typing_ctx ident with
-      | Some td -> Typing.sync_data graph ctx.current td
-      | None -> raise (EventGraphError (("Undefined identifier: " ^ ident), e.span))
-    )
+      Typing.context_lookup ctx.typing_ctx ident
+        |> unwrap_or_err ("Undefined identifier: " ^ ident) e.span
+        |> Typing.sync_data graph ctx.current
   | Assign (lval, e') ->
     let td = visit_expr graph ci ctx e' in
     let reg_ident = (
@@ -733,14 +736,14 @@ let rec visit_expr (graph : event_graph) (ci : cunit_info)
   | Binop (binop, e1, e2) ->
     let td1 = visit_expr graph ci ctx e1
     and td2 = visit_expr graph ci ctx e2 in
-    let w1 = Option.get td1.w
-    and w2 = Option.get td2.w in
+    let w1 = unwrap_or_err "Invalid value" e1.span td1.w
+    and w2 = unwrap_or_err "Invalid value" e2.span td2.w in
     let (wires', w) = WireCollection.add_binary ci.typedefs binop w1 w2 graph.wires in
     graph.wires <- wires';
     Typing.merged_data graph (Some w) ctx.current [td1; td2]
   | Unop (unop, e') ->
     let td = visit_expr graph ci ctx e' in
-    let w' = Option.get td.w in
+    let w' = unwrap_or_err "Invalid value" e'.span td.w in
     let (wires', w) = WireCollection.add_unary ci.typedefs unop w' graph.wires in
     graph.wires <- wires';
     Typing.derived_data (Some w) td
@@ -766,7 +769,7 @@ let rec visit_expr (graph : event_graph) (ci : cunit_info)
   | IfExpr (e1, e2, e3) ->
     let td1 = visit_expr graph ci ctx e1 in
     (* TODO: type checking *)
-    let w1 = Option.get td1.w in
+    let w1 = unwrap_or_err "Invalid condition" e1.span td1.w in
     let ctx' = BuildContext.wait graph ctx td1.lt.live in
     let ctx_true = BuildContext.branch graph ctx' td1 false in
     let td2 = visit_expr graph ci ctx_true e2 in
@@ -785,11 +788,11 @@ let rec visit_expr (graph : event_graph) (ci : cunit_info)
       | _ -> raise (EventGraphError ("Invalid if expression!", e.span))
     )
   | Concat es ->
-    let tds = List.map (visit_expr graph ci ctx) es in
-    let ws = List.map (fun (td : timed_data) -> Option.get td.w) tds in
+    let tds = List.map (fun e' -> (e', visit_expr graph ci ctx e')) es in
+    let ws = List.map (fun (e', td) -> unwrap_or_err "Invalid value in concat" e'.span td.w) tds in
     let (wires', w) = WireCollection.add_concat ci.typedefs ws graph.wires in
     graph.wires <- wires';
-    Typing.merged_data graph (Some w) ctx.current tds
+    List.map snd tds |> Typing.merged_data graph (Some w) ctx.current
   | Read reg_ident ->
     let r = List.find (fun (r : Lang.reg_def) -> r.name = reg_ident) graph.regs in
     let (wires', w) = WireCollection.add_reg_read ci.typedefs r graph.wires in
@@ -807,6 +810,9 @@ let rec visit_expr (graph : event_graph) (ci : cunit_info)
         {w = None; lt = Typing.lifetime_const ctx.current; reg_borrows = []}
     )
   | Send send_pack ->
+    (* just check that the endpoint and the message type is defined *)
+    let _ = MessageCollection.lookup_message graph.messages send_pack.send_msg_spec ci.channel_classes
+      |> unwrap_or_err "Invalid message specifier in send" e.span in
     let td = visit_expr graph ci ctx send_pack.send_data in
     let ntd = Typing.send_msg_data graph send_pack.send_msg_spec ctx.current in
     ctx.current.sustained_actions <-
@@ -816,7 +822,8 @@ let rec visit_expr (graph : event_graph) (ci : cunit_info)
       } |> tag_with_span e.span)::ctx.current.sustained_actions;
     ntd
   | Recv recv_pack ->
-    let msg = MessageCollection.lookup_message graph.messages recv_pack.recv_msg_spec ci.channel_classes |> Option.get in
+    let msg = MessageCollection.lookup_message graph.messages recv_pack.recv_msg_spec ci.channel_classes
+      |> unwrap_or_err "Invalid message specifier in receive" e.span in
     let (wires', w) = WireCollection.add_msg_port ci.typedefs recv_pack.recv_msg_spec 0 msg graph.wires in
     graph.wires <- wires';
     let ntd = Typing.recv_msg_data graph (Some w) recv_pack.recv_msg_spec msg ctx.current in
@@ -825,8 +832,9 @@ let rec visit_expr (graph : event_graph) (ci : cunit_info)
     ntd
   | Indirect (e', fieldname) ->
     let td = visit_expr graph ci ctx e' in
-    let w = Option.get td.w in
-    let (offset_le, offset_ri, new_dtype) = TypedefMap.data_type_indirect ci.typedefs w.dtype fieldname |> Option.get in
+    let w = unwrap_or_err "Invalid value in indirection" e'.span td.w in
+    let (offset_le, offset_ri, new_dtype) = TypedefMap.data_type_indirect ci.typedefs w.dtype fieldname
+      |> unwrap_or_err "Invalid indirection" e.span in
     let (wires', new_w) = WireCollection.add_slice new_dtype w offset_le offset_ri graph.wires in
     graph.wires <- wires';
     {
@@ -835,8 +843,9 @@ let rec visit_expr (graph : event_graph) (ci : cunit_info)
     }
   | Index (e', ind) ->
     let td = visit_expr graph ci ctx e' in
-    let w = Option.get td.w in
-    let (offset_le, offset_ri, new_dtype) = TypedefMap.data_type_index ci.typedefs w.dtype ind |> Option.get in
+    let w = unwrap_or_err "Invalid value in indexing" e'.span td.w in
+    let (offset_le, offset_ri, new_dtype) = TypedefMap.data_type_index ci.typedefs w.dtype ind
+      |> unwrap_or_err "Invalid indexing" e.span in
     let (wires', new_w) = WireCollection.add_slice new_dtype w offset_le offset_ri graph.wires in
     graph.wires <- wires';
     {
@@ -850,11 +859,12 @@ let rec visit_expr (graph : event_graph) (ci : cunit_info)
         (
           match Utils.list_match_reorder (List.map fst record_fields) field_exprs with
           | Some expr_reordered ->
-            let tds = List.map (visit_expr graph ci ctx) expr_reordered in
-            let ws = List.rev_map (fun ({w; _} : timed_data) -> Option.get w) tds in
+            let tds = List.map (fun e' -> (e', visit_expr graph ci ctx e')) expr_reordered in
+            let ws = List.rev_map (fun ((e', {w; _}) : expr_node * timed_data) ->
+              unwrap_or_err "Invalid value in record field" e'.span w) tds in
             let (wires', w) = WireCollection.add_concat ci.typedefs ws graph.wires in
             graph.wires <- wires';
-            Typing.merged_data graph (Some w) ctx.current tds
+            List.map snd tds |> Typing.merged_data graph (Some w) ctx.current
           | _ -> raise (EventGraphError ("Invalid record type value!", e.span))
         )
       | _ -> raise (EventGraphError ("Invalid record type name!", e.span))
@@ -868,11 +878,12 @@ let rec visit_expr (graph : event_graph) (ci : cunit_info)
           match e_dtype_opt, cstr_expr_opt with
           | Some e_dtype, Some cstr_expr ->
             let td = visit_expr graph ci ctx cstr_expr in
-            let w = Option.get td.w in
+            let w = unwrap_or_err "Invalid value in variant construction" cstr_expr.span td.w in
             let tag_size = variant_tag_size dtype
             and data_size = TypedefMap.data_type_size ci.typedefs e_dtype
             and tot_size = TypedefMap.data_type_size ci.typedefs dtype
-            and var_idx = variant_lookup_index dtype cstr_spec.variant |> Option.get in
+            and var_idx = variant_lookup_index dtype cstr_spec.variant
+              |> unwrap_or_err ("Invalid constructor: " ^ cstr_spec.variant) e.span in
             let (wires', w_tag) = WireCollection.add_literal (WithLength (tag_size, var_idx)) graph.wires in
             let (wires', new_w) = if tot_size = tag_size + data_size then
               (* no padding *)
@@ -887,7 +898,8 @@ let rec visit_expr (graph : event_graph) (ci : cunit_info)
           | None, None ->
             let tag_size = variant_tag_size dtype
             and tot_size = TypedefMap.data_type_size ci.typedefs dtype
-            and var_idx = variant_lookup_index dtype cstr_spec.variant |> Option.get in
+            and var_idx = variant_lookup_index dtype cstr_spec.variant
+              |> unwrap_or_err ("Invalid constructor: " ^ cstr_spec.variant) e.span in
             let (wires', w_tag) = WireCollection.add_literal (WithLength (tag_size, var_idx)) graph.wires in
             let (wires', new_w) = if tot_size = tag_size then
               (wires', w_tag)

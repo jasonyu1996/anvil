@@ -1,0 +1,4 @@
+proc top() =
+    loop {
+        cycle 1 => send ch::req (1'b0)
+    }
