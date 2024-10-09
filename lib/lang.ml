@@ -417,12 +417,23 @@ type proc_def_body = {
   loops: expr_node list;
 }
 
+(** Extern process definition *)
+type proc_def_body_extern = {
+  named_ports : (string * string) list;
+  msg_ports : (message_specifier * string option * string option * string option) list;
+  (** data, valid, and ack ports *)
+}
+
+type proc_def_body_maybe_extern =
+  | Native of proc_def_body
+  | Extern of string * proc_def_body_extern (** module name and port bindings *)
+
 (** Process definition. *)
 type proc_def = {
   name: string;
   (* arguments are endpoints passed from outside *)
   args: endpoint_def list; (** endpoints passed from outside *)
-  body: proc_def_body; (** process body *)
+  body: proc_def_body_maybe_extern; (** process body *)
 }
 
 (** An import directive for importing code from other files. *)

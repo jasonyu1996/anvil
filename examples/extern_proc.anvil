@@ -1,0 +1,4 @@
+extern import "extern_proc.anvil.sv"
+
+proc extern_proc() = extern("real_extern_proc")
+    clk_i("clk_i")

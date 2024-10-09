@@ -115,9 +115,12 @@ let print_graph (g: event_graph) =
   ) g.events
 
 type proc_graph = {
-  name: identifier;
-  threads: event_graph list;
-  shared_vars_info : (identifier, shared_var_info) Hashtbl.t;
+    name: Lang.identifier;
+    extern_module: string option;
+    threads: event_graph list;
+    shared_vars_info : (Lang.identifier, shared_var_info) Hashtbl.t;
+    messages : MessageCollection.t;
+    proc_body : proc_def_body_maybe_extern;
 }
 
 let unwrap_or_err err_msg err_span opt =
@@ -1005,46 +1008,56 @@ and visit_expr (graph : event_graph) (ci : cunit_info)
 
 (* Builds the graph representation for each process To Do: Add support for commands outside loop (be executed once or continuosly)*)
 let build_proc (config : Config.compile_config) (ci : cunit_info) (proc : proc_def) : proc_graph =
-  let shared_vars_info = Hashtbl.create (List.length proc.body.shared_vars) in
-  List.iter (fun sv ->
-    let v = {
-      w = None;
-      glt = sv.shared_lifetime;
-    } in
-    let r = {
-      assigning_thread = sv.assigning_thread;
-      value = v;
-      assigned_at = None;
-    } in
-      Hashtbl.add shared_vars_info sv.ident r
-    ) proc.body.shared_vars;
-    let proc_threads = List.mapi (fun i e ->
-      let graph = {
-        thread_id = i;
-        events = [];
-        wires = WireCollection.empty;
-        channels = proc.body.channels;
-        messages = MessageCollection.create proc.body.channels proc.args ci.channel_classes;
-        spawns = proc.body.spawns;
-        regs = proc.body.regs;
-        last_event_id = 0;
+  match proc.body with
+  | Native body ->
+    let msg_collection = MessageCollection.create body.channels proc.args ci.channel_classes in
+    let shared_vars_info = Hashtbl.create (List.length body.shared_vars) in
+    List.iter (fun sv ->
+      let v = {
+        w = None;
+        glt = sv.shared_lifetime;
       } in
-      (* Bruteforce treatment: just run twice *)
-      if not config.disable_lt_checks then (
-        let tmp_graph = {graph with last_event_id = 0} in
-        let _ = visit_expr tmp_graph ci
-          (BuildContext.create_empty tmp_graph shared_vars_info true)
-          (dummy_ast_node_of_data (Wait (e, e))) in
-        Typing.lifetime_check config ci tmp_graph
-      );
-      (* discard after type checking *)
-      let ctx = (BuildContext.create_empty graph shared_vars_info false) in
-      let td = visit_expr graph ci ctx e in
-        graph.last_event_id <- td.lt.live.id;
-        graph
-    ) proc.body.loops in
-
-     {name = proc.name; threads = proc_threads; shared_vars_info}
+      let r = {
+        assigning_thread = sv.assigning_thread;
+        value = v;
+        assigned_at = None;
+      } in
+        Hashtbl.add shared_vars_info sv.ident r
+      ) body.shared_vars;
+      let proc_threads = List.mapi (fun i e ->
+        (* TODO: check if this leads to wire id conflicts *)
+        let graph = {
+          thread_id = i;
+          events = [];
+          wires = WireCollection.empty;
+          channels = body.channels;
+          messages = msg_collection;
+          spawns = body.spawns;
+          regs = body.regs;
+          last_event_id = 0;
+        } in
+        (* Bruteforce treatment: just run twice *)
+        if not config.disable_lt_checks then (
+          let tmp_graph = {graph with last_event_id = 0} in
+          let _ = visit_expr tmp_graph ci
+            (BuildContext.create_empty tmp_graph shared_vars_info true)
+            (dummy_ast_node_of_data (Wait (e, e))) in
+          Typing.lifetime_check config ci tmp_graph
+        );
+        (* discard after type checking *)
+        let ctx = (BuildContext.create_empty graph shared_vars_info false) in
+        let td = visit_expr graph ci ctx e in
+          graph.last_event_id <- td.lt.live.id;
+          graph
+      ) body.loops in
+      {name = proc.name; extern_module = None;
+        threads = proc_threads; shared_vars_info; messages = msg_collection;
+        proc_body = proc.body}
+    | Extern (extern_mod, _extern_body) ->
+      let msg_collection = MessageCollection.create [] proc.args ci.channel_classes in
+      {name = proc.name; extern_module = Some extern_mod; threads = [];
+        shared_vars_info = Hashtbl.create 0; messages = msg_collection;
+        proc_body = proc.body}
 
 type event_graph_collection = {
   event_graphs : proc_graph list;

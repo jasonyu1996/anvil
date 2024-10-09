@@ -79,7 +79,6 @@ let codegen_spawns printer (graphs : event_graph_collection) (g : event_graph) =
     CodegenPrinter.print_line printer ".rst_ni";
     (* connect the wires *)
     let proc_other = CodegenHelpers.lookup_proc graphs.external_event_graphs spawn.proc |> Option.get in
-    let proc_other_details = List.hd proc_other.threads; in
     let connect_endpoints = fun (arg_endpoint : endpoint_def) (param_ident : identifier) ->
       let endpoint_local = MessageCollection.lookup_endpoint g.messages param_ident |> Option.get in
       let endpoint_name_local = EventGraph.canonicalize_endpoint_name param_ident g in
@@ -100,7 +99,7 @@ let codegen_spawns printer (graphs : event_graph_collection) (g : event_graph) =
           List.iteri (print_data_con Format.format_msg_data_signal_name) msg.sig_types;
         end
       in List.iter print_msg_con cc.messages
-    in List.iter2 connect_endpoints proc_other_details.messages.args spawn.params;
+    in List.iter2 connect_endpoints proc_other.messages.args spawn.params;
     CodegenPrinter.print_line printer ~lvl_delta_pre:(-1) ");"
   in List.iteri gen_spawn g.spawns
 
@@ -196,22 +195,61 @@ let codegen_proc printer (graphs : EventGraph.event_graph_collection) (g : proc_
   Printf.sprintf "module %s (" g.name |> CodegenPrinter.print_line printer ~lvl_delta_post:1;
 
   (* Generate ports for the first thread *)
-  let initEvents:event_graph = List.hd g.threads; in
-  codegen_ports printer graphs initEvents.messages.args;
+  codegen_ports printer graphs g.messages.args;
   CodegenPrinter.print_line printer ~lvl_delta_pre:(-1) ~lvl_delta_post:1 ");";
 
-  (* Generate endpoints, spawns, regs, and post-declare for the first thread *)
-  codegen_endpoints printer graphs initEvents;
+  (
+    match g.extern_module, g.proc_body with
+    | (Some extern_mod_name, Lang.Extern (_, body)) ->
+      (* spawn the external module *)
+      (* TODO: simplify *)
+      let open Lang in
+      Printf.sprintf "%s _extern_mod (" extern_mod_name
+        |> CodegenPrinter.print_line printer ~lvl_delta_post:1;
+      let first_port = ref true in
+      let print_binding ext local =
+        let fmt = if !first_port then (
+          first_port := false;
+          Printf.sprintf ".%s (%s)"
+        ) else
+          Printf.sprintf ",.%s (%s)"
+        in
+        fmt ext local
+          |> CodegenPrinter.print_line printer
+      in
+      List.iter (fun (port_name, extern_port_name) ->
+        print_binding extern_port_name port_name
+      ) body.named_ports;
+      List.iter (fun (msg, extern_data_opt, extern_vld_opt, extern_ack_opt) ->
+        let print_msg_port_opt formatter extern_opt =
+          match extern_opt with
+          | None -> ()
+          | Some extern_port ->
+            formatter msg.endpoint msg.msg |> print_binding extern_port
+        in
+        let open Format in
+        print_msg_port_opt (fun e m -> format_msg_data_signal_name e m 0) extern_data_opt;
+        print_msg_port_opt format_msg_valid_signal_name extern_vld_opt;
+        print_msg_port_opt format_msg_ack_signal_name extern_ack_opt
+      ) body.msg_ports;
+      (* TODO: for handle signals that are not covered *)
+      CodegenPrinter.print_line printer  ~lvl_delta_pre:(-1) ");"
+    | _ ->
+      (* Generate endpoints, spawns, regs, and post-declare for the first thread *)
+      let initEvents = List.hd g.threads in
 
-  codegen_spawns printer graphs initEvents;
+      codegen_endpoints printer graphs initEvents;
 
-  codegen_regs printer graphs initEvents;
+      codegen_spawns printer graphs initEvents;
 
-  (* Iterate over all threads to print states *)
-  List.iter (fun thread ->
-    codegen_post_declare printer graphs thread;
-    CodegenStates.codegen_states printer graphs g thread;
-  ) g.threads;
+      codegen_regs printer graphs initEvents;
+
+      (* Iterate over all threads to print states *)
+      List.iter (fun thread ->
+        codegen_post_declare printer graphs thread;
+        CodegenStates.codegen_states printer graphs g thread;
+      ) g.threads
+  );
 
   CodegenPrinter.print_line printer ~lvl_delta_pre:(-1) "endmodule"
 

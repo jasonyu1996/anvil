@@ -119,13 +119,23 @@ import_directive:
 
 
 proc_def:
-  KEYWORD_PROC; ident = IDENT; LEFT_PAREN; args = proc_def_arg_list; RIGHT_PAREN;
+| KEYWORD_PROC; ident = IDENT; LEFT_PAREN; args = proc_def_arg_list; RIGHT_PAREN;
   EQUAL; body = proc_def_body;
   {
     {
       name = ident;
       args = args;
-      body = body;
+      body = let open Lang in Native body;
+    } : Lang.proc_def
+  }
+| KEYWORD_PROC; ident = IDENT; LEFT_PAREN; args = proc_def_arg_list; RIGHT_PAREN;
+  EQUAL; KEYWORD_EXTERN; LEFT_PAREN; mod_name = STR_LITERAL; RIGHT_PAREN;
+  body = proc_def_body_extern;
+  {
+    {
+      name = ident;
+      args = args;
+      body = let open Lang in Extern (mod_name, body)
     } : Lang.proc_def
   }
 ;
@@ -160,6 +170,19 @@ proc_def_body:
 | shared_var = shared_var_def; body = proc_def_body
   {
     let open Lang in {body with shared_vars = shared_var :: body.shared_vars}
+  }
+;
+
+proc_def_body_extern:
+| { let open Lang in {named_ports = []; msg_ports = []} }
+| name = IDENT; LEFT_PAREN; s = STR_LITERAL; RIGHT_PAREN; body = proc_def_body_extern
+  {
+    let open Lang in {body with named_ports = (name, s)::body.named_ports}
+  }
+| msg = message_specifier; LEFT_PAREN; s0 = STR_LITERAL?; COLON;
+  s1 = STR_LITERAL?; COLON; s2 = STR_LITERAL?; RIGHT_PAREN; body = proc_def_body_extern
+  {
+    let open Lang in {body with msg_ports = (msg, s0, s1, s2)::body.msg_ports}
   }
 ;
 
