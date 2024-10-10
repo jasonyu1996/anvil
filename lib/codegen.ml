@@ -67,7 +67,8 @@ let codegen_ports printer (graphs : event_graph_collection)
       Port.format graphs.typedefs port |> Printf.sprintf "%s," |> CodegenPrinter.print_line printer;
       print_port_list port_list'
   in
-  print_port_list ([Port.clk; Port.rst] @ port_list)
+  print_port_list ([Port.clk; Port.rst] @ port_list);
+  port_list
 
 let codegen_spawns printer (graphs : event_graph_collection) (g : event_graph) =
   let gen_connect = fun (dst : string) (src : string) ->
@@ -195,7 +196,7 @@ let codegen_proc printer (graphs : EventGraph.event_graph_collection) (g : proc_
   Printf.sprintf "module %s (" g.name |> CodegenPrinter.print_line printer ~lvl_delta_post:1;
 
   (* Generate ports for the first thread *)
-  codegen_ports printer graphs g.messages.args;
+  let _ = codegen_ports printer graphs g.messages.args in
   CodegenPrinter.print_line printer ~lvl_delta_pre:(-1) ~lvl_delta_post:1 ");";
 
   (
@@ -207,6 +208,7 @@ let codegen_proc printer (graphs : EventGraph.event_graph_collection) (g : proc_
       Printf.sprintf "%s _extern_mod (" extern_mod_name
         |> CodegenPrinter.print_line printer ~lvl_delta_post:1;
       let first_port = ref true in
+      let connected_ports = ref Utils.StringSet.empty in
       let print_binding ext local =
         let fmt = if !first_port then (
           first_port := false;
@@ -214,6 +216,7 @@ let codegen_proc printer (graphs : EventGraph.event_graph_collection) (g : proc_
         ) else
           Printf.sprintf ",.%s (%s)"
         in
+        connected_ports := Utils.StringSet.add local !connected_ports;
         fmt ext local
           |> CodegenPrinter.print_line printer
       in
@@ -232,8 +235,20 @@ let codegen_proc printer (graphs : EventGraph.event_graph_collection) (g : proc_
         print_msg_port_opt format_msg_valid_signal_name extern_vld_opt;
         print_msg_port_opt format_msg_ack_signal_name extern_ack_opt
       ) body.msg_ports;
-      (* TODO: for handle signals that are not covered *)
-      CodegenPrinter.print_line printer  ~lvl_delta_pre:(-1) ");"
+      CodegenPrinter.print_line printer  ~lvl_delta_pre:(-1) ");";
+      let ports = Port.gather_ports graphs.channel_classes g.messages.args in
+      List.iter (fun p ->
+        let open Port in
+        match p.dir with
+        | In -> ()
+        | Out -> (
+          if Utils.StringSet.mem p.name !connected_ports |> not then (
+            (* not connected, assign default values *)
+            Printf.sprintf "assign %s = 'b1;" p.name
+              |> CodegenPrinter.print_line printer
+          )
+        )
+      ) ports
     | _ ->
       (* Generate endpoints, spawns, regs, and post-declare for the first thread *)
       let initEvents = List.hd g.threads in
