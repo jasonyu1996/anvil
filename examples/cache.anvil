@@ -15,6 +15,12 @@ type value_8bit =
     v : logic[8]
 }
 
+type memory_map =
+{
+    address : logic[8];
+    data : logic[8]
+}
+
 chan cache_read = {
     left req : (logic[8]@res),
     right res : (logic[8]@req),
@@ -27,8 +33,8 @@ chan memory_read = {
 }
 
 chan memory_write = {
-    left req : (memory_req@res),
-    right res : (memory_res@res)
+    left req : (memory_map@res),
+    right res : (logic@res)
 }
 
 proc FIFO_Cache(ch : left cache_read, ch_mem : right memory_read) =
@@ -43,64 +49,66 @@ proc FIFO_Cache(ch : left cache_read, ch_mem : right memory_read) =
         (
                 let tag_bits = address[4+:4] in
                 let set_index = address[2+:2] in
-                
-                if (!tag[set_index][0].v == tag_bits) then
-                (
-                    send ch::cache_hit(1'b1);
-                    let data = !cache[set_index][0].v in
-                    send ch::res(data)
-                )
 
+                if !count[set_index].v < 3'b100 then
+                (   send ch_mem::req(address)=>
+                    let data = recv ch_mem::res in
+                    data =>
+                    let tail_index = !tail[set_index].v in
+                    (   
+                        set cache[set_index][tail_index].v := data;
+                        set tag[set_index][tail_index].v := tag_bits
+                    )=>
+                    (
+                        set tail[set_index].v:=!tail[set_index].v+2'b01;
+                        set count[set_index].v:=!count[set_index].v+3'b001
+                    )
+                )
+                
                 else 
                 (
-                    if (!tag[set_index][1].v == tag_bits) then
-                    (   
+                    if (!tag[set_index][0].v == tag_bits) then
+                    (
                         send ch::cache_hit(1'b1);
-                        let data = !cache[set_index][1].v in
+                        let data = !cache[set_index][0].v in
                         send ch::res(data)
                     )
-            
+
                     else 
-                    (    
-                        if (!tag[set_index][2].v == tag_bits) then
+                    (
+                        if (!tag[set_index][1].v == tag_bits) then
                         (   
                             send ch::cache_hit(1'b1);
-                            let data = !cache[set_index][2].v in
+                            let data = !cache[set_index][1].v in
                             send ch::res(data)
                         )
-
-                        else
-                        ( 
-                            if (!tag[set_index][3].v == tag_bits) then
+            
+                        else 
+                        (    
+                            if (!tag[set_index][2].v == tag_bits) then
                             (   
                                 send ch::cache_hit(1'b1);
-                                let data = !cache[set_index][3].v in
+                                let data = !cache[set_index][2].v in
                                 send ch::res(data)
                             )
 
                             else
                             ( 
-                                send ch::cache_hit(1'b0);
-                                send ch_mem::req(address)=>
-                                let data = recv ch_mem::res in
-                                data => 
-                                (
-                                    send ch::res(data);
-                                    if !count[set_index].v < 3'b100 then
-                                    (   
-                                        let tail_index = !tail[set_index].v in
-                                        (   
-                                            set cache[set_index][tail_index].v := data;
-                                            set tag[set_index][tail_index].v := tag_bits
-                                        )=>
-                                        (
-                                            set tail[set_index].v:=!tail[set_index].v+2'b01;
-                                            set count[set_index].v:=!count[set_index].v+3'b001
-                                        )
-                                    )
+                                if (!tag[set_index][3].v == tag_bits) then
+                                (   
+                                    send ch::cache_hit(1'b1);
+                                    let data = !cache[set_index][3].v in
+                                    send ch::res(data)
+                                )
 
-                                    else 
+                                else
+                                ( 
+                                    send ch::cache_hit(1'b0);
+                                    send ch_mem::req(address)=>
+                                    let data = recv ch_mem::res in
+                                    data => 
                                     (
+                                        send ch::res(data);
                                         let head_index = !head[set_index].v in
                                         (
                                             set cache[set_index][head_index].v:=data;
@@ -113,11 +121,89 @@ proc FIFO_Cache(ch : left cache_read, ch_mem : right memory_read) =
                                                 set head[set_index].v:=!head[set_index].v+2'b01
                                         )
                                     )
-                                    
                                 )
                             )
                         )
                     )
                 )
         )
+    }
+
+
+proc Main_Memory(ch : left memory_read, write_ch : left memory_write) =
+    reg memory :value_8bit[256]
+    loop {
+        let address = recv ch::req in
+        address =>
+        send ch::res(!memory[address].v)
+    }
+    loop
+    {
+        let x = recv write_ch::req in
+        x=>
+        (
+            set memory[x.address].v := x.data;
+            send write_ch::res(1'b1)
+        )
+    }
+
+
+proc cache ()=
+    chan cache_input -- cache_output : cache_read
+    chan memory_input -- memory_output : memory_read
+    chan memory_write_input -- memory_write_output : memory_write
+    spawn FIFO_Cache(cache_input, memory_output)
+    spawn Main_Memory(memory_input, memory_write_input)
+
+    loop {
+        let address = 8'b00000000 in
+        let data = 8'b01010101 in
+        send memory_write_input::req(memory_map::{address=address; data=data}) =>
+        let y = recv memory_write_output::res in
+        y =>
+        let address2 = 8'b00010000 in
+        let data2 = 8'b10101110 in
+        send memory_write_input::req(memory_map::{address=address2; data=data2}) =>
+        let y2 = recv memory_write_output::res in
+        y2 =>
+        let address3 = 8'b00100000 in
+        let data3 = 8'b11011001 in
+        send memory_write_input::req(memory_map::{address=address3; data=data3}) =>
+        let y3 = recv memory_write_output::res in
+        y3 =>
+        let address4 = 8'b00110000 in
+        let data4 = 8'b11111111 in
+        send memory_write_input::req(memory_map::{address=address4; data=data4}) =>
+        let y4 = recv memory_write_output::res in
+        y4 =>
+        send cache_input::req(address) =>
+        let z = recv cache_output::res in
+        z =>
+        dprint "Cache Output: %d" (z);
+        send cache_input::req(address2) =>
+        let z2 = recv cache_output::res in
+        z2 =>
+        dprint "Cache Output: %d" (z2);
+        send cache_input::req(address3) =>
+        let z3 = recv cache_output::res in
+        z3 =>
+        dprint "Cache Output: %d" (z3);
+        send cache_input::req(address4) =>
+        let z4 = recv cache_output::res in
+        z4 =>
+        dprint "Cache Output: %d" (z4);
+        send cache_input::req(address) =>
+        let z5 = recv cache_output::res in
+        z5 =>
+        dprint "Cache Output: %d" (z5)
+    }
+
+
+    loop {
+        let x = recv cache_output::cache_hit in
+        x =>
+        if x == 1'b1 then
+            dprint "Cache Hit" ()
+        else
+            dprint "Cache Miss" ()
     }

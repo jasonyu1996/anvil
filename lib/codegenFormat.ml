@@ -13,7 +13,7 @@ let format_msg_ack_signal_name (endpoint_name : identifier) (message_name : iden
   Printf.sprintf "_%s_%s_ack" endpoint_name message_name
 
 
-let format_wirename (id : int) : string = Printf.sprintf "_wire$%d" id
+let format_wirename (thread_id : int) (id : int) : string = Printf.sprintf "thread_%d_wire$%d" thread_id id
 
 let format_dtype (typedefs : TypedefMap.t) (dtype : data_type) =
   match dtype with
@@ -36,8 +36,8 @@ let format_regname_current (regname : identifier) =
 let format_regname_next (regname : identifier) =
   Printf.sprintf "%s_n" regname
 
-let format_wire_maybe_const (v : WireCollection.wire MaybeConst.maybe_int_const) =
+let format_wire_maybe_const (thread_id : int) (v : WireCollection.wire MaybeConst.maybe_int_const) =
   let open MaybeConst in
   match v with
   | Const n -> Printf.sprintf "%d" n
-  | NonConst w -> format_wirename w.id
+  | NonConst w -> format_wirename thread_id w.id
