@@ -9,7 +9,7 @@ all: obj_dir/V$(MODULE_NAME)
 .PHONY: run clean
 
 $(MODULE_NAME).sv: $(MODULE_NAME).anvil
-	dune exec anvil -- -disable-lt-checks $< > $@
+	dune exec anvil $< > $@
 
 obj_dir/V$(MODULE_NAME): $(MODULE_NAME)_driver.cpp $(MODULE_NAME).sv
 	verilator --cc --exe --build $(VERILATOR_FLAGS) $^
