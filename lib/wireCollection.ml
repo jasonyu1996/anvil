@@ -39,15 +39,16 @@ module Wire = struct
     let sz = let open Lang in match binop with
     | Add | Sub | Xor | And | Or | Mul ->
       (* TODO: performance improvement *)
-      if sz1 = sz2 then
+      Some (max sz1 sz2)
+      (* if sz1 = sz2 then
         Some sz1
-      else None
+      else None *)
     | Lt | Gt | Lte | Gte | Eq | Neq -> Some 1
     | Shl | Shr -> Some sz1 in
     {
       id;
       source = Binary (binop, w1, w2);
-      dtype = `Array (`Logic, Option.get sz);
+      dtype = `Array (`Logic, Concrete (Option.get sz));
     }
 
   let new_unary id _typedefs unop ow =
@@ -76,7 +77,7 @@ module Wire = struct
     {
       id;
       source = Concat ws;
-      dtype = `Array (`Logic, sz);
+      dtype = `Array (`Logic, Concrete sz);
     }
 
   let new_msg_port id _typedefs msg_spec idx msg_def =

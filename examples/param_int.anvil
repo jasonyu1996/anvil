@@ -1,0 +1,12 @@
+proc sub<n : int>() =
+    reg r : logic[n]
+    loop {
+        dprint "Value = %d" (!r);
+        set r := !r + 1
+    }
+
+proc param_int() =
+    spawn sub<4>()
+    loop {
+        ()
+    }
