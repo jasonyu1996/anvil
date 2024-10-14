@@ -24,7 +24,7 @@ type memory_map =
 chan cache_read = {
     left req : (logic[8]@res),
     right res : (logic[8]@req),
-    right cache_hit : (logic[2]@cache_hit) 
+    right cache_hit : (logic[2]@req) 
 }
 
 chan memory_read = {
@@ -45,69 +45,88 @@ proc FIFO_Cache(ch : left cache_read, ch_mem : right memory_read) =
     reg count :value_3bit[4]
     reg senddata :logic[8]
     reg cache_hit :logic[2]
+    reg head_overflow :logic[1]
     reg valid :logic[4][4]
     loop {
         let address = recv ch::req in
         address => 
         (
                 let tag_bits = address[4+:4] in
-                let set_index = address[2+:2] in
-                if  ((!valid[set_index][0] == 1'b1) & (!tag[set_index][0].v == tag_bits)) then
                 (
-                    set senddata := !cache[set_index][0].v;
-                    set cache_hit := 2'b01
-                )
-                else
-                (
-                    if (!valid[set_index][1] == 1'b1) & (!tag[set_index][1].v == tag_bits) then
+                    let set_index = address[2+:2] in
                     (
-                        set senddata := !cache[set_index][1].v;
-                        set cache_hit := 2'b01
-                    )
-                    else
-                    (
-                        if (!valid[set_index][2] == 1'b1) & (!tag[set_index][2].v == tag_bits) then
+                        if  ((!valid[set_index][0] == 1'b1) & (!tag[set_index][0].v == tag_bits)) then
                         (
-                            set senddata := !cache[set_index][2].v;
+                            set senddata := !cache[set_index][0].v;
                             set cache_hit := 2'b01
                         )
                         else
                         (
-                            if (!valid[set_index][3] == 1'b1) & (!tag[set_index][3].v == tag_bits) then
+                            if (!valid[set_index][1] == 1'b1) & (!tag[set_index][1].v == tag_bits) then
                             (
-                                set senddata := !cache[set_index][3].v;
+                                set senddata := !cache[set_index][1].v;
                                 set cache_hit := 2'b01
                             )
                             else
                             (
-                                set cache_hit := 2'b00;
-                                send ch_mem::req(address) =>
-                                let data = recv ch_mem::res in
-                                data =>
+                                if (!valid[set_index][2] == 1'b1) & (!tag[set_index][2].v == tag_bits) then
                                 (
-                                    if !count[set_index].v < 3'b100 then
+                                    set senddata := !cache[set_index][2].v;
+                                    set cache_hit := 2'b01
+                                )
+                                else
+                                (
+                                    if (!valid[set_index][3] == 1'b1) & (!tag[set_index][3].v == tag_bits) then
                                     (
-                                        let tail_index = !tail[set_index].v in
-                                        set cache[set_index][tail_index].v := data;
-                                        set tag[set_index][tail_index].v := tag_bits;
-                                        set tail[set_index].v := !tail[set_index].v+2'b01;
-                                        set count[set_index].v := !count[set_index].v+3'b001;
-                                        set valid[set_index][tail_index] := 1'b1
+                                        set senddata := !cache[set_index][3].v;
+                                        set cache_hit := 2'b01
                                     )
                                     else
                                     (
-                                        let head_index = !head[set_index].v in
+                                        set cache_hit := 2'b00;
+                                        send ch_mem::req(address) =>
+                                        let data = recv ch_mem::res in
+                                        data =>
                                         (
-                                            set cache[set_index][head_index].v := data;
-                                            set tag[set_index][head_index].v := tag_bits
-                                        )=>
-                                        if !head[set_index].v == 2'b11 then
-                                        (
-                                            set head[set_index].v := 2'b00
-                                        )
-                                        else 
-                                        (
-                                            set head[set_index].v := !head[set_index].v + 2'b01
+                                            dprint "Data from memory for address %b: %b" (address, data);
+                                            if !count[set_index].v < 3'b100 then
+                                            (
+                                                (
+                                                    let tail_index = !tail[set_index].v in
+                                                    (
+                                                        set cache[set_index][tail_index].v := data;
+                                                        set tag[set_index][tail_index].v := tag_bits;
+                                                        set count[set_index].v := !count[set_index].v+3'b001;
+                                                        set valid[set_index][tail_index] := 1'b1
+                                                    )
+                                                )=>
+                                                set tail[set_index].v := !tail[set_index].v+2'b01
+                                            )
+                                            else
+                                            (
+                                                let head_index = !head[set_index].v in
+                                                (
+                                                    set cache[set_index][head_index].v := data;
+                                                    set tag[set_index][head_index].v := tag_bits;
+                                                    set valid[set_index][head_index] := 1'b1;
+                                                    if head_index == 2'b11 then
+                                                    (
+                                                        set head_overflow := 1'b1
+                                                    )
+                                                    else
+                                                    (
+                                                        set head_overflow := 1'b0
+                                                    )
+                                                )=>
+                                                if !head_overflow == 1'b0 then
+                                                (
+                                                    set head[set_index].v := !head[set_index].v+2'b01
+                                                )
+                                                else
+                                                (
+                                                    set head[set_index].v := 2'b00
+                                                )
+                                            )
                                         )
                                     )
                                 )
@@ -115,9 +134,10 @@ proc FIFO_Cache(ch : left cache_read, ch_mem : right memory_read) =
                         )
                     )
                 )
+            
         )=>
-        send ch::res(!senddata) =>
-        send ch::cache_hit(!cache_hit)
+        send ch::cache_hit(!cache_hit)=>
+        send ch::res(!senddata)
     }
 
 
@@ -126,6 +146,7 @@ proc Main_Memory(ch : left memory_read, write_ch : left memory_write) =
     loop {
         let address = recv ch::req in
         address =>
+        dprint "Memory Read Request for address %b: %b" (address, !memory[address].v);
         send ch::res(!memory[address].v)
     }
     loop
@@ -133,8 +154,10 @@ proc Main_Memory(ch : left memory_read, write_ch : left memory_write) =
         let x = recv write_ch::req in
         x=>
         (
-            set memory[x.address].v := x.data;
-            send write_ch::res(1'b1)
+            dprint "Memory Write Start %b: %b" (x.address, x.data);
+            set memory[x.address].v := x.data=>
+            send write_ch::res(1'b1)=>
+            dprint "Memory says Write Complete %b: %b" (x.address,!memory[x.address].v)
         )
     }
 
@@ -227,14 +250,15 @@ proc cache ()=
             send memory_write_input::req(memory_map::{address=!address; data=!data}) =>
             let y = recv memory_write_output::res in
             y =>
-            dprint "Memory Write Complete" ()
+            dprint "Memory Write Complete %b: %b\n\n" (!address, !data);
+            cycle 1
         )
         else
         (
             send cache_input::req(!address) =>
             let z = recv cache_output::res in
             z =>
-            dprint "Cache Output: %d" (z)
+            dprint "Cache (%b) Output: %b" (!address, z)
         )
     )
     }
