@@ -491,7 +491,7 @@ module Typing = struct
     dist
 
   let event_min_distance =
-    event_succ_distance 0 (fun d -> d) min
+    event_succ_distance event_distance_max (fun d -> d) min
 
   let event_max_distance =
     event_succ_distance event_distance_max (fun _ -> event_distance_max) max
