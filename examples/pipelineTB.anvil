@@ -1,6 +1,6 @@
 chan proc_main = {
-    left req : (logic[8]@req),
-    right res : (logic[8]@req)
+    left req : (logic[8]@#1),
+    right res : (logic[8]@#1)
 }
 
 proc PipelineProcessor(ch : left proc_main) =
@@ -45,7 +45,8 @@ proc PipelineProcessor(ch : left proc_main) =
 
     loop {
         set MEM_WB_result := !EX_MEM_result=>
-        send ch::res(!MEM_WB_result)
+        send ch::res(!MEM_WB_result)=>
+        dprint "(Top) Sent Result (%d) on cycle: %d" (!MEM_WB_result, !cycle_counter)
     }
 
 
@@ -61,24 +62,22 @@ proc pipelineTB () =
     }
 
     loop {
-        send proc_input::req(!instruction);
-        dprint "(Top) Sent instruction (%b) on cycle: %d" (!instruction, !cycle_counter);
+        send proc_input::req(!instruction)=>
+        dprint "(Top) Sent instruction (%b) in cycle: %d" (!instruction, !cycle_counter);
         if !counter == 4'b0000 then (
             set instruction := 8'b00100100
-        )else dprint "" ();
-        if !counter == 4'b0001 then (
+        )else if !counter == 4'b0001 then (
             set instruction := 8'b01000100
-        )else dprint "" ();
-        if !counter == 4'b0010 then (
+        )else if !counter == 4'b0010 then (
             set instruction := 8'b01101000
-        )else dprint "" ();
-        if !counter == 4'b0011 then (
+        )else if !counter == 4'b0011 then (
             set instruction := 8'b10001100
         )else dprint "" ();
         set counter := !counter + 4'b0001
-    }
+    }    
+
     loop {
         let result = recv proc_output::res in
         result=>
         dprint "(Top) Recieved Result (%d) on cycle: %d" (result, !cycle_counter)
-    }    
+    }

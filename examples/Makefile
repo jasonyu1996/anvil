@@ -1,4 +1,5 @@
 MODULE_NAME ?= top
+LTOFF ?= -- -disable-lt-checks
 TOP_MODULE ?= $(MODULE_NAME)
 VERILATOR_FLAGS ?= --top $(MODULE_NAME) -j 1
 
@@ -9,7 +10,7 @@ all: obj_dir/V$(MODULE_NAME)
 .PHONY: run clean
 
 $(MODULE_NAME).sv: $(MODULE_NAME).anvil
-	dune exec anvil -- -disable-lt-checks $< > $@
+	dune exec anvil $(LTOFF) $< > $@
 
 obj_dir/V$(MODULE_NAME): $(MODULE_NAME)_driver.cpp $(MODULE_NAME).sv
 	verilator --cc --exe --build $(VERILATOR_FLAGS) $^
