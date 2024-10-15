@@ -45,8 +45,7 @@ proc PipelineProcessor(ch : left proc_main) =
 
     loop {
         set MEM_WB_result := !EX_MEM_result=>
-        send ch::res(!MEM_WB_result)=>
-        dprint "Sent in Cycle: %d\n" (!cycle_counter)
+        send ch::res(!MEM_WB_result)
     }
 
 
@@ -62,32 +61,24 @@ proc pipelineTB () =
     }
 
     loop {
-        
-        (
-            send proc_input::req(!instruction);
-            (
-                if !counter == 4'b0000 then (
-                    set instruction := 8'b00100100;
-                    set counter := !counter + 4'b0001
-                ) else if !counter == 4'b0001 then (
-                    set instruction := 8'b01000100;
-                    set counter := !counter + 4'b0001
-                ) else if !counter == 4'b0010 then (
-                    set instruction := 8'b01101000;
-                    set counter := !counter + 4'b0001
-                ) else if !counter == 4'b0011 then (
-                    set instruction := 8'b10001100;
-                    set counter := !counter + 4'b0001
-                )else (
-                    set counter := !counter + 4'b0001
-                )
-            )
-        )=>
-        dprint "Cycle in send thread: %d\n" (!cycle_counter)
+        send proc_input::req(!instruction);
+        dprint "(Top) Sent instruction (%b) on cycle: %d" (!instruction, !cycle_counter);
+        if !counter == 4'b0000 then (
+            set instruction := 8'b00100100
+        )else dprint "" ();
+        if !counter == 4'b0001 then (
+            set instruction := 8'b01000100
+        )else dprint "" ();
+        if !counter == 4'b0010 then (
+            set instruction := 8'b01101000
+        )else dprint "" ();
+        if !counter == 4'b0011 then (
+            set instruction := 8'b10001100
+        )else dprint "" ();
+        set counter := !counter + 4'b0001
     }
     loop {
         let result = recv proc_output::res in
         result=>
-        dprint "Cycle in recv thread: %d\n" (!cycle_counter);
-        dprint "Result: %d\n" (result)
+        dprint "(Top) Recieved Result (%d) on cycle: %d" (result, !cycle_counter)
     }    
