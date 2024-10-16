@@ -739,7 +739,7 @@ let binop_td_const graph ci _ctx span op n td =
   | _ -> sz in
   let (wires', w') = if sz' > sz then
     let (wires', padding) = WireCollection.add_literal (Lang.WithLength (sz' - sz, 0)) graph.wires in
-    WireCollection.add_concat ci.typedefs [w; padding] wires'
+    WireCollection.add_concat ci.typedefs [padding; w] wires'
   else (graph.wires, w) in
   let (wires'', wconst) = WireCollection.add_literal (WithLength (sz', n)) wires' in
   let (wires''', wres) = WireCollection.add_binary ci.typedefs op w' wconst wires'' in
@@ -758,11 +758,11 @@ let binop_td_td graph ci ctx span op td1 td2 =
   | _ -> max sz1 sz2 in
   let (wires', w1') = if sz' > sz1 then
     let (wires', padding) = WireCollection.add_literal (Lang.WithLength (sz' - sz1, 0)) graph.wires in
-    WireCollection.add_concat ci.typedefs [w1; padding] wires'
+    WireCollection.add_concat ci.typedefs [padding; w1] wires'
   else (graph.wires, w1) in
   let (wires', w2') = if sz' > sz2 then
     let (wires', padding) = WireCollection.add_literal (Lang.WithLength (sz' - sz2, 0)) wires' in
-    WireCollection.add_concat ci.typedefs [w2; padding] wires'
+    WireCollection.add_concat ci.typedefs [padding; w2] wires'
   else (wires', w2) in
   let (wires', wres) = WireCollection.add_binary ci.typedefs op w1' w2' wires' in
   graph.wires <- wires';

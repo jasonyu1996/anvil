@@ -1,0 +1,34 @@
+type value_8bit =
+{
+    v : logic[8]
+}
+type memory_map =
+{
+    address : logic[8];
+    data : logic[8]
+}
+
+chan ch = {
+    left req : (memory_map@#2)
+}
+
+proc mem(e : left ch) =
+    reg m : value_8bit[256]
+    loop {
+        let r = recv e::req in
+        r =>
+        set m[r.address] := r.data
+        =>
+        dprint "Value = %d, %d" (!m[r.address], r.address)
+    }
+
+proc assign_repeat() =
+    chan e_le -- e : ch
+    spawn mem(e_le)
+    reg address : logic[8]
+    loop {
+        send e::req (memory_map::{address=!address; data=8'd42}) =>
+        cycle 1 =>
+        set address := !address + 8'b1 => cycle 1
+    }
+
