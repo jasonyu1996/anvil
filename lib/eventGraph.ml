@@ -733,15 +733,38 @@ module BuildContext = Typing.BuildContext
 let binop_td_const graph ci _ctx span op n td =
   let w = unwrap_or_err "Invalid value" span td.w in
   let sz = TypedefMap.data_type_size ci.typedefs w.dtype in
-  let (wires', wconst) = WireCollection.add_literal (WithLength (sz, n)) graph.wires in
-  let (wires', wres) = WireCollection.add_binary ci.typedefs op w wconst wires' in
-  graph.wires <- wires';
+  let sz' = match op with
+  | Add -> sz+1
+  | Mul -> sz + Utils.int_log2 n
+  | _ -> sz in
+  let (wires', w') = if sz' > sz then
+    let (wires', padding) = WireCollection.add_literal (Lang.WithLength (sz' - sz, 0)) graph.wires in
+    WireCollection.add_concat ci.typedefs [w; padding] wires'
+  else (graph.wires, w) in
+  let (wires'', wconst) = WireCollection.add_literal (WithLength (sz', n)) wires' in
+  let (wires''', wres) = WireCollection.add_binary ci.typedefs op w' wconst wires'' in
+  graph.wires <- wires''';
   {td with w = Some wres}
+
 
 let binop_td_td graph ci ctx span op td1 td2 =
   let w1 = unwrap_or_err "Invalid value" span td1.w in
   let w2 = unwrap_or_err "Invalid value" span td2.w in
-  let (wires', wres) = WireCollection.add_binary ci.typedefs op w1 w2 graph.wires in
+  let sz1 = TypedefMap.data_type_size ci.typedefs w1.dtype
+  and sz2 = TypedefMap.data_type_size ci.typedefs w2.dtype in
+  let sz' = match op with
+  | Add -> (max sz1 sz2) +1
+  | Mul -> sz1 + sz2
+  | _ -> max sz1 sz2 in
+  let (wires', w1') = if sz' > sz1 then
+    let (wires', padding) = WireCollection.add_literal (Lang.WithLength (sz' - sz1, 0)) graph.wires in
+    WireCollection.add_concat ci.typedefs [w1; padding] wires'
+  else (graph.wires, w1) in
+  let (wires', w2') = if sz' > sz2 then
+    let (wires', padding) = WireCollection.add_literal (Lang.WithLength (sz' - sz2, 0)) wires' in
+    WireCollection.add_concat ci.typedefs [w2; padding] wires'
+  else (wires', w2) in
+  let (wires', wres) = WireCollection.add_binary ci.typedefs op w1' w2' wires' in
   graph.wires <- wires';
   let open Typing in
   Typing.merged_data graph (Some wres) ctx.current [td1; td2]
@@ -1025,7 +1048,6 @@ let build_proc (config : Config.compile_config) (ci : cunit_info) (proc : proc_d
         Hashtbl.add shared_vars_info sv.ident r
       ) body.shared_vars;
       let proc_threads = List.mapi (fun i e ->
-        (* TODO: check if this leads to wire id conflicts *)
         let graph = {
           thread_id = i;
           events = [];

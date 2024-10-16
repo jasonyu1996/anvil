@@ -1,0 +1,283 @@
+type value_4bit =
+{
+    v : logic[4]
+}
+type value_2bit =
+{
+    v : logic[2]
+}
+type value_3bit =
+{
+    v : logic[3]
+}
+type value_8bit =
+{
+    v : logic[8]
+}
+
+type memory_map =
+{
+    address : logic[8];
+    data : logic[8]
+}
+
+chan cache_read = {
+    left req : (logic[8]@res),
+    right res : (logic[8]@req),
+    right cache_hit : (logic[2]@req) 
+}
+
+chan memory_read = {
+    left req : (logic[8]@res),
+    right res : (logic[8]@req)
+}
+
+chan memory_write = {
+    left req : (memory_map@res),
+    right res : (logic@res)
+}
+
+proc FIFO_Cache(ch : left cache_read, ch_mem : right memory_read) =
+    reg cache :value_8bit[4][4]
+    reg tag :value_4bit[4][4]
+    reg head :value_2bit[4]
+    reg tail :value_2bit[4]
+    reg count :value_3bit[4]
+    reg senddata :logic[8]
+    reg cache_hit :logic[2]
+    reg head_overflow :logic[1]
+    reg valid :logic[4][4]
+    reg cycle_counter :logic[4]
+    loop {
+        set cycle_counter := !cycle_counter + 4'b0001
+    }
+    loop {
+            let address = recv ch::req in
+            address => 
+            (
+                let tag_bits = address[4+:4] in
+                (
+                    let set_index = address[2+:2] in
+                    (
+                        if  ((!valid[set_index][0] == 1'b1) & (!tag[set_index][0].v == tag_bits)) then
+                        (
+                            set senddata := !cache[set_index][0].v;
+                            set cache_hit := 2'b01
+                        )
+                        else
+                        (
+                            if (!valid[set_index][1] == 1'b1) & (!tag[set_index][1].v == tag_bits) then
+                            (
+                                set senddata := !cache[set_index][1].v;
+                                set cache_hit := 2'b01
+                            )
+                            else
+                            (
+                                if (!valid[set_index][2] == 1'b1) & (!tag[set_index][2].v == tag_bits) then
+                                (
+                                    set senddata := !cache[set_index][2].v;
+                                    set cache_hit := 2'b01
+                                )
+                                else
+                                (
+                                    if (!valid[set_index][3] == 1'b1) & (!tag[set_index][3].v == tag_bits) then
+                                    (
+                                        set senddata := !cache[set_index][3].v;
+                                        set cache_hit := 2'b01
+                                    )
+                                    else
+                                    (
+                                        set cache_hit := 2'b00;
+                                        (send ch_mem::req(address);
+                                        cycle 1)=>
+                                        let data = recv ch_mem::res in
+                                        data =>
+                                        (
+                                            dprint "Data from memory for address %b: %b" (address, data);
+                                            if !count[set_index].v < 3'b100 then
+                                            (
+                                                (
+                                                    let tail_index = !tail[set_index].v in
+                                                    (
+                                                        set cache[set_index][tail_index].v := data;
+                                                        set tag[set_index][tail_index].v := tag_bits;
+                                                        set count[set_index].v := !count[set_index].v+3'b001;
+                                                        set valid[set_index][tail_index] := 1'b1
+                                                    )
+                                                )=>
+                                                set tail[set_index].v := !tail[set_index].v+2'b01
+                                            )
+                                            else
+                                            (
+                                                let head_index = !head[set_index].v in
+                                                (
+                                                    set cache[set_index][head_index].v := data;
+                                                    set tag[set_index][head_index].v := tag_bits;
+                                                    set valid[set_index][head_index] := 1'b1
+                                                )=>
+                                                set head[set_index].v := !head[set_index].v+2'b01
+                                            )
+                                        )
+                                    )
+                                )
+                            )
+                        )
+                    )
+                )
+            
+        )=>
+        cycle 1=>
+        send ch::cache_hit(!cache_hit)=>
+        send ch::res(!senddata)
+    }
+    
+
+
+proc Main_Memory(ch : left memory_read, write_ch : left memory_write) =
+    reg memory :value_8bit[256]
+    reg cycle_counter :logic[4]
+    loop {
+        set cycle_counter := !cycle_counter + 4'b0001
+    }
+    loop {
+        let address = recv ch::req in
+        address =>
+        (dprint "(Main Memory) Memory Read Request for address %d : %d" (address, !memory[address].v);
+        cycle 1)=>
+        send ch::res(!memory[address].v)=>
+        dprint "(Main Memory) Memory Read Response for address %d : %d" (address, !memory[address].v)
+    }
+    loop
+    {
+        dprint "(Main Memory) Cycle %d" (!cycle_counter);
+        let x = recv write_ch::req in
+        x=>
+        (
+            dprint "(Main Memory) Memory Write Start %d: %d in cycle %d" (x.address, x.data, !cycle_counter);
+            (set memory[x.address].v := x.data=>
+            cycle 1)=>
+            dprint "(Main Memory) Memory Write Complete (data = %d) at address %d : %d in cycle %d" (x.data, x.address, !memory[x.address].v, !cycle_counter);
+            send write_ch::res(1'b1)
+            
+        )
+    }
+
+
+proc cache ()=
+    chan cache_input -- cache_output : cache_read
+    chan memory_input -- memory_output : memory_read
+    chan memory_write_input -- memory_write_output : memory_write
+    spawn FIFO_Cache(cache_input, memory_output)
+    spawn Main_Memory(memory_input, memory_write_input)
+    reg count : logic[4]
+    reg address : logic[8]
+    reg data : logic[8]
+    reg cycle_counter : logic[4]
+    loop {
+        set cycle_counter := !cycle_counter + 4'b0001
+    }
+    loop {
+    (  
+        if !count == 4'b0000 then
+        (
+            set address := 8'b00000000;
+            set data := 8'b01010101
+            
+        )
+        else (
+            if !count == 4'b0001 then
+            (
+                set address := 8'b00010000;
+                set data := 8'b10101110
+                
+            )
+            else (
+                if !count == 4'b0010 then
+                (
+                    set address := 8'b00100000;
+                    set data := 8'b11011001
+                    
+                )
+                else 
+                (
+                    if !count == 4'b0011 then
+                    (
+                        set address := 8'b00110000;
+                        set data := 8'b11111111
+                        
+                    )
+
+                    else 
+                    (
+                        if !count == 4'b0100 then
+                        (
+                            set address := 8'b00000000
+                            
+                        )
+    
+                        else 
+                        (
+                            if !count == 4'b0101 then
+                            (
+                                set address := 8'b00010000
+                            
+                            )
+                            else 
+                            (
+                                if !count == 4'b0110 then
+                                (   
+                                    set address := 8'b00100000
+                                )
+                                else 
+                                (
+                                    if !count == 4'b0111 then
+                                    (
+                                        
+                                        set address := 8'b00110000
+                                    )
+                                    else
+                                    (
+                                        
+                                        set address := 8'b00000000
+                                        
+                                    )
+                                )
+                            )
+                        )
+                    )
+                )
+            )
+        )
+    );
+    (
+        if !count <= 4'b0011 then
+        (
+            
+            (send memory_write_input::req(memory_map::{address=!address; data=!data});
+            cycle 1) =>
+            let y = recv memory_write_output::res in
+            y =>
+            dprint "(Top) Memory Write (%d) Complete in address %d: %d in cycle %d\n" (!count, !address, !data, !cycle_counter);
+            set count := !count + 4'b0001
+        )
+        else
+        (
+            send cache_input::req(!address)=>
+            cycle 1 =>
+            let z = recv cache_output::res in
+            z =>
+            dprint "(Top) Cache Request(%d) for address (%d) Output: %d\n" (!count-4'b0100, !address, z);
+            set count := !count + 4'b0001
+        )
+    )
+    }
+
+
+    loop {
+        let x = recv cache_output::cache_hit in
+        x =>
+        if x == 2'b01 then
+            dprint "Cache Hit" ()
+        else
+            dprint "Cache Miss" ()
+    }
