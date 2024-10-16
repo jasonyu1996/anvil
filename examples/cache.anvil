@@ -29,7 +29,7 @@ chan cache_read = {
 
 chan memory_read = {
     left req : (logic[8]@res),
-    right res : (logic[8]@res)
+    right res : (logic[8]@req)
 }
 
 chan memory_write = {
@@ -47,10 +47,14 @@ proc FIFO_Cache(ch : left cache_read, ch_mem : right memory_read) =
     reg cache_hit :logic[2]
     reg head_overflow :logic[1]
     reg valid :logic[4][4]
+    reg cycle_counter :logic[4]
     loop {
-        let address = recv ch::req in
-        address => 
-        (
+        set cycle_counter := !cycle_counter + 4'b0001
+    }
+    loop {
+            let address = recv ch::req in
+            address => 
+            (
                 let tag_bits = address[4+:4] in
                 (
                     let set_index = address[2+:2] in
@@ -84,7 +88,8 @@ proc FIFO_Cache(ch : left cache_read, ch_mem : right memory_read) =
                                     else
                                     (
                                         set cache_hit := 2'b00;
-                                        send ch_mem::req(address) =>
+                                        (send ch_mem::req(address);
+                                        cycle 1)=>
                                         let data = recv ch_mem::res in
                                         data =>
                                         (
@@ -108,24 +113,9 @@ proc FIFO_Cache(ch : left cache_read, ch_mem : right memory_read) =
                                                 (
                                                     set cache[set_index][head_index].v := data;
                                                     set tag[set_index][head_index].v := tag_bits;
-                                                    set valid[set_index][head_index] := 1'b1;
-                                                    if head_index == 2'b11 then
-                                                    (
-                                                        set head_overflow := 1'b1
-                                                    )
-                                                    else
-                                                    (
-                                                        set head_overflow := 1'b0
-                                                    )
+                                                    set valid[set_index][head_index] := 1'b1
                                                 )=>
-                                                if !head_overflow == 1'b0 then
-                                                (
-                                                    set head[set_index].v := !head[set_index].v+2'b01
-                                                )
-                                                else
-                                                (
-                                                    set head[set_index].v := 2'b00
-                                                )
+                                                set head[set_index].v := !head[set_index].v+2'b01
                                             )
                                         )
                                     )
@@ -136,28 +126,39 @@ proc FIFO_Cache(ch : left cache_read, ch_mem : right memory_read) =
                 )
             
         )=>
+        cycle 1=>
         send ch::cache_hit(!cache_hit)=>
         send ch::res(!senddata)
     }
+    
 
 
 proc Main_Memory(ch : left memory_read, write_ch : left memory_write) =
     reg memory :value_8bit[256]
+    reg cycle_counter :logic[4]
+    loop {
+        set cycle_counter := !cycle_counter + 4'b0001
+    }
     loop {
         let address = recv ch::req in
         address =>
-        dprint "Memory Read Request for address %b: %b" (address, !memory[address].v);
-        send ch::res(!memory[address].v)
+        (dprint "(Main Memory) Memory Read Request for address %d : %d" (address, !memory[address].v);
+        cycle 1)=>
+        send ch::res(!memory[address].v)=>
+        dprint "(Main Memory) Memory Read Response for address %d : %d" (address, !memory[address].v)
     }
     loop
     {
+        dprint "(Main Memory) Cycle %d" (!cycle_counter);
         let x = recv write_ch::req in
         x=>
         (
-            dprint "Memory Write Start %b: %b" (x.address, x.data);
-            set memory[x.address].v := x.data=>
-            send write_ch::res(1'b1)=>
-            dprint "Memory says Write Complete %b: %b" (x.address,!memory[x.address].v)
+            dprint "(Main Memory) Memory Write Start %d: %d in cycle %d" (x.address, x.data, !cycle_counter);
+            (set memory[x.address].v := x.data=>
+            cycle 1)=>
+            dprint "(Main Memory) Memory Write Complete (data = %d) at address %d : %d in cycle %d" (x.data, x.address, !memory[x.address].v, !cycle_counter);
+            send write_ch::res(1'b1)
+            
         )
     }
 
@@ -171,70 +172,74 @@ proc cache ()=
     reg count : logic[4]
     reg address : logic[8]
     reg data : logic[8]
+    reg cycle_counter : logic[4]
+    loop {
+        set cycle_counter := !cycle_counter + 4'b0001
+    }
     loop {
     (  
         if !count == 4'b0000 then
         (
             set address := 8'b00000000;
-            set data := 8'b01010101;
-            set count := !count+4'b0001
+            set data := 8'b01010101
+            
         )
         else (
             if !count == 4'b0001 then
             (
                 set address := 8'b00010000;
-                set data := 8'b10101110;
-                set count := !count+4'b0001
+                set data := 8'b10101110
+                
             )
             else (
                 if !count == 4'b0010 then
                 (
                     set address := 8'b00100000;
-                    set data := 8'b11011001;
-                    set count := !count+4'b0001
+                    set data := 8'b11011001
+                    
                 )
                 else 
                 (
                     if !count == 4'b0011 then
                     (
                         set address := 8'b00110000;
-                        set data := 8'b11111111;
-                        set count := !count+4'b0001
+                        set data := 8'b11111111
+                        
                     )
-        
+
                     else 
                     (
                         if !count == 4'b0100 then
                         (
-                            set address := 8'b00000000;
-                            set count := !count+4'b0001
+                            set address := 8'b00000000
+                            
                         )
     
                         else 
                         (
                             if !count == 4'b0101 then
                             (
-                                set address := 8'b00010000;
-                                set count := !count+4'b0001
+                                set address := 8'b00010000
+                            
                             )
                             else 
                             (
                                 if !count == 4'b0110 then
-                                (
-                                    set address := 8'b00100000;
-                                    set count := !count+4'b0001
+                                (   
+                                    set address := 8'b00100000
                                 )
                                 else 
                                 (
                                     if !count == 4'b0111 then
                                     (
-                                        set address := 8'b00110000;
-                                        set count := !count+4'b0001
+                                        
+                                        set address := 8'b00110000
                                     )
                                     else
                                     (
-                                        set address := 8'b00000000;
-                                        set count := 4'b0000
+                                        
+                                        set address := 8'b00000000
+                                        
                                     )
                                 )
                             )
@@ -245,20 +250,24 @@ proc cache ()=
         )
     );
     (
-        if !count < 4'b0100 then
+        if !count <= 4'b0011 then
         (
-            send memory_write_input::req(memory_map::{address=!address; data=!data}) =>
+            
+            (send memory_write_input::req(memory_map::{address=!address; data=!data});
+            cycle 1) =>
             let y = recv memory_write_output::res in
             y =>
-            dprint "Memory Write Complete %b: %b\n\n" (!address, !data);
-            cycle 1
+            dprint "(Top) Memory Write (%d) Complete in address %d: %d in cycle %d\n" (!count, !address, !data, !cycle_counter);
+            set count := !count + 4'b0001
         )
         else
         (
-            send cache_input::req(!address) =>
+            send cache_input::req(!address)=>
+            cycle 1 =>
             let z = recv cache_output::res in
             z =>
-            dprint "Cache (%b) Output: %b" (!address, z)
+            dprint "(Top) Cache Request(%d) for address (%d) Output: %d\n" (!count-4'b0100, !address, z);
+            set count := !count + 4'b0001
         )
     )
     }
