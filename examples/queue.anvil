@@ -42,7 +42,6 @@ proc Queue_8bit(ch : left queue_ch) =
         ))=>
 
         send ch::enqueue_res(!enqueue_resp)=>
-        cycle 1 =>
         if(!enqueue_resp) then
             set head := !head + 3'b001
         else
@@ -131,6 +130,7 @@ proc queue () =
             if ((!counter< 4'b1000) || (!counter> 4'b1011)) then
             (
                 send queue_input::enqueue_req(!data)=>
+                dprint "Enqueuing %d in cycle %d" (!data, !cycle_counter);
                 let x = recv queue_output::enqueue_res in
                 x=>
                 if (~x) then
@@ -141,6 +141,7 @@ proc queue () =
             else
             (
                 send queue_input::dequeue_req(1'b1)=>
+                dprint "Dequeuing in cycle %d" (!cycle_counter);
                 let x = recv queue_output::dequeue_res in
                 x=>
                 if (~x.valid) then
