@@ -105,9 +105,10 @@ module Wire = struct
       dtype;
     }
 
-  let new_msg_valid_port id _typedefs msg_spec =
+  let new_msg_valid_port id thread_id _typedefs msg_spec =
     {
       id;
+      thread_id;
       source = MessageValidPort msg_spec;
       dtype = `Logic;
     }
@@ -163,8 +164,8 @@ let add_slice thread_id (dtype : Lang.data_type) (w : wire)  base_i len (wc : t)
   let w = Wire.new_slice id thread_id dtype w base_i len in
   (w::wc, w)
 
-let add_msg_valid_port (typedefs : TypedefMap.t)
+let add_msg_valid_port thread_id (typedefs : TypedefMap.t)
   (msg_spec : Lang.message_specifier) (wc : t) : t * wire =
   let id = List.length wc in
-  let w = Wire.new_msg_valid_port id typedefs msg_spec in
+  let w = Wire.new_msg_valid_port id thread_id typedefs msg_spec in
   (w::wc, w)

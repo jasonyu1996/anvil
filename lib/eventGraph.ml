@@ -857,7 +857,7 @@ and visit_expr (graph : event_graph) (ci : cunit_info)
     let ctx' = BuildContext.wait graph ctx td1.lt.live in
     visit_expr graph ci ctx' e2
   | Ready msg_spec ->
-    let wires, msg_valid_port = WireCollection.add_msg_valid_port ci.typedefs msg_spec graph.wires in
+    let wires, msg_valid_port = WireCollection.add_msg_valid_port graph.thread_id ci.typedefs msg_spec graph.wires in
     graph.wires <- wires;
     Typing.const_data graph (Some msg_valid_port) ctx.current
   | Cycle n -> Typing.cycles_data graph n ctx.current
