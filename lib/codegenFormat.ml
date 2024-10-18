@@ -36,8 +36,8 @@ let format_regname_current (regname : identifier) =
 let format_regname_next (regname : identifier) =
   Printf.sprintf "%s_n" regname
 
-let format_wire_maybe_const (thread_id : int) (v : WireCollection.wire MaybeConst.maybe_int_const) =
+let format_wire_maybe_const (v : WireCollection.wire MaybeConst.maybe_int_const) =
   let open MaybeConst in
   match v with
   | Const n -> Printf.sprintf "%d" n
-  | NonConst w -> format_wirename thread_id w.id
+  | NonConst w -> format_wirename w.thread_id w.id

@@ -1,0 +1,16 @@
+chan ch = {
+    left req: (logic[8]@#3)
+}
+
+proc receiver(ch : left ch) =
+    loop {
+        let in1 = recv ch::req in
+        (
+            if 1'b1 then
+                in1 =>
+                dprint "Received: %d" (in1)
+            else
+                dprint "Not ready" ()
+        ) =>
+        cycle 1 => cycle 1 => cycle 1
+}

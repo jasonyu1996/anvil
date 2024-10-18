@@ -466,13 +466,15 @@ module Typing = struct
 
   module IntHashtbl = Hashtbl.Make(Int)
   let event_distance_max = 1 lsl 20
-  let event_succ_distance non_succ_dist msg_dist_f either_dist_f (ev : event) =
-    let succs = event_successors ev in
+  let event_succ_distance non_succ_dist msg_dist_f either_dist_f events (ev : event) =
+    let preds = event_predecessors ev in
     let dist = IntHashtbl.create 8 in
     IntHashtbl.add dist ev.id 0;
     let get_dist ev' = IntHashtbl.find_opt dist ev'.id |> Option.value ~default:non_succ_dist in
     let set_dist ev' d = IntHashtbl.add dist ev'.id d in
-    List.tl succs |> List.iter (fun ev' ->
+    List.iter (fun ev' -> set_dist ev' 0) preds; (* predecessors must have been reached *)
+    List.rev events |> List.iter (fun ev' ->
+      if IntHashtbl.find_opt dist ev'.id |> Option.is_none then
       let d = match ev'.source with
       | `Root -> raise (LifetimeCheckError "Unexpected root!")
       | `Later (ev1, ev2) -> max (get_dist ev1) (get_dist ev2)
@@ -499,7 +501,7 @@ module Typing = struct
   (** Is ev_pat1 matched always no later than ev_pat2 is matched?
   Produce a conservative result.
   Only length 1 ev_pat1 supported. *)
-  let event_pat_rel (ev_pat1 : event_pat) (ev_pat2 : event_pat) =
+  let event_pat_rel events (ev_pat1 : event_pat) (ev_pat2 : event_pat) =
     if (List.length ev_pat1) <> 1 then
       false
     else (
@@ -508,7 +510,7 @@ module Typing = struct
         | `Eternal -> fun _ev2 d_pat2 -> d_pat2 = `Eternal
         | `Cycles n1 ->
           (* compute the min possible cycle distance from n1 to successors *)
-          let dist = event_min_distance ev1 in
+          let dist = event_min_distance events ev1 in
           let get_dist ev' = IntHashtbl.find_opt dist ev'.id |> Option.value ~default:0 in
           (
             fun ev2 d_pat2 ->
@@ -519,7 +521,7 @@ module Typing = struct
                   let d = get_dist ev2 in
                   n1 <= d + n2
                 else (
-                  let dist2 = event_max_distance ev2 in
+                  let dist2 = event_max_distance events ev2 in
                   let d = IntHashtbl.find_opt dist2 ev1.id |> Option.value ~default:event_distance_max in
                   n1 + d <= n2
                 )
@@ -546,7 +548,7 @@ module Typing = struct
                 | `Cycles n2 -> (* earliest estimate *)
                   if event_is_predecessor ev2 ri1 then true
                   else (
-                    let dist = event_max_distance ev2 in
+                    let dist = event_max_distance events ev2 in
                     let d = IntHashtbl.find_opt dist ri1.id |> Option.value ~default:event_distance_max in
                     d <= n2
                   )
@@ -564,7 +566,7 @@ module Typing = struct
     )
 
   (** Check that lt1 is always fully covered by lt2 *)
-  let lifetime_in_range (lt1 : lifetime) (lt2 : lifetime) =
+  let lifetime_in_range events (lt1 : lifetime) (lt2 : lifetime) =
     (* 1. check if lt2's start is a predecessor of lt1's start *)
     (* 2. derive a set of all time points A potentially within lt1 *)
     (* 4. check that end time of lt2 does not match any time point in A *)
@@ -572,16 +574,16 @@ module Typing = struct
       let r = event_pat_matches lt1.live lt2.dead in
       (not r.at) && (not r.aft)
     ) *)
-    (event_is_successor lt2.live lt1.live) && (event_pat_rel lt1.dead lt2.dead)
+    (event_is_successor lt2.live lt1.live) && (event_pat_rel events lt1.dead lt2.dead)
 
   (** Definitely disjoint? *)
-  let lifetime_disjoint lt1 lt2 =
+  let lifetime_disjoint events lt1 lt2 =
     assert (List.length lt1.dead = 1);
     (* to be disjoint, either r1 <= l2 or r2 <= l1 *)
-    if event_pat_rel lt1.dead [(lt2.live, `Cycles 0)] then
+    if event_pat_rel events lt1.dead [(lt2.live, `Cycles 0)] then
       true
     else
-      List.for_all (fun de -> event_pat_rel [de] [(lt1.live, `Cycles 0)]) lt2.dead
+      List.for_all (fun de -> event_pat_rel events [de] [(lt1.live, `Cycles 0)]) lt2.dead
 
   module StringHashtbl = Hashtbl.Make(String)
 
@@ -598,11 +600,11 @@ module Typing = struct
     (* check lifetime for each use of a wire *)
     let not_borrowed tbl s lt =
       let borrows = StringHashtbl.find_opt tbl s |> Option.value ~default:[] in
-      List.for_all (lifetime_disjoint lt) borrows
+      List.for_all (lifetime_disjoint g.events lt) borrows
     in
     let not_borrowed_and_add tbl s lt =
       let borrows = StringHashtbl.find_opt tbl s |> Option.value ~default:[] in
-      let not_borrowed = List.for_all (lifetime_disjoint lt) borrows in
+      let not_borrowed = List.for_all (lifetime_disjoint g.events lt) borrows in
       if not_borrowed then StringHashtbl.replace tbl s (lt::borrows);
       not_borrowed
     in
@@ -668,25 +670,25 @@ module Typing = struct
           if not_borrowed reg_borrows lval_info.reg_name lt |> not then
             raise (EventGraphError ("Attempted assignment to a borrowed register!", a.span))
           else ();
-          if lifetime_in_range lt td.lt |> not then
+          if lifetime_in_range g.events lt td.lt |> not then
             raise (EventGraphError ("Value does not live long enough in reg assignment!", a.span))
           else ();
           (
             match fst lval_info.range with
             | Const _ -> ()
             | NonConst range_st_td ->
-              if lifetime_in_range lt range_st_td.lt |> not then
+              if lifetime_in_range g.events lt range_st_td.lt |> not then
                 raise (EventGraphError ("Lvalue index does not live long enough!", a.span))
           )
         | DebugPrint (_, tds) ->
           List.iter (fun td ->
-            if lifetime_in_range (lifetime_immediate ev) td.lt |> not then
+            if lifetime_in_range g.events (lifetime_immediate ev) td.lt |> not then
               raise (EventGraphError ("Value does not live long enough in debug print!", a.span))
             else ()
           ) tds
         | DebugFinish -> ()
         | PutShared (_, si, td) ->
-          if lifetime_in_range {live = ev; dead = [(ev, si.value.glt.e)]} td.lt |> not then
+          if lifetime_in_range g.events {live = ev; dead = [(ev, si.value.glt.e)]} td.lt |> not then
             raise (EventGraphError ("Value does not live long enough in put!", a.span))
           else ()
       )
@@ -700,7 +702,7 @@ module Typing = struct
           if not_borrowed_and_add msg_borrows (string_of_msg_spec msg) lt |> not then
             raise (EventGraphError ("Potentially conflicting message sending!", sa.span))
           else ();
-          if lifetime_in_range lt td.lt |> not then
+          if lifetime_in_range g.events lt td.lt |> not then
             raise (EventGraphError ("Value not live long enough in message send!", sa.span))
         | Recv _ -> ()
       )
@@ -738,11 +740,11 @@ let binop_td_const graph ci _ctx span op n td =
   | Mul -> sz + Utils.int_log2 n
   | _ -> sz in
   let (wires', w') = if sz' > sz then
-    let (wires', padding) = WireCollection.add_literal (Lang.WithLength (sz' - sz, 0)) graph.wires in
-    WireCollection.add_concat ci.typedefs [padding; w] wires'
+    let (wires', padding) = WireCollection.add_literal graph.thread_id (Lang.WithLength (sz' - sz, 0)) graph.wires in
+    WireCollection.add_concat graph.thread_id ci.typedefs [padding; w] wires'
   else (graph.wires, w) in
-  let (wires'', wconst) = WireCollection.add_literal (WithLength (sz', n)) wires' in
-  let (wires''', wres) = WireCollection.add_binary ci.typedefs op w' wconst wires'' in
+  let (wires'', wconst) = WireCollection.add_literal graph.thread_id (WithLength (sz', n)) wires' in
+  let (wires''', wres) = WireCollection.add_binary graph.thread_id ci.typedefs op w' wconst wires'' in
   graph.wires <- wires''';
   {td with w = Some wres}
 
@@ -757,14 +759,14 @@ let binop_td_td graph ci ctx span op td1 td2 =
   | Mul -> sz1 + sz2
   | _ -> max sz1 sz2 in
   let (wires', w1') = if sz' > sz1 then
-    let (wires', padding) = WireCollection.add_literal (Lang.WithLength (sz' - sz1, 0)) graph.wires in
-    WireCollection.add_concat ci.typedefs [padding; w1] wires'
+    let (wires', padding) = WireCollection.add_literal graph.thread_id (Lang.WithLength (sz' - sz1, 0)) graph.wires in
+    WireCollection.add_concat graph.thread_id ci.typedefs [padding; w1] wires'
   else (graph.wires, w1) in
   let (wires', w2') = if sz' > sz2 then
-    let (wires', padding) = WireCollection.add_literal (Lang.WithLength (sz' - sz2, 0)) wires' in
-    WireCollection.add_concat ci.typedefs [padding; w2] wires'
+    let (wires', padding) = WireCollection.add_literal graph.thread_id (Lang.WithLength (sz' - sz2, 0)) wires' in
+    WireCollection.add_concat graph.thread_id ci.typedefs [padding; w2] wires'
   else (wires', w2) in
-  let (wires', wres) = WireCollection.add_binary ci.typedefs op w1' w2' wires' in
+  let (wires', wres) = WireCollection.add_binary graph.thread_id ci.typedefs op w1' w2' wires' in
   graph.wires <- wires';
   let open Typing in
   Typing.merged_data graph (Some wres) ctx.current [td1; td2]
@@ -804,7 +806,7 @@ and visit_expr (graph : event_graph) (ci : cunit_info)
   and _binop_td_td = binop_td_td graph ci ctx in
   match e.d with
   | Literal lit ->
-    let (wires', w) = WireCollection.add_literal lit graph.wires in
+    let (wires', w) = WireCollection.add_literal graph.thread_id lit graph.wires in
     graph.wires <- wires';
     Typing.const_data graph (Some w) ctx.current
   | Sync ident ->
@@ -827,13 +829,13 @@ and visit_expr (graph : event_graph) (ci : cunit_info)
     and td2 = visit_expr graph ci ctx e2 in
     let w1 = unwrap_or_err "Invalid value" e1.span td1.w
     and w2 = unwrap_or_err "Invalid value" e2.span td2.w in
-    let (wires', w) = WireCollection.add_binary ci.typedefs binop w1 w2 graph.wires in
+    let (wires', w) = WireCollection.add_binary graph.thread_id ci.typedefs binop w1 w2 graph.wires in
     graph.wires <- wires';
     Typing.merged_data graph (Some w) ctx.current [td1; td2]
   | Unop (unop, e') ->
     let td = visit_expr graph ci ctx e' in
     let w' = unwrap_or_err "Invalid value" e'.span td.w in
-    let (wires', w) = WireCollection.add_unary ci.typedefs unop w' graph.wires in
+    let (wires', w) = WireCollection.add_unary graph.thread_id ci.typedefs unop w' graph.wires in
     graph.wires <- wires';
     Typing.derived_data (Some w) td
   | Tuple [] -> Typing.const_data graph None ctx.current
@@ -875,7 +877,7 @@ and visit_expr (graph : event_graph) (ci : cunit_info)
       match td2.w, td3.w with
       | None, None -> {w = None; lt; reg_borrows = reg_borrows'}
       | Some w2, Some w3 ->
-        let (wires', w) = WireCollection.add_switch ci.typedefs [(w1, w2)] w3 graph.wires in
+        let (wires', w) = WireCollection.add_switch graph.thread_id ci.typedefs [(w1, w2)] w3 graph.wires in
         graph.wires <- wires';
         {w = Some w; lt; reg_borrows = reg_borrows'}
       | _ -> raise (EventGraphError ("Invalid if expression!", e.span))
@@ -883,13 +885,13 @@ and visit_expr (graph : event_graph) (ci : cunit_info)
   | Concat es ->
     let tds = List.map (fun e' -> (e', visit_expr graph ci ctx e')) es in
     let ws = List.map (fun (e', td) -> unwrap_or_err "Invalid value in concat" e'.span td.w) tds in
-    let (wires', w) = WireCollection.add_concat ci.typedefs ws graph.wires in
+    let (wires', w) = WireCollection.add_concat graph.thread_id ci.typedefs ws graph.wires in
     graph.wires <- wires';
     List.map snd tds |> Typing.merged_data graph (Some w) ctx.current
   | Read reg_ident ->
     let r = List.find_opt (fun (r : Lang.reg_def) -> r.name = reg_ident) graph.regs
       |> unwrap_or_err ("Undefined register " ^ reg_ident) e.span in
-    let (wires', w) = WireCollection.add_reg_read ci.typedefs r graph.wires in
+    let (wires', w) = WireCollection.add_reg_read graph.thread_id ci.typedefs r graph.wires in
     graph.wires <- wires';
     {w = Some w; lt = Typing.lifetime_const ctx.current; reg_borrows = [(reg_ident, ctx.current)]}
   | Debug op ->
@@ -918,7 +920,7 @@ and visit_expr (graph : event_graph) (ci : cunit_info)
   | Recv recv_pack ->
     let msg = MessageCollection.lookup_message graph.messages recv_pack.recv_msg_spec ci.channel_classes
       |> unwrap_or_err "Invalid message specifier in receive" e.span in
-    let (wires', w) = WireCollection.add_msg_port ci.typedefs recv_pack.recv_msg_spec 0 msg graph.wires in
+    let (wires', w) = WireCollection.add_msg_port graph.thread_id ci.typedefs recv_pack.recv_msg_spec 0 msg graph.wires in
     graph.wires <- wires';
     let ntd = Typing.recv_msg_data graph (Some w) recv_pack.recv_msg_spec msg ctx.current in
     ctx.current.sustained_actions <-
@@ -929,7 +931,7 @@ and visit_expr (graph : event_graph) (ci : cunit_info)
     let w = unwrap_or_err "Invalid value in indirection" e'.span td.w in
     let (offset_le, len, new_dtype) = TypedefMap.data_type_indirect ci.typedefs w.dtype fieldname
       |> unwrap_or_err "Invalid indirection" e.span in
-    let (wires', new_w) = WireCollection.add_slice new_dtype w (Const offset_le) len graph.wires in
+    let (wires', new_w) = WireCollection.add_slice graph.thread_id new_dtype w (Const offset_le) len graph.wires in
     graph.wires <- wires';
     {
       td with
@@ -946,7 +948,7 @@ and visit_expr (graph : event_graph) (ci : cunit_info)
       |> unwrap_or_err "Invalid indexing" e.span in
     let wire_of td = unwrap_or_err "Invalid indexing" e.span td.w in
     let offset_le_w = MaybeConst.map wire_of offset_le in
-    let (wires', new_w) = WireCollection.add_slice new_dtype w offset_le_w len graph.wires in
+    let (wires', new_w) = WireCollection.add_slice graph.thread_id new_dtype w offset_le_w len graph.wires in
     graph.wires <- wires';
     (
       match offset_le with
@@ -964,7 +966,7 @@ and visit_expr (graph : event_graph) (ci : cunit_info)
             let tds = List.map (fun e' -> (e', visit_expr graph ci ctx e')) expr_reordered in
             let ws = List.rev_map (fun ((e', {w; _}) : expr_node * timed_data) ->
               unwrap_or_err "Invalid value in record field" e'.span w) tds in
-            let (wires', w) = WireCollection.add_concat ci.typedefs ws graph.wires in
+            let (wires', w) = WireCollection.add_concat graph.thread_id ci.typedefs ws graph.wires in
             graph.wires <- wires';
             List.map snd tds |> Typing.merged_data graph (Some w) ctx.current
           | _ -> raise (EventGraphError ("Invalid record type value!", e.span))
@@ -986,14 +988,16 @@ and visit_expr (graph : event_graph) (ci : cunit_info)
             and tot_size = TypedefMap.data_type_size ci.typedefs dtype
             and var_idx = variant_lookup_index dtype cstr_spec.variant
               |> unwrap_or_err ("Invalid constructor: " ^ cstr_spec.variant) e.span in
-            let (wires', w_tag) = WireCollection.add_literal (WithLength (tag_size, var_idx)) graph.wires in
+            let (wires', w_tag) = WireCollection.add_literal graph.thread_id
+              (WithLength (tag_size, var_idx)) graph.wires in
             let (wires', new_w) = if tot_size = tag_size + data_size then
               (* no padding *)
-              WireCollection.add_concat ci.typedefs [w; w_tag] wires'
+              WireCollection.add_concat graph.thread_id ci.typedefs [w; w_tag] wires'
             else begin
               (* padding needed *)
-              let (wires', w_pad) = WireCollection.add_literal (WithLength (tot_size - tag_size - data_size, 0)) wires' in
-              WireCollection.add_concat ci.typedefs [w_pad; w; w_tag] wires'
+              let (wires', w_pad) = WireCollection.add_literal graph.thread_id
+                (WithLength (tot_size - tag_size - data_size, 0)) wires' in
+              WireCollection.add_concat graph.thread_id ci.typedefs [w_pad; w; w_tag] wires'
             end in
             graph.wires <- wires';
             { td with w = Some new_w }
@@ -1002,12 +1006,14 @@ and visit_expr (graph : event_graph) (ci : cunit_info)
             and tot_size = TypedefMap.data_type_size ci.typedefs dtype
             and var_idx = variant_lookup_index dtype cstr_spec.variant
               |> unwrap_or_err ("Invalid constructor: " ^ cstr_spec.variant) e.span in
-            let (wires', w_tag) = WireCollection.add_literal (WithLength (tag_size, var_idx)) graph.wires in
+            let (wires', w_tag) = WireCollection.add_literal graph.thread_id
+              (WithLength (tag_size, var_idx)) graph.wires in
             let (wires', new_w) = if tot_size = tag_size then
               (wires', w_tag)
             else begin
-              let (wires', w_pad) = WireCollection.add_literal (WithLength (tot_size - tag_size, 0)) wires' in
-              WireCollection.add_concat ci.typedefs [w_pad; w_tag] wires'
+              let (wires', w_pad) = WireCollection.add_literal graph.thread_id
+                (WithLength (tot_size - tag_size, 0)) wires' in
+              WireCollection.add_concat graph.thread_id ci.typedefs [w_pad; w_tag] wires'
             end in
             graph.wires <- wires';
             Typing.const_data graph (Some new_w) ctx.current
