@@ -194,28 +194,58 @@ let codegen_transition printer (_graphs : EventGraph.event_graph_collection) (g 
 
 let codegen_sustained_actions printer (g : EventGraph.event_graph) =
   let print_line = CodegenPrinter.print_line printer in
+  let or_assigns = Hashtbl.create 8
+  and wire_assigns = Hashtbl.create 8 in (* name -> (cond, value) *)
+  let insert_to tbl w_name cond =
+    (
+      match Hashtbl.find_opt tbl w_name with
+      | None -> Hashtbl.add tbl w_name (ref [cond])
+      | Some li -> li := cond::!li
+    )
+  in
   let open Lang in
   let print_sa_event (e : EventGraph.event) =
     List.iter (fun (sa : EventGraph.sustained_action Lang.ast_node) ->
-      let activated = Printf.sprintf "(_thread_%d_event_reached[%d] || _thread_%d_event_current%d) && !_thread_%d_event_reached[%d] && !_thread_%d_event_current%d"
+      let started = Printf.sprintf "(_thread_%d_event_reached[%d] || _thread_%d_event_current%d)"
+        g.thread_id e.id g.thread_id e.id in
+      let activated = Printf.sprintf "((_thread_%d_event_reached[%d] || _thread_%d_event_current%d) && !_thread_%d_event_reached[%d] && !_thread_%d_event_current%d)"
         g.thread_id e.id g.thread_id e.id g.thread_id sa.d.until.id g.thread_id sa.d.until.id in
       match sa.d.ty with
       | Send (msg, td) ->
-        Printf.sprintf "assign %s = %s;"
+        insert_to or_assigns
           (CodegenFormat.format_msg_valid_signal_name (EventGraph.canonicalize_endpoint_name msg.endpoint g) msg.msg)
-          activated |> print_line;
+          activated;
         let w = Option.get td.w in
-        Printf.sprintf "assign %s = %s;"
+        insert_to wire_assigns
           (CodegenFormat.format_msg_data_signal_name (EventGraph.canonicalize_endpoint_name msg.endpoint g) msg.msg 0)
-          (CodegenFormat.format_wirename w.thread_id w.id)
-          |> print_line
+          (started, (CodegenFormat.format_wirename w.thread_id w.id))
       | Recv msg ->
-        Printf.sprintf "assign %s = %s;"
+        insert_to or_assigns
           (CodegenFormat.format_msg_ack_signal_name (EventGraph.canonicalize_endpoint_name msg.endpoint g) msg.msg)
-          activated |> print_line
+          activated
     ) e.sustained_actions
   in
-  List.iter print_sa_event g.events
+  (* assuming reverse topo order, the assign lists will be in topo order *)
+  List.iter print_sa_event g.events;
+  Hashtbl.iter (fun w_name conds ->
+    String.concat " || " !conds
+    |> Printf.sprintf "assign %s = %s;" w_name
+    |> print_line
+  ) or_assigns;
+  Hashtbl.iter (fun w_name cond_vals ->
+    let rev_cond_vals = List.rev !cond_vals in
+    let (_, last_v) = List.hd rev_cond_vals in
+    let v_sum = if List.length rev_cond_vals = 1 then
+      last_v
+    else (
+      (List.map (fun (cond, v) -> Printf.sprintf "%s ? %s : " cond v) rev_cond_vals
+      |> String.concat "") ^ last_v (* keep the last value as default to handle loop-around *)
+      (* FIXME: there's a failing case for this when the last event is in a if branch that is not taken.
+        fixable by recording the last event *)
+    ) in
+    Printf.sprintf "assign %s = %s;" w_name v_sum
+    |> print_line
+  ) wire_assigns
 
 let codegen_states printer
   (graphs : EventGraph.event_graph_collection)
