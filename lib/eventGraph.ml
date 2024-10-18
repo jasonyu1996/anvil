@@ -740,11 +740,11 @@ let binop_td_const graph ci _ctx span op n td =
   | Mul -> sz + Utils.int_log2 n
   | _ -> sz in
   let (wires', w') = if sz' > sz then
-    let (wires', padding) = WireCollection.add_literal (Lang.WithLength (sz' - sz, 0)) graph.wires in
-    WireCollection.add_concat ci.typedefs [padding; w] wires'
+    let (wires', padding) = WireCollection.add_literal graph.thread_id (Lang.WithLength (sz' - sz, 0)) graph.wires in
+    WireCollection.add_concat graph.thread_id ci.typedefs [padding; w] wires'
   else (graph.wires, w) in
-  let (wires'', wconst) = WireCollection.add_literal (WithLength (sz', n)) wires' in
-  let (wires''', wres) = WireCollection.add_binary ci.typedefs op w' wconst wires'' in
+  let (wires'', wconst) = WireCollection.add_literal graph.thread_id (WithLength (sz', n)) wires' in
+  let (wires''', wres) = WireCollection.add_binary graph.thread_id ci.typedefs op w' wconst wires'' in
   graph.wires <- wires''';
   {td with w = Some wres}
 
@@ -759,14 +759,14 @@ let binop_td_td graph ci ctx span op td1 td2 =
   | Mul -> sz1 + sz2
   | _ -> max sz1 sz2 in
   let (wires', w1') = if sz' > sz1 then
-    let (wires', padding) = WireCollection.add_literal (Lang.WithLength (sz' - sz1, 0)) graph.wires in
-    WireCollection.add_concat ci.typedefs [padding; w1] wires'
+    let (wires', padding) = WireCollection.add_literal graph.thread_id (Lang.WithLength (sz' - sz1, 0)) graph.wires in
+    WireCollection.add_concat graph.thread_id ci.typedefs [padding; w1] wires'
   else (graph.wires, w1) in
   let (wires', w2') = if sz' > sz2 then
-    let (wires', padding) = WireCollection.add_literal (Lang.WithLength (sz' - sz2, 0)) wires' in
-    WireCollection.add_concat ci.typedefs [padding; w2] wires'
+    let (wires', padding) = WireCollection.add_literal graph.thread_id (Lang.WithLength (sz' - sz2, 0)) wires' in
+    WireCollection.add_concat graph.thread_id ci.typedefs [padding; w2] wires'
   else (wires', w2) in
-  let (wires', wres) = WireCollection.add_binary ci.typedefs op w1' w2' wires' in
+  let (wires', wres) = WireCollection.add_binary graph.thread_id ci.typedefs op w1' w2' wires' in
   graph.wires <- wires';
   let open Typing in
   Typing.merged_data graph (Some wres) ctx.current [td1; td2]
@@ -806,7 +806,7 @@ and visit_expr (graph : event_graph) (ci : cunit_info)
   and _binop_td_td = binop_td_td graph ci ctx in
   match e.d with
   | Literal lit ->
-    let (wires', w) = WireCollection.add_literal lit graph.wires in
+    let (wires', w) = WireCollection.add_literal graph.thread_id lit graph.wires in
     graph.wires <- wires';
     Typing.const_data graph (Some w) ctx.current
   | Sync ident ->
@@ -829,13 +829,13 @@ and visit_expr (graph : event_graph) (ci : cunit_info)
     and td2 = visit_expr graph ci ctx e2 in
     let w1 = unwrap_or_err "Invalid value" e1.span td1.w
     and w2 = unwrap_or_err "Invalid value" e2.span td2.w in
-    let (wires', w) = WireCollection.add_binary ci.typedefs binop w1 w2 graph.wires in
+    let (wires', w) = WireCollection.add_binary graph.thread_id ci.typedefs binop w1 w2 graph.wires in
     graph.wires <- wires';
     Typing.merged_data graph (Some w) ctx.current [td1; td2]
   | Unop (unop, e') ->
     let td = visit_expr graph ci ctx e' in
     let w' = unwrap_or_err "Invalid value" e'.span td.w in
-    let (wires', w) = WireCollection.add_unary ci.typedefs unop w' graph.wires in
+    let (wires', w) = WireCollection.add_unary graph.thread_id ci.typedefs unop w' graph.wires in
     graph.wires <- wires';
     Typing.derived_data (Some w) td
   | Tuple [] -> Typing.const_data graph None ctx.current
@@ -873,7 +873,7 @@ and visit_expr (graph : event_graph) (ci : cunit_info)
       match td2.w, td3.w with
       | None, None -> {w = None; lt; reg_borrows = reg_borrows'}
       | Some w2, Some w3 ->
-        let (wires', w) = WireCollection.add_switch ci.typedefs [(w1, w2)] w3 graph.wires in
+        let (wires', w) = WireCollection.add_switch graph.thread_id ci.typedefs [(w1, w2)] w3 graph.wires in
         graph.wires <- wires';
         {w = Some w; lt; reg_borrows = reg_borrows'}
       | _ -> raise (EventGraphError ("Invalid if expression!", e.span))
@@ -881,13 +881,13 @@ and visit_expr (graph : event_graph) (ci : cunit_info)
   | Concat es ->
     let tds = List.map (fun e' -> (e', visit_expr graph ci ctx e')) es in
     let ws = List.map (fun (e', td) -> unwrap_or_err "Invalid value in concat" e'.span td.w) tds in
-    let (wires', w) = WireCollection.add_concat ci.typedefs ws graph.wires in
+    let (wires', w) = WireCollection.add_concat graph.thread_id ci.typedefs ws graph.wires in
     graph.wires <- wires';
     List.map snd tds |> Typing.merged_data graph (Some w) ctx.current
   | Read reg_ident ->
     let r = List.find_opt (fun (r : Lang.reg_def) -> r.name = reg_ident) graph.regs
       |> unwrap_or_err ("Undefined register " ^ reg_ident) e.span in
-    let (wires', w) = WireCollection.add_reg_read ci.typedefs r graph.wires in
+    let (wires', w) = WireCollection.add_reg_read graph.thread_id ci.typedefs r graph.wires in
     graph.wires <- wires';
     {w = Some w; lt = Typing.lifetime_const ctx.current; reg_borrows = [(reg_ident, ctx.current)]}
   | Debug op ->
@@ -916,7 +916,7 @@ and visit_expr (graph : event_graph) (ci : cunit_info)
   | Recv recv_pack ->
     let msg = MessageCollection.lookup_message graph.messages recv_pack.recv_msg_spec ci.channel_classes
       |> unwrap_or_err "Invalid message specifier in receive" e.span in
-    let (wires', w) = WireCollection.add_msg_port ci.typedefs recv_pack.recv_msg_spec 0 msg graph.wires in
+    let (wires', w) = WireCollection.add_msg_port graph.thread_id ci.typedefs recv_pack.recv_msg_spec 0 msg graph.wires in
     graph.wires <- wires';
     let ntd = Typing.recv_msg_data graph (Some w) recv_pack.recv_msg_spec msg ctx.current in
     ctx.current.sustained_actions <-
@@ -927,7 +927,7 @@ and visit_expr (graph : event_graph) (ci : cunit_info)
     let w = unwrap_or_err "Invalid value in indirection" e'.span td.w in
     let (offset_le, len, new_dtype) = TypedefMap.data_type_indirect ci.typedefs w.dtype fieldname
       |> unwrap_or_err "Invalid indirection" e.span in
-    let (wires', new_w) = WireCollection.add_slice new_dtype w (Const offset_le) len graph.wires in
+    let (wires', new_w) = WireCollection.add_slice graph.thread_id new_dtype w (Const offset_le) len graph.wires in
     graph.wires <- wires';
     {
       td with
@@ -944,7 +944,7 @@ and visit_expr (graph : event_graph) (ci : cunit_info)
       |> unwrap_or_err "Invalid indexing" e.span in
     let wire_of td = unwrap_or_err "Invalid indexing" e.span td.w in
     let offset_le_w = MaybeConst.map wire_of offset_le in
-    let (wires', new_w) = WireCollection.add_slice new_dtype w offset_le_w len graph.wires in
+    let (wires', new_w) = WireCollection.add_slice graph.thread_id new_dtype w offset_le_w len graph.wires in
     graph.wires <- wires';
     (
       match offset_le with
@@ -962,7 +962,7 @@ and visit_expr (graph : event_graph) (ci : cunit_info)
             let tds = List.map (fun e' -> (e', visit_expr graph ci ctx e')) expr_reordered in
             let ws = List.rev_map (fun ((e', {w; _}) : expr_node * timed_data) ->
               unwrap_or_err "Invalid value in record field" e'.span w) tds in
-            let (wires', w) = WireCollection.add_concat ci.typedefs ws graph.wires in
+            let (wires', w) = WireCollection.add_concat graph.thread_id ci.typedefs ws graph.wires in
             graph.wires <- wires';
             List.map snd tds |> Typing.merged_data graph (Some w) ctx.current
           | _ -> raise (EventGraphError ("Invalid record type value!", e.span))
@@ -984,14 +984,16 @@ and visit_expr (graph : event_graph) (ci : cunit_info)
             and tot_size = TypedefMap.data_type_size ci.typedefs dtype
             and var_idx = variant_lookup_index dtype cstr_spec.variant
               |> unwrap_or_err ("Invalid constructor: " ^ cstr_spec.variant) e.span in
-            let (wires', w_tag) = WireCollection.add_literal (WithLength (tag_size, var_idx)) graph.wires in
+            let (wires', w_tag) = WireCollection.add_literal graph.thread_id
+              (WithLength (tag_size, var_idx)) graph.wires in
             let (wires', new_w) = if tot_size = tag_size + data_size then
               (* no padding *)
-              WireCollection.add_concat ci.typedefs [w; w_tag] wires'
+              WireCollection.add_concat graph.thread_id ci.typedefs [w; w_tag] wires'
             else begin
               (* padding needed *)
-              let (wires', w_pad) = WireCollection.add_literal (WithLength (tot_size - tag_size - data_size, 0)) wires' in
-              WireCollection.add_concat ci.typedefs [w_pad; w; w_tag] wires'
+              let (wires', w_pad) = WireCollection.add_literal graph.thread_id
+                (WithLength (tot_size - tag_size - data_size, 0)) wires' in
+              WireCollection.add_concat graph.thread_id ci.typedefs [w_pad; w; w_tag] wires'
             end in
             graph.wires <- wires';
             { td with w = Some new_w }
@@ -1000,12 +1002,14 @@ and visit_expr (graph : event_graph) (ci : cunit_info)
             and tot_size = TypedefMap.data_type_size ci.typedefs dtype
             and var_idx = variant_lookup_index dtype cstr_spec.variant
               |> unwrap_or_err ("Invalid constructor: " ^ cstr_spec.variant) e.span in
-            let (wires', w_tag) = WireCollection.add_literal (WithLength (tag_size, var_idx)) graph.wires in
+            let (wires', w_tag) = WireCollection.add_literal graph.thread_id
+              (WithLength (tag_size, var_idx)) graph.wires in
             let (wires', new_w) = if tot_size = tag_size then
               (wires', w_tag)
             else begin
-              let (wires', w_pad) = WireCollection.add_literal (WithLength (tot_size - tag_size, 0)) wires' in
-              WireCollection.add_concat ci.typedefs [w_pad; w_tag] wires'
+              let (wires', w_pad) = WireCollection.add_literal graph.thread_id
+                (WithLength (tot_size - tag_size, 0)) wires' in
+              WireCollection.add_concat graph.thread_id ci.typedefs [w_pad; w_tag] wires'
             end in
             graph.wires <- wires';
             Typing.const_data graph (Some new_w) ctx.current

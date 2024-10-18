@@ -119,43 +119,43 @@ let codegen_wire_assignment printer (g : event_graph) (w : WireCollection.wire) 
     | Literal lit -> Format.format_literal lit
     | Binary (binop, w1, w2) ->
       Printf.sprintf "%s %s %s"
-        (Format.format_wirename g.thread_id w1.id)
+        (Format.format_wirename w1.thread_id w1.id)
         (Format.format_binop binop)
-        (Format.format_wirename g.thread_id w2.id)
+        (Format.format_wirename w2.thread_id w2.id)
     | Unary (unop, w') ->
       Printf.sprintf "%s%s"
         (Format.format_unop unop)
-        (Format.format_wirename g.thread_id w'.id)
+        (Format.format_wirename w'.thread_id w'.id)
     | Switch (sw, d) ->
       let conds = List.map
         (fun ((cond, v) : WireCollection.wire * WireCollection.wire) ->
           Printf.sprintf "(%s) ? %s : "
-            (Format.format_wirename g.thread_id cond.id)
-            (Format.format_wirename g.thread_id v.id)
+            (Format.format_wirename cond.thread_id cond.id)
+            (Format.format_wirename v.thread_id v.id)
         )
         sw
       |> String.concat "" in
-      Printf.sprintf "%s%s" conds (Format.format_wirename g.thread_id d.id)
+      Printf.sprintf "%s%s" conds (Format.format_wirename d.thread_id d.id)
     | RegRead reg_ident -> Format.format_regname_current reg_ident
     | Concat ws ->
-      List.map (fun (w' : WireCollection.wire) -> Format.format_wirename g.thread_id w'.id) ws |>
+      List.map (fun (w' : WireCollection.wire) -> Format.format_wirename w'.thread_id w'.id) ws |>
         String.concat ", " |> Printf.sprintf "{%s}"
     | MessagePort (msg, idx) ->
       let msg_endpoint = EventGraph.canonicalize_endpoint_name msg.endpoint g in
       Format.format_msg_data_signal_name msg_endpoint msg.msg idx
     | Slice (w', base_i, len) ->
-      Printf.sprintf "%s[%s +: %d]" (Format.format_wirename g.thread_id w'.id)
-        (Format.format_wire_maybe_const g.thread_id base_i)
+      Printf.sprintf "%s[%s +: %d]" (Format.format_wirename w'.thread_id w'.id)
+        (Format.format_wire_maybe_const base_i)
         len
   in
-  Printf.sprintf "assign %s = %s;" (Format.format_wirename g.thread_id w.id) expr |>
+  Printf.sprintf "assign %s = %s;" (Format.format_wirename w.thread_id w.id) expr |>
     CodegenPrinter.print_line printer
 
 
 let codegen_post_declare printer (graphs : event_graph_collection) (g : event_graph) =
   (* wire declarations *)
   let codegen_wire_decl = fun (w: WireCollection.wire) ->
-    Printf.sprintf "%s %s;" (Format.format_dtype graphs.typedefs w.dtype) (Format.format_wirename g.thread_id w.id) |>
+    Printf.sprintf "%s %s;" (Format.format_dtype graphs.typedefs w.dtype) (Format.format_wirename w.thread_id w.id) |>
       CodegenPrinter.print_line printer
   in List.iter codegen_wire_decl g.wires;
   List.iter (codegen_wire_assignment printer g) g.wires

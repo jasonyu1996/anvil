@@ -104,7 +104,8 @@ let codegen_next printer (pg : EventGraph.proc_graph) (g : EventGraph.event_grap
         else
           Printf.sprintf "assign _thread_%d_event_current%d = _thread_%d_event_current%d && %s;" g.thread_id e.id g.thread_id e'.id wn |> print_line
       in
-      print @@ CodegenFormat.format_wirename g.thread_id (Option.get cond.data.w).id
+      let w = Option.get cond.data.w in
+      print @@ CodegenFormat.format_wirename w.thread_id w.id
   in
   List.iter print_compute_next g.events
 
@@ -120,17 +121,20 @@ let codegen_actions printer (g : EventGraph.event_graph) =
         | DebugPrint (s, tds) ->
           Printf.sprintf "$display(\"%s\"%s);"
             s
-            (List.map (fun (td : timed_data) -> Printf.sprintf ", %s" @@ CodegenFormat.format_wirename g.thread_id (Option.get td.w).id) tds |>
+            (List.map (fun (td : timed_data) ->
+              let w = Option.get td.w in
+              Printf.sprintf ", %s" @@ CodegenFormat.format_wirename w.thread_id w.id) tds |>
             String.concat "") |> print_line
         | DebugFinish ->
           print_line "$finish;"
         | RegAssign (lval_info, td) ->
           let (le, len) = lval_info.range in
+          let w = Option.get td.w in
           Printf.sprintf "%s[%s +: %d] <= %s;"
             (CodegenFormat.format_regname_current lval_info.reg_name)
-            (MaybeConst.map (fun td -> Option.get td.w) le |> CodegenFormat.format_wire_maybe_const g.thread_id)
+            (MaybeConst.map (fun td -> Option.get td.w) le |> CodegenFormat.format_wire_maybe_const)
             len
-            (CodegenFormat.format_wirename g.thread_id (Option.get td.w).id)
+            (CodegenFormat.format_wirename w.thread_id w.id)
             |> print_line
         | PutShared _ -> ()
       in
@@ -200,9 +204,10 @@ let codegen_sustained_actions printer (g : EventGraph.event_graph) =
         Printf.sprintf "assign %s = %s;"
           (CodegenFormat.format_msg_valid_signal_name (EventGraph.canonicalize_endpoint_name msg.endpoint g) msg.msg)
           activated |> print_line;
+        let w = Option.get td.w in
         Printf.sprintf "assign %s = %s;"
           (CodegenFormat.format_msg_data_signal_name (EventGraph.canonicalize_endpoint_name msg.endpoint g) msg.msg 0)
-          (CodegenFormat.format_wirename g.thread_id (Option.get td.w).id)
+          (CodegenFormat.format_wirename w.thread_id w.id)
           |> print_line
       | Recv msg ->
         Printf.sprintf "assign %s = %s;"
