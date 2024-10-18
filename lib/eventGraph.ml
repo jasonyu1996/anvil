@@ -466,13 +466,15 @@ module Typing = struct
 
   module IntHashtbl = Hashtbl.Make(Int)
   let event_distance_max = 1 lsl 20
-  let event_succ_distance non_succ_dist msg_dist_f either_dist_f (ev : event) =
-    let succs = event_successors ev in
+  let event_succ_distance non_succ_dist msg_dist_f either_dist_f events (ev : event) =
+    let preds = event_predecessors ev in
     let dist = IntHashtbl.create 8 in
     IntHashtbl.add dist ev.id 0;
     let get_dist ev' = IntHashtbl.find_opt dist ev'.id |> Option.value ~default:non_succ_dist in
     let set_dist ev' d = IntHashtbl.add dist ev'.id d in
-    List.tl succs |> List.iter (fun ev' ->
+    List.iter (fun ev' -> set_dist ev' 0) preds; (* predecessors must have been reached *)
+    List.rev events |> List.iter (fun ev' ->
+      if IntHashtbl.find_opt dist ev'.id |> Option.is_none then
       let d = match ev'.source with
       | `Root -> raise (LifetimeCheckError "Unexpected root!")
       | `Later (ev1, ev2) -> max (get_dist ev1) (get_dist ev2)
@@ -499,7 +501,7 @@ module Typing = struct
   (** Is ev_pat1 matched always no later than ev_pat2 is matched?
   Produce a conservative result.
   Only length 1 ev_pat1 supported. *)
-  let event_pat_rel (ev_pat1 : event_pat) (ev_pat2 : event_pat) =
+  let event_pat_rel events (ev_pat1 : event_pat) (ev_pat2 : event_pat) =
     if (List.length ev_pat1) <> 1 then
       false
     else (
@@ -508,7 +510,7 @@ module Typing = struct
         | `Eternal -> fun _ev2 d_pat2 -> d_pat2 = `Eternal
         | `Cycles n1 ->
           (* compute the min possible cycle distance from n1 to successors *)
-          let dist = event_min_distance ev1 in
+          let dist = event_min_distance events ev1 in
           let get_dist ev' = IntHashtbl.find_opt dist ev'.id |> Option.value ~default:0 in
           (
             fun ev2 d_pat2 ->
@@ -519,7 +521,7 @@ module Typing = struct
                   let d = get_dist ev2 in
                   n1 <= d + n2
                 else (
-                  let dist2 = event_max_distance ev2 in
+                  let dist2 = event_max_distance events ev2 in
                   let d = IntHashtbl.find_opt dist2 ev1.id |> Option.value ~default:event_distance_max in
                   n1 + d <= n2
                 )
@@ -546,7 +548,7 @@ module Typing = struct
                 | `Cycles n2 -> (* earliest estimate *)
                   if event_is_predecessor ev2 ri1 then true
                   else (
-                    let dist = event_max_distance ev2 in
+                    let dist = event_max_distance events ev2 in
                     let d = IntHashtbl.find_opt dist ri1.id |> Option.value ~default:event_distance_max in
                     d <= n2
                   )
@@ -564,7 +566,7 @@ module Typing = struct
     )
 
   (** Check that lt1 is always fully covered by lt2 *)
-  let lifetime_in_range (lt1 : lifetime) (lt2 : lifetime) =
+  let lifetime_in_range events (lt1 : lifetime) (lt2 : lifetime) =
     (* 1. check if lt2's start is a predecessor of lt1's start *)
     (* 2. derive a set of all time points A potentially within lt1 *)
     (* 4. check that end time of lt2 does not match any time point in A *)
@@ -572,16 +574,16 @@ module Typing = struct
       let r = event_pat_matches lt1.live lt2.dead in
       (not r.at) && (not r.aft)
     ) *)
-    (event_is_successor lt2.live lt1.live) && (event_pat_rel lt1.dead lt2.dead)
+    (event_is_successor lt2.live lt1.live) && (event_pat_rel events lt1.dead lt2.dead)
 
   (** Definitely disjoint? *)
-  let lifetime_disjoint lt1 lt2 =
+  let lifetime_disjoint events lt1 lt2 =
     assert (List.length lt1.dead = 1);
     (* to be disjoint, either r1 <= l2 or r2 <= l1 *)
-    if event_pat_rel lt1.dead [(lt2.live, `Cycles 0)] then
+    if event_pat_rel events lt1.dead [(lt2.live, `Cycles 0)] then
       true
     else
-      List.for_all (fun de -> event_pat_rel [de] [(lt1.live, `Cycles 0)]) lt2.dead
+      List.for_all (fun de -> event_pat_rel events [de] [(lt1.live, `Cycles 0)]) lt2.dead
 
   module StringHashtbl = Hashtbl.Make(String)
 
@@ -598,11 +600,11 @@ module Typing = struct
     (* check lifetime for each use of a wire *)
     let not_borrowed tbl s lt =
       let borrows = StringHashtbl.find_opt tbl s |> Option.value ~default:[] in
-      List.for_all (lifetime_disjoint lt) borrows
+      List.for_all (lifetime_disjoint g.events lt) borrows
     in
     let not_borrowed_and_add tbl s lt =
       let borrows = StringHashtbl.find_opt tbl s |> Option.value ~default:[] in
-      let not_borrowed = List.for_all (lifetime_disjoint lt) borrows in
+      let not_borrowed = List.for_all (lifetime_disjoint g.events lt) borrows in
       if not_borrowed then StringHashtbl.replace tbl s (lt::borrows);
       not_borrowed
     in
@@ -668,25 +670,25 @@ module Typing = struct
           if not_borrowed reg_borrows lval_info.reg_name lt |> not then
             raise (EventGraphError ("Attempted assignment to a borrowed register!", a.span))
           else ();
-          if lifetime_in_range lt td.lt |> not then
+          if lifetime_in_range g.events lt td.lt |> not then
             raise (EventGraphError ("Value does not live long enough in reg assignment!", a.span))
           else ();
           (
             match fst lval_info.range with
             | Const _ -> ()
             | NonConst range_st_td ->
-              if lifetime_in_range lt range_st_td.lt |> not then
+              if lifetime_in_range g.events lt range_st_td.lt |> not then
                 raise (EventGraphError ("Lvalue index does not live long enough!", a.span))
           )
         | DebugPrint (_, tds) ->
           List.iter (fun td ->
-            if lifetime_in_range (lifetime_immediate ev) td.lt |> not then
+            if lifetime_in_range g.events (lifetime_immediate ev) td.lt |> not then
               raise (EventGraphError ("Value does not live long enough in debug print!", a.span))
             else ()
           ) tds
         | DebugFinish -> ()
         | PutShared (_, si, td) ->
-          if lifetime_in_range {live = ev; dead = [(ev, si.value.glt.e)]} td.lt |> not then
+          if lifetime_in_range g.events {live = ev; dead = [(ev, si.value.glt.e)]} td.lt |> not then
             raise (EventGraphError ("Value does not live long enough in put!", a.span))
           else ()
       )
@@ -700,7 +702,7 @@ module Typing = struct
           if not_borrowed_and_add msg_borrows (string_of_msg_spec msg) lt |> not then
             raise (EventGraphError ("Potentially conflicting message sending!", sa.span))
           else ();
-          if lifetime_in_range lt td.lt |> not then
+          if lifetime_in_range g.events lt td.lt |> not then
             raise (EventGraphError ("Value not live long enough in message send!", sa.span))
         | Recv _ -> ()
       )
