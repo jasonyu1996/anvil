@@ -36,7 +36,7 @@ let codegen_next printer (pg : EventGraph.proc_graph) (g : EventGraph.event_grap
               g.thread_id e.id g.thread_id e'.id |> print_line
           else
             [
-              Printf.sprintf "logic [%d:0] _thread_%d_event_counter%d;" (Utils.int_log2 n) g.thread_id e.id;
+              Printf.sprintf "logic [%d:0] _thread_%d_event_counter%d;" (Utils.int_log2 (n+1)) g.thread_id e.id;
               Printf.sprintf "logic _thread_%d_event_counter_valid%d;" g.thread_id e.id;
               Printf.sprintf  "logic _thread_%d_event_counter_begin%d;" g.thread_id e.id;
               Printf.sprintf "always_ff @(posedge clk_i or negedge rst_ni) begin";
@@ -48,8 +48,9 @@ let codegen_next printer (pg : EventGraph.proc_graph) (g : EventGraph.event_grap
               Printf.sprintf "      _thread_%d_event_counter_begin%d <= 1'b1;" g.thread_id e.id;
               Printf.sprintf "      _thread_%d_event_counter_valid%d <= 1'b0;" g.thread_id e.id;
               Printf.sprintf "  end else if (_thread_%d_event_counter_begin%d && !_thread_%d_event_counter_valid%d) begin" g.thread_id e.id g.thread_id e.id;
-              Printf.sprintf "    if (_thread_%d_event_counter%d >= %d) begin" g.thread_id e.id (n - 2);
+              Printf.sprintf "    if (_thread_%d_event_counter%d >= %d) begin" g.thread_id e.id (n - 1);
               Printf.sprintf "      _thread_%d_event_counter%d <= '0;" g.thread_id e.id;
+              Printf.sprintf "      _thread_%d_event_counter_begin%d <= 1'b0;" g.thread_id e.id;
               Printf.sprintf "      _thread_%d_event_counter_valid%d <= 1'b1;" g.thread_id e.id;
               Printf.sprintf "    end else begin";
               Printf.sprintf "      _thread_%d_event_counter%d <= _thread_%d_event_counter%d + 1'b1;" g.thread_id e.id g.thread_id e.id;
