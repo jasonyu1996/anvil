@@ -22,6 +22,7 @@ module Wire = struct
     | Switch of (t * t) list * t (* (cond, val) list, default *)
     | RegRead of Lang.identifier
     | MessagePort of Lang.message_specifier * int (* index of the port *)
+    | MessageValidPort of Lang.message_specifier (* New wire source for message valid port *)
     | Concat of t list
     | Slice of t * t MaybeConst.maybe_int_const * int (** third component is size *)
 
@@ -94,6 +95,13 @@ module Wire = struct
       source = Slice (w, base_i, len);
       dtype;
     }
+
+  let new_msg_valid_port id _typedefs msg_spec =
+    {
+      id;
+      source = MessageValidPort msg_spec;
+      dtype = `Logic;
+    }
 end
 
 type wire = Wire.t
@@ -144,4 +152,10 @@ let add_msg_port (typedefs : TypedefMap.t)
 let add_slice (dtype : Lang.data_type) (w : wire)  base_i len (wc : t) : t * wire =
   let id = List.length wc in
   let w = Wire.new_slice id dtype w base_i len in
+  (w::wc, w)
+
+let add_msg_valid_port (typedefs : TypedefMap.t)
+  (msg_spec : Lang.message_specifier) (wc : t) : t * wire =
+  let id = List.length wc in
+  let w = Wire.new_msg_valid_port id typedefs msg_spec in
   (w::wc, w)

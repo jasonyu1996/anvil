@@ -50,6 +50,7 @@ rule read =
   | "!="      { EXCL_EQ }
   | "|>"      { OR_GT }
   | "!"       { EXCL }
+  | "ready"   { KEYWORD_READY }
   | "put"     { KEYWORD_PUT }
   | "shared"  { KEYWORD_SHARED }
   | "assigned" { KEYWORD_ASSIGNED }

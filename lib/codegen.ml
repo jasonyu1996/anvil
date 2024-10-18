@@ -117,6 +117,7 @@ let codegen_wire_assignment printer (g : event_graph) (w : WireCollection.wire) 
   let expr =
     match w.source with
     | Literal lit -> Format.format_literal lit
+    
     | Binary (binop, w1, w2) ->
       Printf.sprintf "%s %s %s"
         (Format.format_wirename g.thread_id w1.id)
@@ -147,6 +148,8 @@ let codegen_wire_assignment printer (g : event_graph) (w : WireCollection.wire) 
       Printf.sprintf "%s[%s +: %d]" (Format.format_wirename g.thread_id w'.id)
         (Format.format_wire_maybe_const g.thread_id base_i)
         len
+    | MessageValidPort msg ->
+      CodegenFormat.format_msg_valid_signal_name (EventGraph.canonicalize_endpoint_name msg.endpoint g) msg.msg
   in
   Printf.sprintf "assign %s = %s;" (Format.format_wirename g.thread_id w.id) expr |>
     CodegenPrinter.print_line printer

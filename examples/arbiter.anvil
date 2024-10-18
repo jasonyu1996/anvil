@@ -1,0 +1,67 @@
+chan producer_ch_1 = {
+    left req : (logic[8]@res),
+    right res : (logic@req)
+}
+
+chan producer_ch_2 = {
+    left req : (logic[8]@res),
+    right res : (logic@req)
+}
+
+chan producer_ch_3 = {
+    left req: (logic[8]@res),
+    right res: (logic@req)
+}
+
+chan producer_ch_4 = {
+    left req: (logic[8]@res),
+    right res: (logic@req)
+}
+
+chan consumer_ch = {
+    left gnt: (logic[8]@#1)
+}
+
+proc priority_arbiter(ch1 : left producer_ch_1,ch2 : left producer_ch_2,ch3 : left producer_ch_3,ch4 : left producer_ch_4, ch : right consumer_ch) =
+
+reg InReady : logic[1]
+reg result : logic[8]
+reg cycle_count : logic[5]
+loop {
+    set cycle_count := !cycle_count + 5'b00001
+}
+loop {
+    let in1 = recv ch1::req in
+    let in2 = recv ch2::req in
+    let in3 = recv ch3::req in
+    let in4 = recv ch4::req in
+    (
+        if (ready ch1::req) then 
+            (in1=>
+            set result := in1;
+            set InReady := 1'b1)
+        else if (ready ch2::req) then 
+            (in2=>
+            set result := in2;
+            set InReady := 1'b1)
+        else if (ready ch3::req) then 
+            (in3=>
+            set result := in3;
+            set InReady := 1'b1)
+        else if (ready ch4::req) then 
+            (in4=>
+            set result := in4;
+            set InReady := 1'b1)
+        else 
+            set InReady := 1'b0
+    )=>
+    (if (!InReady == 1'b1) then 
+        send ch::gnt(!result)
+    else 
+        dprint "No Producer is ready in cycle " (!cycle_count))=>
+    cycle 1=>
+    send ch1::res(1'b1);
+    send ch2::res(1'b1);
+    send ch3::res(1'b1);
+    send ch4::res(1'b1)
+}

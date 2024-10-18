@@ -334,6 +334,7 @@ and expr =
   | Index of expr_node * index (** an element of an array ([a[3]]) *)
   | Indirect of expr_node * identifier (** a member of a record ([a.b]) *)
   | Concat of expr_node list
+  | Ready of message_specifier (** [ready(a, b)] *)
   | Match of expr_node * ((match_pattern * expr_node option) list)
   | Read of identifier (** reading a value from a register (leading to a borrow) *)
   | Debug of debug_op
