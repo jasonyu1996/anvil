@@ -1,3 +1,5 @@
+# This needs to be run with bash
+
 set -e
 
 TESTS=(
@@ -10,6 +12,7 @@ TESTS=(
     assign_repeat
     counter2
     import_example
+    multi_send_recv
 )
 
 passed=0
