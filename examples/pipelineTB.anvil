@@ -44,9 +44,8 @@ proc PipelineProcessor(ch : left proc_main) =
     }
 
     loop {
-        set MEM_WB_result := !EX_MEM_result=>
-        send ch::res(!MEM_WB_result)=>
-        dprint "(Top) Sent Result (%d) on cycle: %d" (!MEM_WB_result, !cycle_counter)
+        send ch::res(!EX_MEM_result)=>
+        dprint "(Pipeline) Sent Result (%d) on cycle: %d" (!EX_MEM_result, !cycle_counter)
     }
 
 
