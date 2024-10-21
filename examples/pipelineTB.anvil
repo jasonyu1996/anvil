@@ -17,9 +17,10 @@ proc PipelineProcessor(ch : left proc_main) =
     }
 
     loop {
+        dprint "(Pipeline) Waiting for instruction on cycle: %d" (!cycle_counter);
         let instruction = recv ch::req in
         instruction=>
-        set IF_ID_instruction := instruction
+        dprint "(Pipeline) Recieved instruction (%d) on cycle: %d" (instruction, !cycle_counter)
     }
 
     loop {
@@ -55,24 +56,24 @@ proc pipelineTB () =
     reg counter: logic[4]
     reg instruction: logic[8]
     reg cycle_counter: logic[4]
+    reg operand_a: logic[3]
+    reg operand_b: logic[3]
+    reg opcode: logic[2]
 
     loop {
         set cycle_counter := !cycle_counter + 4'b0001
     }
+    loop {
+        set operand_a := !operand_a + 3'b001;
+        set operand_b := !operand_b + 3'b001
+    }
 
     loop {
+        set instruction := {!operand_a, !operand_b, !opcode}
+    }
+    loop {
         send proc_input::req(!instruction)=>
-        dprint "(Top) Sent instruction (%b) in cycle: %d" (!instruction, !cycle_counter);
-        if !counter == 4'b0000 then (
-            set instruction := 8'b00100100
-        )else if !counter == 4'b0001 then (
-            set instruction := 8'b01000100
-        )else if !counter == 4'b0010 then (
-            set instruction := 8'b01101000
-        )else if !counter == 4'b0011 then (
-            set instruction := 8'b10001100
-        )else dprint "" ();
-        set counter := !counter + 4'b0001
+        dprint "(Top) Sent instruction in cycle: %d" (!cycle_counter)
     }    
 
     loop {
