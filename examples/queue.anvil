@@ -10,8 +10,8 @@ type dequeue_resp =
 chan queue_ch = {
     left dequeue_req: (logic@dequeue_res),
     left enqueue_req: (value_8bit@enqueue_res),
-    right dequeue_res: (dequeue_resp@#1),
-    right enqueue_res: (logic@#1)
+    right dequeue_res: (value_8bit@dequeue_req),
+    right enqueue_res: (logic@enqueue_req)
 }
 
 proc Queue_8bit(ch : left queue_ch) =
@@ -22,15 +22,33 @@ proc Queue_8bit(ch : left queue_ch) =
     reg d_resp : dequeue_resp
     reg full : logic[1]
     reg not_full : logic[1]
+
+    loop {
+        let d_req = recv ch::dequeue_req in
+        d_req=>
+        if ((!head == !tail) && (!full == 1'b0)) then
+            dprint "Queue Empty" ()
+        else
+        (
+            send ch::dequeue_res(!queue[!tail])=>
+            set tail := !tail + 3'b001;
+            (if(!full) then
+                set not_full := 1'b1
+            else
+                set not_full := 1'b0)
+        )
+    }
+
     loop {
         let data = recv ch::enqueue_req in
         data=>
-        (if((!full == 1'b0) || (!not_full == 1'b1)) then
+        (   
+            if((!full == 1'b0) || (!not_full == 1'b1)) then
             (
                 set queue[!head] := data;
                 set enqueue_resp := 1'b1
             )
-        else
+            else
             (
                 set enqueue_resp := 1'b0
             );
@@ -39,30 +57,11 @@ proc Queue_8bit(ch : left queue_ch) =
         else
         (
             set full := 1'b0
-        ))=>
+        ))=>cycle 1=>
 
+        
         send ch::enqueue_res(!enqueue_resp)=>
-        if(!enqueue_resp) then
-            set head := !head + 3'b001
-        else
-            dprint "" ()
-    }
-    loop {
-        let d_req = recv ch::dequeue_req in
-        d_req=>
-        if ((!head == !tail) && (!full == 1'b0)) then
-            set d_resp := dequeue_resp::{data = 8'b00000000; valid = 1'b0}
-        else
-        (
-            set d_resp := dequeue_resp::{data = !queue[!tail]; valid = 1'b1};
-            if(!full) then
-                set not_full := 1'b1
-            else
-                set not_full := 1'b0
-        )=>
-        send ch::dequeue_res(!d_resp)=>
-        cycle 1 =>
-        set tail := !tail + 3'b001
+        set head := !head + {2'b00, !cenqueue_resp}
     }
 
 proc queue () =
@@ -133,21 +132,15 @@ proc queue () =
                 dprint "Enqueuing %d in cycle %d" (!data, !cycle_counter);
                 let x = recv queue_output::enqueue_res in
                 x=>
-                if (~x) then
-                    dprint "Enqueue Failed in cycle %d" (!cycle_counter)
-                else
-                    dprint "Enqueued %d in cycle %d" (!data, !cycle_counter)
+                dprint "Enqueued %d in cycle %d" (!data, !cycle_counter)
             )
             else
             (
                 send queue_input::dequeue_req(1'b1)=>
                 dprint "Dequeuing in cycle %d" (!cycle_counter);
                 let x = recv queue_output::dequeue_res in
-                x=>
-                if (~x.valid) then
-                    dprint "Dequeue Failed in cycle %d" (!cycle_counter)
-                else
-                    dprint "Dequeue Output %d in cycle %d" (x.data, !cycle_counter)
+                x=>               
+                dprint "Dequeue Output %d in cycle %d" (x, !cycle_counter)
             )
         )=>
         set counter := !counter + 4'b0001

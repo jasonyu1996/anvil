@@ -1,0 +1,59 @@
+chan queue_ch = {
+    left dequeue_req: (logic@dequeue_res),
+    left enqueue_req: (value_8bit@enqueue_res),
+    right dequeue_res: (dequeue_resp@#1),
+    right enqueue_res: (logic@#1)
+}
+
+proc Queue_8bit(ch : left queue_ch) =
+    reg queue : value_8bit[8]
+    reg head : value_3bit
+    reg tail : value_3bit
+    reg enqueue_resp : logic[1]
+    reg d_resp : dequeue_resp
+    reg full : logic[1]
+    reg not_full : logic[1]
+    loop {
+        let data = recv ch::enqueue_req in
+        data=>
+        (if((!full == 1'b0) || (!not_full == 1'b1)) then
+            (
+                set queue[!head] := data;
+                set enqueue_resp := 1'b1
+            )
+        else
+            (
+                set enqueue_resp := 1'b0
+            );
+        if ((!head + 3'b001) == !tail) then
+            set full := 1'b1
+        else
+        (
+            set full := 1'b0
+        ))=>
+
+        send ch::enqueue_res(!enqueue_resp)=>
+        if(!enqueue_resp) then
+            set head := !head + 3'b001
+        else
+            dprint "" ()
+    }
+    loop {
+        let d_req = recv ch::dequeue_req in
+        d_req=>
+        if ((!head == !tail) && (!full == 1'b0)) then
+            set d_resp := dequeue_resp::{data = 8'b00000000; valid = 1'b0}
+        else
+        (
+            set d_resp := dequeue_resp::{data = !queue[!tail]; valid = 1'b1};
+            if(!full) then
+                set not_full := 1'b1
+            else
+                set not_full := 1'b0
+        )=>
+        send ch::dequeue_res(!d_resp)=>
+        cycle 1 =>
+        set tail := !tail + 3'b001
+    }
+
+proc Processor(ch : right queue_ch) =
