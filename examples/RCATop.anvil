@@ -54,7 +54,8 @@ loop {
 loop
 {
     let x = sync x in
-    x => dprint "x = %d" (x)
+    x => dprint "x = %d" (x);
+    cycle 1
 }
 
 proc RCA(ch : left RCAch) =
@@ -81,7 +82,6 @@ loop {
         send ch3_ri::req(add1_req::{a = r.a[3]; b = r.b[3]; cr = r2.cout}) =>
         let r3 = recv ch3_ri::res in
         r3 =>
-        // send ch::res(add4_res::{sum = {r3.sum, r2.sum, r1.sum, r0.sum}; cout = r3.cout})
         send ch::res(add4_res::{sum = {r3.sum, r2.sum, r1.sum, r0.sum}; cout = r3.cout}) =>
         cycle 1
 }

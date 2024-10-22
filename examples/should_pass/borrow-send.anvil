@@ -7,7 +7,8 @@ proc reggg(e : right reg_itfc) =
     loop {
         let a = recv e::req in
         a =>
-        dprint "Received %d" (a)
+        dprint "Received %d" (a);
+        cycle 1
     }
 
 proc top (e : left reg_itfc) =

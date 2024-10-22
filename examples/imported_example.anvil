@@ -54,7 +54,8 @@ loop {
 loop
 {
     let x = sync x in
-    x => dprint "x = %d" (x)
+    x => dprint "x = %d" (x);
+    cycle 1
 }
 
 proc RCA(ch : left RCAch) =

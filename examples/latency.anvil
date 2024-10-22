@@ -1,0 +1,7 @@
+proc latency() =
+    loop {
+        dprint "Hello" ();
+        cycle 1 =>
+        dprint "HOHO" ();
+        cycle 1
+    }
