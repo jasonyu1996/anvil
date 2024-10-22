@@ -1,111 +1,120 @@
-let event_is_reg (e : EventGraph.event) =
-  match e.source with
-  | `Root -> true
-  | `Seq (_, `Sync _) -> false
-  | `Seq _ -> true
-  | _ -> false
+module EventStateFormatter = struct
+  let format_reg_state state_name thread_id ev_id =
+    Printf.sprintf "_thread_%d_event_%s_%d" thread_id state_name ev_id
 
+  (* these following are to be suffixed with _q and _n *)
+  let format_counter = format_reg_state "counter"
+  let format_scorer = format_reg_state "reg"
+  let format_syncstate = format_reg_state "syncstate"
+
+  let format_current thread_id ev_id =
+    Printf.sprintf "_thread_%d_event_current[%d]" thread_id ev_id
+end
+
+let collect_reg_states g =
+  let open EventGraph in
+  List.concat_map (fun e ->
+    match e.source with
+    | `Seq (_, d) -> (
+      match d with
+      | `Cycles n ->
+        let width = Utils.int_log2 (n + 1) in
+        let sn = EventStateFormatter.format_counter g.thread_id e.id in
+        [(Printf.sprintf "logic[%d:0]" (width - 1), sn)]
+      | `Send _ | `Recv _ | `Sync _ ->
+        let sn = EventStateFormatter.format_syncstate g.thread_id e.id in
+        [("logic", sn)]
+    )
+    | `Later _ ->
+      let sn = EventStateFormatter.format_scorer g.thread_id e.id in
+      [("logic", sn)]
+    | `Branch _ | `Either _ | `Root -> []
+  ) g.events
+
+(* prints out declarations for event-related wires and registers *)
 let codegen_decl printer (g : EventGraph.event_graph) =
   let st_count = List.length g.events in
-  Printf.sprintf "logic[%d:0] _thread_%d_event_reached;" (st_count - 1) g.thread_id |>
+  (* `current` is a wire indicates if an event is reached in the current cycle *)
+  Printf.sprintf "logic[%d:0] _thread_%d_event_current;" (st_count - 1) g.thread_id |>
     CodegenPrinter.print_line printer;
-  for i = 0 to st_count - 1 do
-    Printf.sprintf "logic _thread_%d_event_current%d;" g.thread_id i|>
-      CodegenPrinter.print_line printer
-  done;
-  let print_next_signal (e : EventGraph.event) =
-    if event_is_reg e then
-      Printf.sprintf "logic _thread_%d_event_next%d;" g.thread_id e.id |>
-        CodegenPrinter.print_line printer
-    else ()
-  in
-  List.iter print_next_signal g.events
+  (* print per-event states *)
+  collect_reg_states g
+  |> List.iter (fun (ty, sn) ->
+    Printf.sprintf "%s %s_q, %s_n;" ty sn sn |> CodegenPrinter.print_line printer
+  )
 
 (* generate the next-cycle signals*)
 let codegen_next printer (pg : EventGraph.proc_graph) (g : EventGraph.event_graph) =
   let print_line = CodegenPrinter.print_line printer in
   let print_lines = CodegenPrinter.print_lines printer in
   let print_compute_next (e : EventGraph.event) =
+    let cn = EventStateFormatter.format_current g.thread_id e.id in
     match e.source with
     | `Seq (e', d) ->
       (
+        let cn' = EventStateFormatter.format_current g.thread_id e'.id in
         match d with
         | `Cycles n when n >= 1 ->
-          if n == 1 then
-            Printf.sprintf "assign _thread_%d_event_next%d = _thread_%d_event_current%d;"
-              g.thread_id e.id g.thread_id e'.id |> print_line
-          else
-            [
-              Printf.sprintf "logic [%d:0] _thread_%d_event_counter%d;" (Utils.int_log2 n) g.thread_id e.id;
-              Printf.sprintf "logic _thread_%d_event_counter_valid%d;" g.thread_id e.id;
-              Printf.sprintf  "logic _thread_%d_event_counter_begin%d;" g.thread_id e.id;
-              Printf.sprintf "always_ff @(posedge clk_i or negedge rst_ni) begin";
-              Printf.sprintf "  if (~rst_ni) begin";
-              Printf.sprintf "    _thread_%d_event_counter%d <= '0;" g.thread_id e.id;
-              Printf.sprintf "    _thread_%d_event_counter_valid%d <= 1'b0;" g.thread_id e.id;
-              Printf.sprintf "    _thread_%d_event_counter_begin%d <= 1'b0;" g.thread_id e.id;
-              Printf.sprintf "  end else if (_thread_%d_event_current%d) begin" g.thread_id e'.id;
-              Printf.sprintf "      _thread_%d_event_counter_begin%d <= 1'b1;" g.thread_id e.id;
-              Printf.sprintf "      _thread_%d_event_counter_valid%d <= 1'b0;" g.thread_id e.id;
-              Printf.sprintf "  end else if (_thread_%d_event_counter_begin%d && !_thread_%d_event_counter_valid%d) begin" g.thread_id e.id g.thread_id e.id;
-              Printf.sprintf "    if (_thread_%d_event_counter%d >= %d) begin" g.thread_id e.id (n - 2);
-              Printf.sprintf "      _thread_%d_event_counter%d <= '0;" g.thread_id e.id;
-              Printf.sprintf "      _thread_%d_event_counter_valid%d <= 1'b1;" g.thread_id e.id;
-              Printf.sprintf "    end else begin";
-              Printf.sprintf "      _thread_%d_event_counter%d <= _thread_%d_event_counter%d + 1'b1;" g.thread_id e.id g.thread_id e.id;
-              Printf.sprintf "    end";
-              Printf.sprintf "  end else begin";
-              Printf.sprintf "    _thread_%d_event_counter%d <= '0;" g.thread_id e.id;
-              Printf.sprintf "    _thread_%d_event_counter_begin%d <= 1'b0;" g.thread_id e.id;
-              Printf.sprintf "    _thread_%d_event_counter_valid%d <= 1'b0;" g.thread_id e.id;
-              Printf.sprintf "  end";
-              Printf.sprintf "end";
-              Printf.sprintf "assign _thread_%d_event_next%d = _thread_%d_event_counter_valid%d;" g.thread_id e.id g.thread_id e.id;
-            ] |> print_lines
+          let width = Utils.int_log2 (n + 1) in
+          let sn = EventStateFormatter.format_counter g.thread_id e.id in
+          (* reached when the counter *)
+          [
+            Printf.sprintf "assign %s = %s_q == %d'd%d;" cn sn width n;
+            Printf.sprintf "assign %s_n = (%s || %s_q != '0) ? (%s_q + 1) : %s_q;" sn cn' sn sn sn
+          ] |> print_lines
         | `Cycles _ ->
           failwith "Invalid number of cycles"
         | `Send msg ->
+          let sn = EventStateFormatter.format_syncstate g.thread_id e.id in
+          let ack_n = CodegenFormat.format_msg_ack_signal_name (EventGraph.canonicalize_endpoint_name msg.endpoint g) msg.msg in
           [
-            Printf.sprintf "assign _thread_%d_event_next%d = !_thread_%d_event_current%d && !_thread_%d_event_reached[%d] &&"
-              g.thread_id e.id g.thread_id e.id g.thread_id e.id;
-            Printf.sprintf "(_thread_%d_event_current%d || _thread_%d_event_reached[%d]) && %s;"
-              g.thread_id e'.id g.thread_id e'.id
-              (CodegenFormat.format_msg_ack_signal_name (EventGraph.canonicalize_endpoint_name msg.endpoint g) msg.msg)
+            Printf.sprintf "assign %s = (%s || %s_q) && %s;" cn cn' sn ack_n;
+            Printf.sprintf "assign %s_n = (%s || %s_q) && !%s;" sn cn' sn ack_n
           ] |> print_lines
         | `Recv msg ->
+          let sn = EventStateFormatter.format_syncstate g.thread_id e.id in
+          let vld_n = CodegenFormat.format_msg_valid_signal_name (EventGraph.canonicalize_endpoint_name msg.endpoint g) msg.msg in
           [
-            Printf.sprintf "assign _thread_%d_event_next%d = !_thread_%d_event_current%d && !_thread_%d_event_reached[%d] &&"
-              g.thread_id e.id g.thread_id e.id g.thread_id e.id;
-            Printf.sprintf "(_thread_%d_event_current%d || _thread_%d_event_reached[%d]) && %s;"
-              g.thread_id e'.id g.thread_id e'.id
-              (CodegenFormat.format_msg_valid_signal_name (EventGraph.canonicalize_endpoint_name msg.endpoint g) msg.msg)
+            Printf.sprintf "assign %s = (%s || %s_q) && %s;" cn cn' sn vld_n;
+            Printf.sprintf "assign %s_n = (%s || %s_q) && !%s;" sn cn' sn vld_n
           ] |> print_lines
         | `Sync s ->
           let si = Hashtbl.find pg.shared_vars_info s in
           let assigned_at = Option.get si.assigned_at in
-          Printf.sprintf "assign _thread_%d_event_current%d = _thread_%d_event_current%d;"
-            g.thread_id e.id assigned_at.graph.thread_id assigned_at.id |> print_line
+          let sn = EventStateFormatter.format_syncstate g.thread_id e.id in
+          let wn = EventStateFormatter.format_current assigned_at.graph.thread_id assigned_at.id in
+          [
+            Printf.sprintf "assign %s = (%s || %s_q) && %s;" cn cn' sn wn;
+            Printf.sprintf "assign %s_n = (%s || %s_q) && !%s;" sn cn' sn wn
+          ] |> print_lines
       )
     | `Either (e1, e2) ->
-      Printf.sprintf "assign _thread_%d_event_current%d = !_thread_%d_event_reached[%d] && (_thread_%d_event_current%d || _thread_%d_event_current%d);"
-        g.thread_id e.id g.thread_id e.id g.thread_id e1.id g.thread_id e2.id |> print_line
+      Printf.sprintf "assign %s = %s || %s;" cn
+        (EventStateFormatter.format_current g.thread_id e1.id)
+        (EventStateFormatter.format_current g.thread_id e2.id)
+      |> print_line
     | `Later (e1, e2) ->
+      let cn1 = EventStateFormatter.format_current g.thread_id e1.id in
+      let cn2 = EventStateFormatter.format_current g.thread_id e2.id in
+      let sn = EventStateFormatter.format_scorer g.thread_id e.id in
       [
-        Printf.sprintf "assign _thread_%d_event_current%d = !_thread_%d_event_reached[%d] &&" g.thread_id e.id g.thread_id e.id;
-        Printf.sprintf "(_thread_%d_event_reached[%d] || _thread_%d_event_current%d) && (_thread_%d_event_reached[%d] || _thread_%d_event_current%d);"
-        g.thread_id e1.id g.thread_id e1.id g.thread_id e2.id g.thread_id e2.id
+        Printf.sprintf "assign %s = (~(%s ^ %s ^ %s_q)) & (%s | %s | %s_q);" cn cn1 cn2 sn cn1 cn2 sn;
+        Printf.sprintf "assign %s_n = %s ^ %s ^ %s_q;" sn cn1 cn2 sn
       ] |> print_lines
     | `Root ->
-      Printf.sprintf "assign _thread_%d_event_next%d = 1'b0;" g.thread_id e.id |> print_line
+      [
+        Printf.sprintf "assign %s = _init || %s;"
+          cn
+          (EventStateFormatter.format_current g.thread_id g.last_event_id)
+      ] |> print_lines
     | `Branch (cond, e') ->
-      let print wn=
-        if cond.neg then
-          Printf.sprintf "assign _thread_%d_event_current%d = _thread_%d_event_current%d && !%s;" g.thread_id e.id g.thread_id e'.id wn |> print_line
-        else
-          Printf.sprintf "assign _thread_%d_event_current%d = _thread_%d_event_current%d && %s;" g.thread_id e.id g.thread_id e'.id wn |> print_line
-      in
+      let cn' = EventStateFormatter.format_current g.thread_id e'.id in
       let w = Option.get cond.data.w in
-      print @@ CodegenFormat.format_wirename w.thread_id w.id
+      let wn = CodegenFormat.format_wirename w.thread_id w.id in
+      print_line (if cond.neg then
+        Printf.sprintf "assign %s = %s && !%s;" cn cn' wn
+      else
+        Printf.sprintf "assign %s = %s && %s;" cn cn' wn)
   in
   List.iter print_compute_next g.events
 
@@ -115,7 +124,8 @@ let codegen_actions printer (g : EventGraph.event_graph) =
   let open EventGraph in
   let print_event_actions (e : event) =
     if e.actions <> [] then begin
-      Printf.sprintf "if (_thread_%d_event_current%d) begin" g.thread_id e.id |> print_line ~lvl_delta_post:1;
+      EventStateFormatter.format_current g.thread_id e.id
+      |> Printf.sprintf "if (%s) begin" |> print_line ~lvl_delta_post:1;
       let print_action (a : action Lang.ast_node) =
         match a.d with
         | DebugPrint (s, tds) ->
@@ -148,18 +158,10 @@ let codegen_actions printer (g : EventGraph.event_graph) =
 let codegen_transition printer (_graphs : EventGraph.event_graph_collection) (g : EventGraph.event_graph) =
   let print_line ?(lvl_delta_pre = 0) ?(lvl_delta_post = 0) =
     CodegenPrinter.print_line printer ~lvl_delta_pre:lvl_delta_pre ~lvl_delta_post:lvl_delta_post in
-  let print_lines = CodegenPrinter.print_lines printer in
-  let root_id =
-    List.find_map (fun (x : EventGraph.event) -> if x.source = `Root then Some x.id else None) g.events |> Option.get in
+  let reg_states = collect_reg_states g in
   let print_reset_states () =
-    Printf.sprintf "_thread_%d_event_reached <= '0;" g.thread_id |> print_line;
-    List.iter (fun (e : EventGraph.event) -> if event_is_reg e then begin
-      if e.id = root_id then
-        Printf.sprintf "_thread_%d_event_current%d <= 1'b1;" g.thread_id e.id |> print_line
-      else
-        Printf.sprintf "_thread_%d_event_current%d <= 1'b0;" g.thread_id e.id |> print_line
-      end else ()
-    ) g.events
+    List.iter (fun (_, sn) -> Printf.sprintf "%s_q <= '0;" sn |> print_line) reg_states;
+    print_line "_init <= '1;"
   in
   (* reset states *)
   Printf.sprintf "always_ff @(posedge clk_i or negedge rst_ni) begin : _thread_%d_st_transition" g.thread_id |> print_line ~lvl_delta_post:1;
@@ -175,27 +177,15 @@ let codegen_transition printer (_graphs : EventGraph.event_graph_collection) (g 
   (* actions *)
   codegen_actions printer g;
   (* next states *)
-  (* FIXME: timing is not quite right *)
-  Printf.sprintf "if (_thread_%d_event_current%d) begin" g.thread_id g.last_event_id |> print_line ~lvl_delta_post:1;
-  print_reset_states ();
-  print_line ~lvl_delta_pre:(-1) ~lvl_delta_post:1 "end else begin";
-  List.iter (fun (e : EventGraph.event) ->
-    [
-      Printf.sprintf "if (_thread_%d_event_current%d)" g.thread_id e.id;
-      Printf.sprintf "_thread_%d_event_reached[%d] <= 1'b1;" g.thread_id e.id
-    ] |> print_lines;
-    if event_is_reg e then
-      Printf.sprintf "_thread_%d_event_current%d <= _thread_%d_event_next%d;" g.thread_id e.id g.thread_id e.id |> print_line
-    else ()
-  ) g.events;
-  print_line ~lvl_delta_pre:(-1) "end";
+  List.iter (fun (_, sn) -> Printf.sprintf "%s_q <= %s_n;" sn sn |> print_line) reg_states;
+  print_line "_init <= '0;";
   print_line ~lvl_delta_pre:(-1) "end";
   print_line ~lvl_delta_pre:(-1) "end"
 
 let codegen_sustained_actions printer (g : EventGraph.event_graph) =
   let print_line = CodegenPrinter.print_line printer in
-  let or_assigns = Hashtbl.create 8
-  and wire_assigns = Hashtbl.create 8 in (* name -> (cond, value) *)
+  let send_or_assigns = Hashtbl.create 8 in
+  let recv_or_assigns = Hashtbl.create 8 in
   let insert_to tbl w_name cond =
     (
       match Hashtbl.find_opt tbl w_name with
@@ -206,21 +196,21 @@ let codegen_sustained_actions printer (g : EventGraph.event_graph) =
   let open Lang in
   let print_sa_event (e : EventGraph.event) =
     List.iter (fun (sa : EventGraph.sustained_action Lang.ast_node) ->
-      let started = Printf.sprintf "(_thread_%d_event_reached[%d] || _thread_%d_event_current%d)"
-        g.thread_id e.id g.thread_id e.id in
-      let activated = Printf.sprintf "((_thread_%d_event_reached[%d] || _thread_%d_event_current%d) && !_thread_%d_event_reached[%d] && !_thread_%d_event_current%d)"
-        g.thread_id e.id g.thread_id e.id g.thread_id sa.d.until.id g.thread_id sa.d.until.id in
+      let activated = Printf.sprintf "(%s || %s_q)"
+        (EventStateFormatter.format_current g.thread_id e.id)
+        (EventStateFormatter.format_syncstate g.thread_id sa.d.until.id) in
       match sa.d.ty with
       | Send (msg, td) ->
-        insert_to or_assigns
-          (CodegenFormat.format_msg_valid_signal_name (EventGraph.canonicalize_endpoint_name msg.endpoint g) msg.msg)
-          activated;
         let w = Option.get td.w in
-        insert_to wire_assigns
-          (CodegenFormat.format_msg_data_signal_name (EventGraph.canonicalize_endpoint_name msg.endpoint g) msg.msg 0)
-          (started, (CodegenFormat.format_wirename w.thread_id w.id))
+        insert_to send_or_assigns
+          (CodegenFormat.format_msg_valid_signal_name (EventGraph.canonicalize_endpoint_name msg.endpoint g) msg.msg)
+          (
+            activated,
+            CodegenFormat.format_msg_data_signal_name (EventGraph.canonicalize_endpoint_name msg.endpoint g) msg.msg 0,
+            CodegenFormat.format_wirename w.thread_id w.id
+          )
       | Recv msg ->
-        insert_to or_assigns
+        insert_to recv_or_assigns
           (CodegenFormat.format_msg_ack_signal_name (EventGraph.canonicalize_endpoint_name msg.endpoint g) msg.msg)
           activated
     ) e.sustained_actions
@@ -231,21 +221,19 @@ let codegen_sustained_actions printer (g : EventGraph.event_graph) =
     String.concat " || " !conds
     |> Printf.sprintf "assign %s = %s;" w_name
     |> print_line
-  ) or_assigns;
-  Hashtbl.iter (fun w_name cond_vals ->
-    let rev_cond_vals = List.rev !cond_vals in
-    let (_, last_v) = List.hd rev_cond_vals in
-    let v_sum = if List.length rev_cond_vals = 1 then
-      last_v
-    else (
-      (List.map (fun (cond, v) -> Printf.sprintf "%s ? %s : " cond v) rev_cond_vals
-      |> String.concat "") ^ last_v (* keep the last value as default to handle loop-around *)
-      (* FIXME: there's a failing case for this when the last event is in a if branch that is not taken.
-        fixable by recording the last event *)
-    ) in
-    Printf.sprintf "assign %s = %s;" w_name v_sum
-    |> print_line
-  ) wire_assigns
+  ) recv_or_assigns;
+  Hashtbl.iter (fun w_name conds_dw ->
+    assert (List.length !conds_dw < 2);
+    ([
+      List.map (fun (c, _, _) -> c) !conds_dw
+      |> String.concat " || "
+      |> Printf.sprintf "assign %s = %s;" w_name;
+    ] @
+    List.map (fun (_, dw, vw) ->
+      Printf.sprintf "assign %s = %s;" dw vw
+    ) !conds_dw)
+    |> CodegenPrinter.print_lines printer
+  ) send_or_assigns
 
 let codegen_states printer
   (graphs : EventGraph.event_graph_collection)
