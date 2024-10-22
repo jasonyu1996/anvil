@@ -39,9 +39,11 @@ proc FIFO_Cache(ch : left cache_read, ch_mem : right memory_read) =
         set cycle_counter := !cycle_counter + 4'b0001
     }
     loop {
+            dprint "(FIFO_Cache) Cycle %d" (!cycle_counter);
             let address = recv ch::req in
-            address => 
+            address =>
             (
+                dprint "(FIFO_Cache) Cache Request for address %d in cycle %d" (address, !cycle_counter);
                 let tag_bits = address[4+:4] in
                 (
                     let set_index = address[2+:2] in
@@ -49,36 +51,37 @@ proc FIFO_Cache(ch : left cache_read, ch_mem : right memory_read) =
                         if  ((!valid[set_index][0] == 1'b1) & (!tag[set_index][0] == tag_bits)) then
                         (
                             set senddata := !cache[set_index][0];
-                            dprint "Cache Hit" ()
+                            dprint "Cache Hit in cycle %d" (!cycle_counter)
                         )
                         else
                         (
                             if (!valid[set_index][1] == 1'b1) & (!tag[set_index][1] == tag_bits) then
                             (
                                 set senddata := !cache[set_index][1];
-                                dprint "Cache Hit" ()
+                                dprint "Cache Hit in cycle %d" (!cycle_counter  )
                             )
                             else
                             (
                                 if (!valid[set_index][2] == 1'b1) & (!tag[set_index][2] == tag_bits) then
                                 (
                                     set senddata := !cache[set_index][2];
-                                    dprint "Cache Hit" ()
+                                    dprint "Cache Hit in cycle %d" (!cycle_counter)
                                 )
                                 else
                                 (
                                     if (!valid[set_index][3] == 1'b1) & (!tag[set_index][3] == tag_bits) then
                                     (
                                         set senddata := !cache[set_index][3];
-                                        dprint "Cache Hit" ()
+                                        dprint "Cache Hit in cycle %d" (!cycle_counter)
                                     )
                                     else
                                     (
-                                        dprint "Cache Miss" ();
+                                        dprint "Cache Miss in cycle %d" (!cycle_counter);
                                         send ch_mem::req(address)=>
                                         let data = recv ch_mem::res in
                                         data =>
                                         (
+                                            set senddata := data;
                                             dprint "Data from memory for address %b: %b" (address, data);
                                             if !count[set_index] < 3'b100 then
                                             (
@@ -112,7 +115,6 @@ proc FIFO_Cache(ch : left cache_read, ch_mem : right memory_read) =
                 )
             
         )=>
-        cycle 1=>
         send ch::res(!senddata)
     }
     
@@ -246,11 +248,11 @@ proc cache ()=
         )
         else
         (
+            dprint "(Top) Cache Request(%d) sent in cycle %d\n" (!count-4'b0100, !cycle_counter);
             send cache_input::req(!address)=>
-            cycle 1 =>
             let z = recv cache_output::res in
             z =>
-            dprint "(Top) Cache Request(%d) for address (%d) Output: %d\n" (!count-4'b0100, !address, z);
+            dprint "(Top) Cache Request(%d) in cycle %d for address (%d) Output: %d\n" (!count-4'b0100, !cycle_counter, !address, z);
             set count := !count + 4'b0001
         )
     )
