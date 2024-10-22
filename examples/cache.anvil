@@ -11,8 +11,7 @@ type memory_map =
 
 chan cache_read = {
     left req : (logic[8]@res),
-    right res : (logic[8]@req),
-    right cache_hit : (logic[2]@req) 
+    right res : (logic[8]@req)
 }
 
 chan memory_read = {
@@ -49,35 +48,34 @@ proc FIFO_Cache(ch : left cache_read, ch_mem : right memory_read) =
                     (
                         if  ((!valid[set_index][0] == 1'b1) & (!tag[set_index][0] == tag_bits)) then
                         (
-                            set senddata := !cache[set_index][0]; 
-                            set cache_hit := 2'b01
+                            set senddata := !cache[set_index][0];
+                            dprint "Cache Hit" ()
                         )
                         else
                         (
                             if (!valid[set_index][1] == 1'b1) & (!tag[set_index][1] == tag_bits) then
                             (
                                 set senddata := !cache[set_index][1];
-                                set cache_hit := 2'b01
+                                dprint "Cache Hit" ()
                             )
                             else
                             (
                                 if (!valid[set_index][2] == 1'b1) & (!tag[set_index][2] == tag_bits) then
                                 (
                                     set senddata := !cache[set_index][2];
-                                    set cache_hit := 2'b01
+                                    dprint "Cache Hit" ()
                                 )
                                 else
                                 (
                                     if (!valid[set_index][3] == 1'b1) & (!tag[set_index][3] == tag_bits) then
                                     (
                                         set senddata := !cache[set_index][3];
-                                        set cache_hit := 2'b01
+                                        dprint "Cache Hit" ()
                                     )
                                     else
                                     (
-                                        set cache_hit := 2'b00;
-                                        (send ch_mem::req(address);
-                                        cycle 1)=>
+                                        dprint "Cache Miss" ();
+                                        send ch_mem::req(address)=>
                                         let data = recv ch_mem::res in
                                         data =>
                                         (
@@ -115,7 +113,6 @@ proc FIFO_Cache(ch : left cache_read, ch_mem : right memory_read) =
             
         )=>
         cycle 1=>
-        send ch::cache_hit(!cache_hit)=>
         send ch::res(!senddata)
     }
     
@@ -130,8 +127,7 @@ proc Main_Memory(ch : left memory_read, write_ch : left memory_write) =
     loop {
         let address = recv ch::req in
         address =>
-        (dprint "(Main Memory) Memory Read Request for address %d : %d" (address, !memory[address]);
-        cycle 1)=>
+        dprint "(Main Memory) Memory Read Request for address %d : %d" (address, !memory[address]);
         send ch::res(!memory[address])=>
         dprint "(Main Memory) Memory Read Response for address %d : %d" (address, !memory[address])
     }
@@ -142,7 +138,7 @@ proc Main_Memory(ch : left memory_read, write_ch : left memory_write) =
         x=>
         (
             dprint "(Main Memory) Memory Write Start %d: %d in cycle %d" (x.address, x.data, !cycle_counter);
-            (set memory[x.address] := x.data=>
+            (set memory[x.address] := x.data;
             cycle 1)=>
             dprint "(Main Memory) Memory Write Complete (data = %d) at address %d : %d in cycle %d" (x.data, x.address, !memory[x.address], !cycle_counter);
             send write_ch::res(1'b1)
@@ -258,14 +254,4 @@ proc cache ()=
             set count := !count + 4'b0001
         )
     )
-    }
-
-
-    loop {
-        let x = recv cache_output::cache_hit in
-        x =>
-        if x == 2'b01 then
-            dprint "Cache Hit" ()
-        else
-            dprint "Cache Miss" ()
     }
