@@ -60,7 +60,7 @@ let codegen_next printer (pg : EventGraph.proc_graph) (g : EventGraph.event_grap
           (* reached when the counter *)
           [
             Printf.sprintf "assign %s = %s_q == %d'd%d;" cn sn width n;
-            Printf.sprintf "assign %s_n = (%s || %s_q != '0) ? (%s_q + 1) : %s_q;" sn cn' sn sn sn
+            Printf.sprintf "assign %s_n = %s ? %d'd1 : %s ? '0 : %s_q ? (%s_q + %d'd1) : %s_q;" sn cn' width cn sn sn width sn
           ] |> print_lines
         | `Cycles _ ->
           failwith "Invalid number of cycles"
