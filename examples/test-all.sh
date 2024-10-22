@@ -13,6 +13,7 @@ TESTS=(
     counter2
     import_example
     multi_send_recv
+    latency
 )
 
 passed=0

@@ -222,18 +222,68 @@ let codegen_sustained_actions printer (g : EventGraph.event_graph) =
     |> Printf.sprintf "assign %s = %s;" w_name
     |> print_line
   ) recv_or_assigns;
+
+  let send_data_selectors = ref [] in
   Hashtbl.iter (fun w_name conds_dw ->
-    assert (List.length !conds_dw < 2);
-    ([
-      List.map (fun (c, _, _) -> c) !conds_dw
-      |> String.concat " || "
-      |> Printf.sprintf "assign %s = %s;" w_name;
-    ] @
-    List.map (fun (_, dw, vw) ->
+    List.map (fun (c, _, _) -> c) !conds_dw
+    |> String.concat " || "
+    |> Printf.sprintf "assign %s = %s;" w_name
+    |> print_line;
+    let n = List.length !conds_dw in
+    if n <= 1 then (
+      assert (n = 1);
+      let (_, dw, vw) = List.hd !conds_dw in
       Printf.sprintf "assign %s = %s;" dw vw
-    ) !conds_dw)
-    |> CodegenPrinter.print_lines printer
-  ) send_or_assigns
+      |> print_line
+    ) else (
+      (* if we have more than one site that sends, keep track of which event is the last send (TODO: optimisation) *)
+      let width = Utils.int_log2 n in
+      send_data_selectors := (width, w_name, !conds_dw)::!send_data_selectors;
+      let (_, dw, _) = List.hd !conds_dw in
+      List.mapi (fun site_idx (_, _, vw) ->
+        Printf.sprintf "(%s_selector_n == %d'd%d) ? %s : " w_name width site_idx vw
+      ) !conds_dw
+      |> String.concat ""
+      |> Printf.sprintf "assign %s = %s'0;" dw
+      |> print_line
+    )
+  ) send_or_assigns;
+
+  if !send_data_selectors <> [] then (
+    (* generate declarations for selectors *)
+    List.iter (fun (width, name, _) ->
+      Printf.sprintf "logic[%d:0] %s_selector_q, %s_selector_n;" (width - 1) name name
+      |> print_line
+    ) !send_data_selectors;
+
+    Printf.sprintf "always_comb begin: _thread_%d_selector" g.thread_id
+    |> CodegenPrinter.print_line ~lvl_delta_post:1 printer;
+    List.iter (fun (width, name, conds) ->
+      Printf.sprintf "%s_selector_n = %s_selector_q;" name name |> print_line;
+      List.iteri (fun site_idx (c, _, _) ->
+        Printf.sprintf "if (%s) %s_selector_n = %d'd%d;" c name width site_idx
+          |> print_line
+      ) conds;
+    ) !send_data_selectors;
+    CodegenPrinter.print_line ~lvl_delta_pre:(-1) printer "end";
+
+    Printf.sprintf "always_ff @(posedge clk_i or negedge rst_ni) begin : _thread_%d_selector_trans" g.thread_id
+    |> CodegenPrinter.print_line ~lvl_delta_post:1 printer;
+
+    CodegenPrinter.print_line ~lvl_delta_post:1 printer "if (~rst_ni) begin";
+    List.iter (fun (_, name, _) ->
+      Printf.sprintf "%s_selector_q <= '0;" name
+      |> print_line
+    ) !send_data_selectors;
+    CodegenPrinter.print_line ~lvl_delta_pre:(-1) ~lvl_delta_post:1 printer "end else begin";
+    List.iter (fun (_, name, _) ->
+      Printf.sprintf "%s_selector_q <= %s_selector_n;" name name
+      |> print_line
+    ) !send_data_selectors;
+    CodegenPrinter.print_line ~lvl_delta_pre:(-1) printer "end";
+
+    CodegenPrinter.print_line ~lvl_delta_pre:(-1) printer "end"
+  )
 
 let codegen_states printer
   (graphs : EventGraph.event_graph_collection)
