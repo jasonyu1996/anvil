@@ -10,7 +10,7 @@ type dequeue_resp =
 chan queue_ch = {
     left dequeue_req: (logic@dequeue_res),
     left enqueue_req: (value_8bit@enqueue_res),
-    right dequeue_res: (value_8bit@dequeue_req),
+    right dequeue_res: (value_8bit@#1),
     right enqueue_res: (logic@enqueue_req)
 }
 
@@ -77,7 +77,7 @@ proc queue () =
         cycle 1
     }
     loop {
-        if (!counter == 4'b0000) then
+        (if (!counter == 4'b0000) then
             set data := 8'b00000001
         else
             if (!counter == 4'b0001) then
@@ -125,7 +125,7 @@ proc queue () =
                                                                     if (!counter == 4'b1111) then
                                                                         dfinish
                                                                     else
-                                                                        dfinish=>
+                                                                        dfinish);cycle 1=>
             if ((!counter< 4'b1000) || (!counter> 4'b1011)) then
             (  
                 send queue_input::enqueue_req(!data)=>
