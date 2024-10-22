@@ -593,6 +593,13 @@ module Typing = struct
 
   (** Perform lifetime check on an event graph and throw out LifetimeCheckError if failed. *)
   let lifetime_check (config : Config.compile_config) (ci : cunit_info) (g : event_graph) =
+    (* check that it takes at least one cycle to execute *)
+    let root_ev = List.find (fun e -> e.source = `Root) g.events in
+    let last_ev = List.hd g.events in (* assuming reverse topo order *)
+    let dist = event_min_distance g.events root_ev in
+    if IntHashtbl.find dist last_ev.id = 0 then
+      raise (LifetimeCheckError "Thread must take at least one cycle to complete a loop!");
+
     gen_control_set g;
     (* for debugging purposes*)
     if config.verbose then (
@@ -710,14 +717,7 @@ module Typing = struct
             raise (EventGraphError ("Value not live long enough in message send!", sa.span))
         | Recv _ -> ()
       )
-      g.events;
-
-      (* check that it takes at least one cycle to execute *)
-      let root_ev = List.find (fun e -> e.source = `Root) g.events in
-      let last_ev = List.hd g.events in (* assuming reverse topo order *)
-      let dist = event_min_distance g.events root_ev in
-      if IntHashtbl.find dist last_ev.id = 0 then
-        raise (LifetimeCheckError "Thread must take at least one cycle to complete a loop!")
+      g.events
 
   module BuildContext = struct
     type t = build_context
