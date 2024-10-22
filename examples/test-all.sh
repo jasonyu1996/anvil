@@ -14,6 +14,7 @@ TESTS=(
     import_example
     multi_send_recv
     latency
+    multicycle_counter
 )
 
 passed=0
