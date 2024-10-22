@@ -448,10 +448,10 @@ module Typing = struct
   let find_first_msg_after (ev : event) (msg: Lang.message_specifier) =
     event_successors ev |> List.tl |> List.find_opt
       (fun ev' ->
-        List.exists (fun sa ->
-          match sa.d.ty with
-          | Send (msg', _) | Recv msg' -> msg' = msg
-        ) ev'.sustained_actions
+        match ev'.source with
+        | `Seq (_, `Recv msg')
+        | `Seq (_, `Send msg') -> msg' = msg
+        | _ -> false
       )
 
   let event_succ_msg_match_earliest (ev : event) (msg : message_specifier) =
