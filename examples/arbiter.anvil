@@ -17,7 +17,8 @@ reg c2_ack : logic[1]
 reg c3_ack : logic[1]
 reg c4_ack : logic[1]
 loop {
-    set cycle_count := !cycle_count + 5'b00001
+    set cycle_count := !cycle_count + 5'b00001;
+    cycle 1
 }
 loop {
     let in1 = recv ch1::req in
@@ -64,13 +65,17 @@ loop {
             set c3_ack := 1'b0;
             set c4_ack := 1'b0)
     )=>
-    (if (!InReady == 1'b1) then 
-        send ch::gnt(!result)
-    else dprint "No Producer is ready in cycle %d" (!cycle_count));
-    send ch1::res(!c1_ack);
-    send ch2::res(!c2_ack);
-    send ch3::res(!c3_ack);
-    send ch4::res(!c4_ack)
+    (
+        if (!InReady == 1'b1) then 
+            send ch::gnt(!result)
+        else dprint "No Producer is ready in cycle %d" (!cycle_count);
+
+        send ch1::res(!c1_ack);
+        send ch2::res(!c2_ack);
+        send ch3::res(!c3_ack);
+        send ch4::res(!c4_ack)
+    )=>
+    cycle 1
 }
 
 proc arbiter() = 
@@ -95,7 +100,8 @@ reg p3_counter : logic[2]
 reg p4_counter : logic[2]
 reg cycle_count : logic[5]
 loop {
-    set cycle_count := !cycle_count + 5'b00001
+    set cycle_count := !cycle_count + 5'b00001;
+    cycle 1
 }
 
 loop {
@@ -147,39 +153,42 @@ loop {
                 )
             )
         )
-    )
+    )=>
+    cycle 1
 }
 
 loop {
+
     if(!p1_acc == 1'b0) then (
         send ch1_in::req(8'b00000001)
     )
     else (
        dprint "Producer 1 is blocked %d" (!cycle_count)
-    );
+    )=>
     if(!p2_acc == 1'b0) then (
         send ch2_in::req(8'b00000010)
     )
     else (
         dprint "Producer 2 is blocked %d" (!cycle_count)
-    );
+    )=>
     if(!p3_acc == 1'b0) then (
         send ch3_in::req(8'b00000100)
     )
     else (
-
         dprint "Producer 3 is blocked %d" (!cycle_count )
-    );
+    )=>
     if(!p4_acc == 1'b0) then (
         send ch4_in::req(8'b00001000)
     )
     else (
         dprint "Producer 4 is blocked %d" (!cycle_count)
-    )
+    )=>
+    cycle 1
 }
 
 loop {
     let result = recv ch_out::gnt in
     result =>
-    dprint "Consumer got %d in cycle %d" (result,!cycle_count)
+    dprint "Consumer got %d in cycle %d" (result,!cycle_count);
+    cycle 1
 }

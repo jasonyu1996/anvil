@@ -36,7 +36,8 @@ proc Queue_8bit(ch : left queue_ch) =
                 set not_full := 1'b1
             else
                 set not_full := 1'b0)
-        )
+        );
+        cycle 1
     }
 
     loop {
@@ -57,11 +58,12 @@ proc Queue_8bit(ch : left queue_ch) =
         else
         (
             set full := 1'b0
-        ))=>cycle 1=>
+        ))=>
 
         
         send ch::enqueue_res(!enqueue_resp)=>
-        set head := !head + {2'b00, !cenqueue_resp}
+        set head := !head + {2'b00, !enqueue_resp};
+        cycle 1
     }
 
 proc queue () =
@@ -71,7 +73,8 @@ proc queue () =
     reg cycle_counter : value_5bit
     reg counter : value_4bit
     loop {
-        set cycle_counter := !cycle_counter + 5'b00001
+        set cycle_counter := !cycle_counter + 5'b00001;
+        cycle 1
     }
     loop {
         if (!counter == 4'b0000) then
@@ -122,12 +125,9 @@ proc queue () =
                                                                     if (!counter == 4'b1111) then
                                                                         dfinish
                                                                     else
-                                                                        dfinish
-    }
-    loop {
-        (
+                                                                        dfinish=>
             if ((!counter< 4'b1000) || (!counter> 4'b1011)) then
-            (
+            (  
                 send queue_input::enqueue_req(!data)=>
                 dprint "Enqueuing %d in cycle %d" (!data, !cycle_counter);
                 let x = recv queue_output::enqueue_res in
@@ -141,7 +141,8 @@ proc queue () =
                 let x = recv queue_output::dequeue_res in
                 x=>               
                 dprint "Dequeue Output %d in cycle %d" (x, !cycle_counter)
-            )
-        )=>
-        set counter := !counter + 4'b0001
+            )=>
+        set counter := !counter + 4'b0001;
+        cycle 1
+                                                                        
     }
