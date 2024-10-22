@@ -36,7 +36,8 @@ proc FIFO_Cache(ch : left cache_read, ch_mem : right memory_read) =
     reg valid :logic[4][4]
     reg cycle_counter :logic[4]
     loop {
-        set cycle_counter := !cycle_counter + 4'b0001
+        set cycle_counter := !cycle_counter + 4'b0001;
+        cycle 1
     }
     loop {
             dprint "(FIFO_Cache) Cycle %d" (!cycle_counter);
@@ -116,7 +117,8 @@ proc FIFO_Cache(ch : left cache_read, ch_mem : right memory_read) =
             
         )=>
         send ch::res(!senddata)=>
-        dprint "(FIFO_Cache) Cache Response sent in cycle %d" (!cycle_counter)
+        dprint "(FIFO_Cache) Cache Response sent in cycle %d" (!cycle_counter);
+        cycle 1
     }
     
 
@@ -126,7 +128,8 @@ proc Main_Memory(ch : left memory_read, write_ch : left memory_write) =
     reg cycle_counter :logic[4]
     reg result :logic[8]
     loop {
-        set cycle_counter := !cycle_counter + 4'b0001
+        set cycle_counter := !cycle_counter + 4'b0001;
+        cycle 1
     }
     loop {
         let address = recv ch::req in
@@ -135,11 +138,11 @@ proc Main_Memory(ch : left memory_read, write_ch : left memory_write) =
         cycle 1)=>
         dprint "(Main Memory) Memory Read Request for address %d in cycle %d" (address, !cycle_counter);
         send ch::res(!result)=>
-        dprint "(Main Memory) Memory Read Response sent in cycle %d" (!cycle_counter)
+        dprint "(Main Memory) Memory Read Response sent in cycle %d" (!cycle_counter);
+        cycle 1
     }
     loop
     {
-        dprint "(Main Memory) Cycle %d" (!cycle_counter);
         let x = recv write_ch::req in
         x=>
         (
@@ -147,7 +150,8 @@ proc Main_Memory(ch : left memory_read, write_ch : left memory_write) =
             (set memory[x.address] := x.data;
             cycle 1)=>
             dprint "(Main Memory) Memory Write Complete (data = %d) at address %d : %d in cycle %d" (x.data, x.address, !memory[x.address], !cycle_counter);
-            send write_ch::res(1'b1)
+            send write_ch::res(1'b1);
+            cycle 1
             
         )
     }
@@ -164,7 +168,8 @@ proc cache ()=
     reg data : logic[8]
     reg cycle_counter : logic[4]
     loop {
-        set cycle_counter := !cycle_counter + 4'b0001
+        set cycle_counter := !cycle_counter + 4'b0001;
+        cycle 1
     }
     loop {
     (  
@@ -238,17 +243,17 @@ proc cache ()=
                 )
             )
         )
-    );
+    )=>
     (
         if !count <= 4'b0011 then
         (
-            
-            (send memory_write_input::req(memory_map::{address=!address; data=!data});
-            cycle 1) =>
+
+            send memory_write_input::req(memory_map::{address=!address; data=!data}) =>
             let y = recv memory_write_output::res in
             y =>
             dprint "(Top) Memory Write (%d) Complete in address %d: %d in cycle %d\n" (!count, !address, !data, !cycle_counter);
             set count := !count + 4'b0001
+            
         )
         else
         (
@@ -259,5 +264,6 @@ proc cache ()=
             dprint "(Top) Cache Request(%d) Output Received in cycle %d for address (%d) Output: %d\n" (!count-4'b0100, !cycle_counter, !address, z);
             set count := !count + 4'b0001
         )
-    )
+    );
+    cycle 1
     }
