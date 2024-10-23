@@ -15,6 +15,7 @@ TESTS=(
     multi_send_recv
     latency
     multicycle_counter
+    comb_loop
 )
 
 passed=0
@@ -25,10 +26,18 @@ for t in ${TESTS[@]}; do
     make MODULE_NAME=$t clean
     tot=$(expr $tot + 1)
     if make MODULE_NAME=$t; then
-        echo "Passed: $t"
-        passed=$(expr $passed + 1)
+        echo "Build success. Now to run test ..."
+        exit_code=0
+        timeout 5 make MODULE_NAME=$t run 2>&1 > /dev/null || exit_code=$?
+        if [ "$exit_code" -eq 0 ] || [ "$exit_code" -eq 124 ]; then
+            # timeout or success are both good
+            echo "Passed: $t"
+            passed=$(expr $passed + 1)
+        else
+            echo "Failed: $t"
+        fi
     else
-        echo "Failed: $t"
+        echo "Failed (build): $t"
     fi
 done
 

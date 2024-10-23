@@ -1,0 +1,10 @@
+proc comb_loop () =
+    loop {
+        (if 1'b1 then
+            ()
+        else
+            ()
+        );
+        dprint "Dequeue" ();
+        cycle 1
+    }
