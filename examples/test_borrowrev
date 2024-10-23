@@ -1,6 +1,0 @@
-chan ch = {
-    left req : (logic[8]@req),
-    right res : (logic[8]@res)
-}
-
-proc foo (ch)

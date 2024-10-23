@@ -1,7 +1,7 @@
 type value_1bit = logic
 chan producer_ch = {
     left req : (logic[8]@res),
-    right res : (logic@req)
+    right res : (logic@#1)
 }
 chan consumer_ch = {
     left gnt: (logic[8]@#1)
@@ -26,6 +26,7 @@ loop {
     let in3 = recv ch3::req in
     let in4 = recv ch4::req in
     (
+        (
         if (ready ch1::req) then 
             (in1=>
             set result := in1;
@@ -65,7 +66,7 @@ loop {
             set c2_ack := 1'b0;
             set c3_ack := 1'b0;
             set c4_ack := 1'b0)
-    );cycle 1=>
+    );cycle 1)=>
     (
         if (!InReady == 1'b1) then 
             send ch::gnt(!result)
