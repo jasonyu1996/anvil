@@ -1,0 +1,9 @@
+proc test_regIndex1() =
+    reg x:logic[2]
+    reg y:logic[4]
+    loop {
+        if 1'b1 then
+            set y[!x] := 1'b1
+        else
+            cycle 1
+    }
