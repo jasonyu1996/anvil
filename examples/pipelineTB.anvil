@@ -79,7 +79,7 @@ proc pipelineTB () =
     }
     loop {
         dprint "(Top) Sent instruction (%d) in cycle: %d" (!instruction, !cycle_counter);
-        send proc_input::req(!instruction)=>
+        send proc_output::req(!instruction)=>
         cycle 1
     }    
 

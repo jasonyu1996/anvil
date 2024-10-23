@@ -77,6 +77,7 @@ proc queue () =
         cycle 1
     }
     loop {
+        (
         (if (!counter == 4'b0000) then
             set data := 8'b00000001
         else
@@ -125,10 +126,10 @@ proc queue () =
                                                                     if (!counter == 4'b1111) then
                                                                         dfinish
                                                                     else
-                                                                        dfinish);cycle 1=>
+                                                                        dfinish);cycle 1)=>
             if ((!counter< 4'b1000) || (!counter> 4'b1011)) then
             (  
-                send queue_input::enqueue_req(!data)=>
+                send queue_output::enqueue_req(!data)=>
                 dprint "Enqueuing %d in cycle %d" (!data, !cycle_counter);
                 let x = recv queue_output::enqueue_res in
                 x=>
@@ -136,7 +137,7 @@ proc queue () =
             )
             else
             (
-                send queue_input::dequeue_req(1'b1)=>
+                send queue_output::dequeue_req(1'b1)=>
                 dprint "Dequeuing in cycle %d" (!cycle_counter);
                 let x = recv queue_output::dequeue_res in
                 x=>               

@@ -134,9 +134,9 @@ proc Main_Memory(ch : left memory_read, write_ch : left memory_write) =
     loop {
         let address = recv ch::req in
         address =>
+        dprint "(Main Memory) Memory Read Request for address %d in cycle %d" (address, !cycle_counter);
         (set result := !memory[address];
         cycle 1)=>
-        dprint "(Main Memory) Memory Read Request for address %d in cycle %d" (address, !cycle_counter);
         send ch::res(!result)=>
         dprint "(Main Memory) Memory Read Response sent in cycle %d" (!cycle_counter);
         cycle 1
@@ -146,10 +146,8 @@ proc Main_Memory(ch : left memory_read, write_ch : left memory_write) =
         let x = recv write_ch::req in
         x=>
         (
-            dprint "(Main Memory) Memory Write Start %d: %d in cycle %d" (x.address, x.data, !cycle_counter);
             (set memory[x.address] := x.data;
-            cycle 1)=>
-            dprint "(Main Memory) Memory Write Complete (data = %d) at address %d : %d in cycle %d" (x.data, x.address, !memory[x.address], !cycle_counter);
+            cycle 1)=>   
             send write_ch::res(1'b1);
             cycle 1
             
@@ -248,7 +246,7 @@ proc cache ()=
         if !count <= 4'b0011 then
         (
 
-            send memory_write_input::req(memory_map::{address=!address; data=!data}) =>
+            send memory_write_output::req(memory_map::{address=!address; data=!data}) =>
             let y = recv memory_write_output::res in
             y =>
             dprint "(Top) Memory Write (%d) Complete in address %d: %d in cycle %d\n" (!count, !address, !data, !cycle_counter);
@@ -258,7 +256,7 @@ proc cache ()=
         else
         (
             dprint "(Top) Cache Request(%d) sent in cycle %d\n" (!count-4'b0100, !cycle_counter);
-            send cache_input::req(!address)=>
+            send cache_output::req(!address)=>
             let z = recv cache_output::res in
             z =>
             dprint "(Top) Cache Request(%d) Output Received in cycle %d for address (%d) Output: %d\n" (!count-4'b0100, !cycle_counter, !address, z);

@@ -59,12 +59,13 @@ loop {
             set c2_ack := 1'b0;
             set c3_ack := 1'b0;
             set c4_ack := 1'b1)
-        else (set InReady := 1'b0;
+        else 
+            (set InReady := 1'b0;
             set c1_ack := 1'b0;
             set c2_ack := 1'b0;
             set c3_ack := 1'b0;
             set c4_ack := 1'b0)
-    )=>
+    );cycle 1=>
     (
         if (!InReady == 1'b1) then 
             send ch::gnt(!result)
@@ -74,7 +75,7 @@ loop {
         send ch2::res(!c2_ack);
         send ch3::res(!c3_ack);
         send ch4::res(!c4_ack)
-    )=>
+    );
     cycle 1
 }
 
