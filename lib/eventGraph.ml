@@ -445,13 +445,16 @@ module Typing = struct
         List.for_all (fun endpt -> in_control_set_endps ev endpt) endpts
       )
 
-  let find_first_msg_after (ev : event) (msg: Lang.message_specifier) =
-    event_successors ev |> List.tl |> List.find_opt
+  (* inclusive: include the matching event itself or its predecessor? *)
+  let find_first_msg_after (ev : event) (msg: Lang.message_specifier) inclusive =
+    event_successors ev |> List.find_map
       (fun ev' ->
-        match ev'.source with
-        | `Seq (_, `Recv msg')
-        | `Seq (_, `Send msg') -> msg' = msg
-        | _ -> false
+        List.find_map (fun sa ->
+          match sa.d.ty with
+          | Send (msg', _) | Recv msg' ->
+              if msg' = msg then Some (ev', sa) else None
+        ) ev'.sustained_actions
+        |> Option.map (fun (ev', sa) -> if inclusive then sa.d.until else ev')
       )
 
   let event_succ_msg_match_earliest (ev : event) (msg : message_specifier) =
@@ -526,7 +529,7 @@ module Typing = struct
                   n1 + d <= n2
                 )
               | `Message msg ->
-                  let n2_opt' = event_succ_msg_match_earliest ev2 msg in
+                  let n2_opt' = event_succ_msg_match_earliest ev2 msg false in
                   match n2_opt' with
                   | None -> true (* never matching *)
                   | Some n2' ->
@@ -538,7 +541,7 @@ module Typing = struct
           )
         | `Message msg ->
           (
-            let ri1_opt = event_succ_msg_match_latest ev1 msg in (* latest estimated *)
+            let ri1_opt = event_succ_msg_match_latest ev1 msg true in (* latest estimated *)
             match ri1_opt with
             | None -> fun _ _ -> true (* End of the second loop. Don't handle *)
             | Some ri1 ->
@@ -554,7 +557,7 @@ module Typing = struct
                   )
                 | `Message msg2 ->
                   (
-                    let le2_opt = event_succ_msg_match_earliest ev2 msg2 in
+                    let le2_opt = event_succ_msg_match_earliest ev2 msg2 false in
                     match le2_opt with
                     | None -> true
                     | Some le2 -> event_is_predecessor le2 ri1
