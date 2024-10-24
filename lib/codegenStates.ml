@@ -98,7 +98,7 @@ let codegen_next printer (pg : EventGraph.proc_graph) (g : EventGraph.event_grap
       let cn2 = EventStateFormatter.format_current g.thread_id e2.id in
       let sn = EventStateFormatter.format_scorer g.thread_id e.id in
       [
-        Printf.sprintf "assign %s = (~(%s ^ %s ^ %s_q)) & (%s | %s | %s_q);" cn cn1 cn2 sn cn1 cn2 sn;
+        Printf.sprintf "assign %s = (%s & %s_q) | (%s & %s_q) | (%s & %s);" cn cn1 sn cn2 sn cn1 cn2;
         Printf.sprintf "assign %s_n = %s ^ %s ^ %s_q;" sn cn1 cn2 sn
       ] |> print_lines
     | `Root ->
