@@ -82,7 +82,7 @@ let codegen_spawns printer (graphs : event_graph_collection) (g : event_graph) =
     let proc_other = CodegenHelpers.lookup_proc graphs.external_event_graphs spawn.proc |> Option.get in
     let connect_endpoints = fun (arg_endpoint : endpoint_def) (param_ident : identifier) ->
       let endpoint_local = MessageCollection.lookup_endpoint g.messages param_ident |> Option.get in
-      let endpoint_name_local = EventGraph.canonicalize_endpoint_name param_ident g in
+      let endpoint_name_local = CodegenFormat.canonicalize_endpoint_name param_ident g in
       let cc = MessageCollection.lookup_channel_class graphs.channel_classes endpoint_local.channel_class |> Option.get in
       let print_msg_con = fun (msg : message_def) ->
         if Port.message_has_valid_port msg then
@@ -141,7 +141,7 @@ let codegen_wire_assignment printer (g : event_graph) (w : WireCollection.wire) 
       List.map (fun (w' : WireCollection.wire) -> Format.format_wirename w'.thread_id w'.id) ws |>
         String.concat ", " |> Printf.sprintf "{%s}"
     | MessagePort (msg, idx) ->
-      let msg_endpoint = EventGraph.canonicalize_endpoint_name msg.endpoint g in
+      let msg_endpoint = CodegenFormat.canonicalize_endpoint_name msg.endpoint g in
       Format.format_msg_data_signal_name msg_endpoint msg.msg idx
     | Slice (w', base_i, len) ->
       Printf.sprintf "%s[%s +: %d]" (Format.format_wirename w'.thread_id w'.id)

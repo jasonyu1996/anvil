@@ -57,7 +57,7 @@ let compile out config =
   let event_graphs =
     List.map (fun (filename, cunit) ->
       try
-        EventGraph.build config
+        GraphBuilder.build config
           (
             let open Lang in
             {cunit with channel_classes = all_channel_classes; type_defs = all_type_defs; _extern_procs = all_procs}
@@ -75,6 +75,9 @@ let compile out config =
       | EventGraph.EventGraphError (msg, span) ->
         Printf.sprintf "Event graph error (%s)" msg
           |> raise_compile_error filename span
+      | Except.UnknownError msg ->
+        Printf.sprintf "Unknown error (%s)" msg
+          |> raise_compile_error_brief
     )
     !cunits
   in
