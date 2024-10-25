@@ -16,6 +16,7 @@ TESTS=(
     latency
     multicycle_counter
     comb_loop
+    list
 )
 
 passed=0

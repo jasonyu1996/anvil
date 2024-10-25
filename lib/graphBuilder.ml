@@ -424,6 +424,13 @@ and visit_expr (graph : event_graph) (ci : cunit_info)
       Typing.const_data graph None ctx.current
     else
       raise (EventGraphError ("Shared variable assigned in wrong thread", e.span))
+  | List li ->
+    let tds = List.map (visit_expr graph ci ctx) li in
+    let ws = List.map (fun td -> unwrap_or_err "Invalid wires!" e.span td.w) tds in
+    let (wires', new_w) = WireCollection.add_list graph.thread_id ci.typedefs ws graph.wires
+      |> unwrap_or_err "Invalid list!" e.span in
+    graph.wires <- wires';
+    Typing.merged_data graph (Some new_w) ctx.current tds
   | _ -> raise (EventGraphError ("Unimplemented expression!", e.span))
 
 

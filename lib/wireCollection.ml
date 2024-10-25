@@ -86,6 +86,23 @@ module Wire = struct
       dtype = `Array (`Logic, sz);
     }
 
+  let new_list id thread_id _typedefs ws =
+    if ws = [] then
+      None (* empty list not allowed *)
+    else (
+      let hw = List.hd ws in
+      (* TODO: might be necessary to resolve types *)
+      if List.for_all (fun w -> w.dtype = hw.dtype) (List.tl ws) then (
+        Some {
+          id;
+          thread_id;
+          source = Concat (List.rev ws);
+          dtype = `Array (hw.dtype, List.length ws)
+        }
+      ) else
+        None
+    )
+
   let new_msg_port id thread_id _typedefs msg_spec idx msg_def =
     let open Lang in
     let t = List.nth msg_def.sig_types idx in
@@ -154,3 +171,8 @@ let add_slice thread_id (dtype : Lang.data_type) (w : wire)  base_i len (wc : t)
   let id = List.length wc in
   let w = Wire.new_slice id thread_id dtype w base_i len in
   (w::wc, w)
+
+let add_list thread_id (typedefs : TypedefMap.t) (ws : wire list) (wc : t) : (t * wire) option =
+  let id = List.length wc in
+  Wire.new_list id thread_id typedefs ws
+  |> Option.map (fun w -> (w::wc, w))

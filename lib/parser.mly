@@ -355,10 +355,9 @@ expr:
   { Lang.Debug (Lang.DebugPrint (s, v)) }
 | KEYWORD_DFINISH
   { Lang.Debug Lang.DebugFinish }
-
-// | KEYWORD_LOOP; body = expr
-//   { Lang.Loop body }
-// ;
+| LEFT_BRACKET; li = separated_list(COMMA, node(expr)); RIGHT_BRACKET
+  { Lang.List li }
+;
 
 //To Ask: What does this do
 constructor_spec:

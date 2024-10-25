@@ -72,6 +72,24 @@ let sig_lifetime_this_cycle : sig_lifetime =
 let sig_lifetime_const : sig_lifetime =
   { e = `Eternal }
 
+
+(** Direction of an endpoint. *)
+type endpoint_direction = Left | Right
+
+(** Endpoint definition. A pair is
+created once a channel class
+is instantiated. *)
+type endpoint_def = {
+  name: identifier;
+  channel_class: identifier;
+  dir: endpoint_direction; (** direction of the endpoint *)
+  (* used by this process? *)
+  foreign: bool; (** must this endpoint be passed to other processes rather than
+  used within this process? *)
+  opp: identifier option; (** if the endpoint is created locally, the other endpoint associated
+  with the same channel *)
+}
+
 (** Type definition without named type. *)
 type 'a data_type_generic_no_named = [
   | `Logic
@@ -80,6 +98,7 @@ type 'a data_type_generic_no_named = [
   | `Record of (identifier * 'a) list (** ADT product type *)
   | `Tuple of 'a list
   | `Opaque of identifier (** type reserved for internal purposes *)
+  (* | `Endpoint of endpoint_def * first-class endpoints *)
 ]
 
 type 'a data_type_generic = [
@@ -340,6 +359,7 @@ and expr =
   | Send of send_pack
   | Recv of recv_pack
   | SharedAssign of identifier * expr_node (** make ready a shared value *)
+  | List of expr_node list (** array/list of expressions *)
 and expr_node = expr ast_node
 
 (** A "location" that can be assigned to. *)
@@ -373,23 +393,6 @@ type sig_def = {
 type cycle_proc = {
   trans_func: expr_node;
   sigs: sig_def list;
-}
-
-(** Direction of an endpoint. *)
-type endpoint_direction = Left | Right
-
-(** Endpoint definition. A pair is
-created once a channel class
-is instantiated. *)
-type endpoint_def = {
-  name: identifier;
-  channel_class: identifier;
-  dir: endpoint_direction; (** direction of the endpoint *)
-  (* used by this process? *)
-  foreign: bool; (** must this endpoint be passed to other processes rather than
-  used within this process? *)
-  opp: identifier option; (** if the endpoint is created locally, the other endpoint associated
-  with the same channel *)
 }
 
 (** A spawn of a process. *)
