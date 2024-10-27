@@ -155,7 +155,7 @@ let codegen_wire_assignment printer (g : event_graph) (w : WireCollection.wire) 
 let codegen_post_declare printer (graphs : event_graph_collection) (g : event_graph) =
   (* wire declarations *)
   let codegen_wire_decl = fun (w: WireCollection.wire) ->
-    Printf.sprintf "%s %s;" (Format.format_dtype graphs.typedefs w.dtype) (Format.format_wirename w.thread_id w.id) |>
+    Printf.sprintf "%s %s;" (Format.format_dtype graphs.typedefs (`Array (`Logic, w.size))) (Format.format_wirename w.thread_id w.id) |>
       CodegenPrinter.print_line printer
   in List.iter codegen_wire_decl g.wires;
   List.iter (codegen_wire_assignment printer g) g.wires

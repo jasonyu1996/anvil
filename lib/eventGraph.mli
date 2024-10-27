@@ -33,6 +33,7 @@ type global_timed_data =
 {
   mutable w : wire option;
   glt : Lang.sig_lifetime;
+  gdtype : Lang.data_type;
 }
 
 (** Describe a time window that starts with an eventl ({!live}) and ends with an
@@ -47,6 +48,7 @@ and timed_data = {
   w : wire option; (** the {!type:wire} carrying the underlying raw data *)
   lt : lifetime; (** lifetime of the data *)
   reg_borrows : (Lang.identifier * event) list; (** each is tuple of (name of register, starting event of the borrow) *)
+  dtype : Lang.data_type;
 }
 and shared_var_info = {
   assigning_thread : int;
@@ -58,7 +60,7 @@ and shared_var_info = {
 and lvalue_info = {
   reg_name : string;
   range : timed_data MaybeConst.maybe_int_const * int; (** range in the register, second component is size *)
-  dtype : Lang.data_type;
+  lval_dtype : Lang.data_type;
 }
 
 (** An action that is performed instantly when an event is reached. *)

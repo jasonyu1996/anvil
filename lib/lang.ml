@@ -118,6 +118,9 @@ and type_def = {
   body: data_type;
 }
 
+(** Unit type. Basically an empty tuple. *)
+let unit_dtype = `Tuple []
+
 (** Number of bits required to hold the tag for a variant type. *)
 let variant_tag_size (v: [< `Variant of (identifier * data_type option) list]) : int =
   match v with

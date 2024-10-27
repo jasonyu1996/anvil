@@ -23,6 +23,7 @@ type global_timed_data =
 {
   mutable w : wire option;
   glt : sig_lifetime;
+  gdtype: Lang.data_type;
 }
 type lifetime = {
   live : event;
@@ -32,6 +33,7 @@ and timed_data = {
   w : wire option;
   lt : lifetime;
   reg_borrows : (identifier * event) list;
+  dtype: Lang.data_type;
 }
 and shared_var_info = {
   assigning_thread : int;
@@ -42,7 +44,7 @@ and lvalue_info = {
   reg_name : string;
   range : timed_data MaybeConst.maybe_int_const * int;
   (* left closed right open *)
-  dtype : data_type;
+  lval_dtype : data_type;
 }
 and action =
   | DebugPrint of string * timed_data list
