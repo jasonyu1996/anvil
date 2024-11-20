@@ -25,6 +25,7 @@
 %token EXCL_EQ              (* != *)
 %token OR_GT                (* |> *)
 %token EXCL                 (* ! *)
+%token ASTERISK             (* * *)
 %token PLUS                 (* + *)
 %token MINUS                (* - *)
 %token DOUBLE_MINUS         (* -- *)
@@ -345,7 +346,7 @@ expr:
   { Lang.Concat components }
 | KEYWORD_MATCH; e = node(expr); KEYWORD_WITH; match_arm_list = match_arm+; KEYWORD_DONE
   { Lang.Match (e, match_arm_list) }
-| EXCL; reg_ident = IDENT
+| ASTERISK; reg_ident = IDENT
   { Lang.Read reg_ident }
 | constructor_spec = constructor_spec; e = ioption(node(expr))
   { Lang.Construct (constructor_spec, e) } %prec CONSTRUCT
@@ -599,7 +600,7 @@ timestamp_chan_local:
 ;
 //Message string
 message_specifier:
-  endpoint = IDENT; DOUBLE_COLON; msg_type = IDENT
+  endpoint = IDENT; PERIOD; msg_type = IDENT
   {
     {
       endpoint = endpoint;

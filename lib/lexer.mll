@@ -26,6 +26,7 @@ rule read =
   | ':'       { COLON }
   | ';'       { SEMICOLON }
   | '#'       { SHARP }
+  | '*'       { ASTERISK }
   | '='       { EQUAL }
   | '+'       { PLUS }
   | '-'       { MINUS }

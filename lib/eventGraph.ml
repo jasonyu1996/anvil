@@ -682,7 +682,7 @@ module Typing = struct
         | RegAssign (lval_info, td) ->
           let lt = lifetime_immediate ev in
           if not_borrowed reg_borrows lval_info.reg_name lt |> not then
-            raise (EventGraphError ("Attempted assignment to a borrowed register!", a.span))
+            raise (EventGraphError ("Attempted assignment to a loaned register!", a.span))
           else ();
           if lifetime_in_range g.events lt td.lt |> not then
             raise (EventGraphError ("Value does not live long enough in reg assignment!", a.span))
