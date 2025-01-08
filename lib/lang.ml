@@ -91,6 +91,10 @@ type enum_def = {
   name: identifier;
   variants: identifier list;
 }
+type macro_def = {
+  name: identifier;
+  value : int;
+}
 
 (** A data type after resolution (no named type). *)
 type resolved_data_type = resolved_data_type data_type_generic_no_named
@@ -456,13 +460,14 @@ type compilation_unit = {
   channel_classes: channel_class_def list;
   type_defs: type_def list;
   enum_defs: enum_def list;
+  macro_defs: macro_def list;
   procs: proc_def list;
   imports : import_directive list;
   _extern_procs : proc_def list; (** processes that are external, usable but not built *)
 }
 
 let cunit_empty : compilation_unit =
-  { channel_classes = []; type_defs = []; procs = []; imports = []; _extern_procs = [];enum_defs = [] }
+  { channel_classes = []; type_defs = []; procs = []; imports = []; _extern_procs = [];enum_defs = [];macro_defs = [] }
 
 let cunit_add_channel_class
   (c : compilation_unit) (cc : channel_class_def) : compilation_unit =
@@ -473,6 +478,8 @@ let cunit_add_type_def (c : compilation_unit) (ty : type_def) : compilation_unit
 
 let cunit_add_enum_def (c : compilation_unit) (enum : enum_def) : 
   compilation_unit = {c with enum_defs = enum::c.enum_defs}
+let cunit_add_macro_def (c : compilation_unit) (macro : macro_def) :
+  compilation_unit = {c with macro_defs = macro::c.macro_defs}
 let cunit_add_proc
   (c : compilation_unit) (p : proc_def) : compilation_unit =
   {c with procs = p::c.procs}

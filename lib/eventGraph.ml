@@ -10,6 +10,7 @@ type cunit_info = {
   typedefs : TypedefMap.t;
   channel_classes : channel_class_def list;
   enum_mappings : (string * (string * int) list) list;
+  macro_mappings : (string * int) list;
 }
 
 type atomic_delay = [
@@ -831,9 +832,23 @@ and visit_expr (graph : event_graph) (ci : cunit_info)
       Typing.sync_event_data graph ident shared_info.value ctx.current
     )
   | Identifier ident ->
-      Typing.context_lookup ctx.typing_ctx ident
-        |> unwrap_or_err ("Undefined identifier: " ^ ident) e.span
-        |> Typing.sync_data graph ctx.current
+      let ctx_val = Typing.context_lookup ctx.typing_ctx ident  in
+      let macro_val = List.assoc_opt ident ci.macro_mappings in
+      (match ctx_val, macro_val with
+       | Some _, Some _ ->
+          raise (EventGraphError (" Conflicting Identifier " ^ ident ^ " declarations found", e.span))
+       | Some td, None -> Typing.sync_data graph ctx.current td
+       | None, Some value ->
+           let (wires', w) = WireCollection.add_literal graph.thread_id 
+             (WithLength (Utils.int_log2 (value+1), value)) graph.wires in
+           graph.wires <- wires';
+           Typing.const_data graph (Some w) ctx.current
+       | None, None ->
+          Typing.context_lookup ctx.typing_ctx ident
+          |> unwrap_or_err ("Undefined identifier: " ^ ident) e.span 
+          |> Typing.sync_data graph ctx.current
+      )
+       
   | Assign (lval, e') ->
     let td = visit_expr graph ci ctx e' in
     let lvi = lvalue_info_of graph ci ctx e.span lval in
@@ -1129,11 +1144,19 @@ let build (config : Config.compile_config) (cunit : compilation_unit) =
     ) enum.variants in
     (enum.name, variants_with_indices)
   ) cunit.enum_defs in
+  
+  let macro_mappings = List.map (fun (macro : macro_def) ->
+    (macro.name, macro.value)
+  ) cunit.macro_defs in
+
+  
+  
   let typedefs = TypedefMap.of_list cunit.type_defs in
   let ci = { 
     typedefs; 
     channel_classes = cunit.channel_classes;
     enum_mappings;
+    macro_mappings;
   } in
   let graphs = List.map (build_proc config ci) cunit.procs in
   {

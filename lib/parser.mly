@@ -19,6 +19,7 @@
 %token RIGHT_ABRACK_EQ      (* >= *)
 %token DOUBLE_LEFT_ABRACK   (* << *)
 %token DOUBLE_RIGHT_ABRACK  (* << *)
+%token KEYWORD_USE          (* << *)
 %token KEYWORD_READY        (* ready *)
 %token DOUBLE_EQ            (* == *)
 %token EQ_GT                (* => *)
@@ -103,6 +104,8 @@ cunit:
   { Lang.cunit_add_proc c p }
 | en = enum_def; c = cunit
   { Lang.cunit_add_enum_def c en }
+| macro  = macro_def;c = cunit
+  { Lang.cunit_add_macro_def c macro }
 | ty = type_def; c = cunit
   { Lang.cunit_add_type_def c ty }
 | cc = channel_class_def; c = cunit
@@ -628,4 +631,9 @@ enum_def:
   | KEYWORD_ENUM; name = IDENT; EQUAL; LEFT_BRACE; variants = separated_list(COMMA, IDENT); RIGHT_BRACE
     {
       { name = name; variants = variants } : Lang.enum_def
+    }
+macro_def: 
+  | KEYWORD_USE; name = IDENT; EQUAL; value = INT
+    {
+      { name = name; value = value } : Lang.macro_def
     }

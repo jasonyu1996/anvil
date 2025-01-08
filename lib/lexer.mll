@@ -84,6 +84,7 @@ rule read =
   | "wait"    { KEYWORD_WAIT }
   | "cycle"   { KEYWORD_CYCLE }
   | "reg"     { KEYWORD_REG }
+  | "Use"     { KEYWORD_USE }
   | "spawn"   { KEYWORD_SPAWN }
   | "try"     { KEYWORD_TRY }
   | "dprint"  { KEYWORD_DPRINT }
