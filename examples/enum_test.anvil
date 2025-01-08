@@ -1,0 +1,13 @@
+enum color = {
+    red,
+    green,
+    yellow
+}
+
+proc enum_test() = 
+
+    loop{
+        dprint "%d" (color::yellow);
+        cycle 1
+    }
+    

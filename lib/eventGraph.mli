@@ -154,6 +154,7 @@ type event_graph_collection = {
   typedefs : TypedefMap.t;
   channel_classes : Lang.channel_class_def list;
   external_event_graphs : proc_graph list;
+  enum_mappings : (string * (string * int) list) list;
 }
 
 (** Construct a collection of event graphs from a compilation unit.

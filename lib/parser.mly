@@ -67,6 +67,7 @@
 %token KEYWORD_TRY          (* try *)
 %token KEYWORD_DPRINT       (* dprint *)
 %token KEYWORD_DFINISH      (* dfinish *)
+%token KEYWORD_ENUM
 %token KEYWORD_IMPORT       (* import *)
 %token KEYWORD_EXTERN       (* extern *)
 %token <int>INT             (* int literal *)
@@ -100,6 +101,8 @@ cunit:
   { Lang.cunit_empty }
 | p = proc_def; c = cunit
   { Lang.cunit_add_proc c p }
+| en = enum_def; c = cunit
+  { Lang.cunit_add_enum_def c en }
 | ty = type_def; c = cunit
   { Lang.cunit_add_type_def c ty }
 | cc = channel_class_def; c = cunit
@@ -292,6 +295,8 @@ term:
 ;
 //expressions
 expr:
+| enum_name = IDENT; DOUBLE_COLON; variant = IDENT
+  { Lang.EnumRef (enum_name, variant) }
 | KEYWORD_SET; lval = lvalue; COLON_EQ; v = node(expr) //To Ask: Where are we using set
   { Lang.Assign (lval, v) }
 | e = term
@@ -369,7 +374,6 @@ constructor_spec:
   ty = IDENT; DOUBLE_COLON; variant = IDENT
   { let open Lang in {variant_ty_name = ty; variant} }
 ;
-//To Ask: Where is this being used
 %inline record_field_constr:
   field_name = IDENT; EQUAL; field_value = node(expr)
   { (field_name, field_value) }
@@ -619,3 +623,9 @@ shared_var_def:
     } : Lang.shared_var_def
   }
 ;
+
+enum_def:
+  | KEYWORD_ENUM; name = IDENT; EQUAL; LEFT_BRACE; variants = separated_list(COMMA, IDENT); RIGHT_BRACE
+    {
+      { name = name; variants = variants } : Lang.enum_def
+    }

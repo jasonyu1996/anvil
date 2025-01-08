@@ -9,6 +9,7 @@ type wire_collection = WireCollection.t
 type cunit_info = {
   typedefs : TypedefMap.t;
   channel_classes : channel_class_def list;
+  enum_mappings : (string * (string * int) list) list;
 }
 
 type atomic_delay = [
@@ -951,6 +952,14 @@ and visit_expr (graph : event_graph) (ci : cunit_info)
       td with
       w = Some new_w
     }
+  | EnumRef (id, variant) ->
+    let enum_variants = List.assoc_opt id ci.enum_mappings 
+      |> unwrap_or_err ("Undefined enum type: " ^ id) e.span in
+    let variant_idx = List.find_map (fun (v, idx) -> if v = variant then Some idx else None) enum_variants
+      |> unwrap_or_err ("Invalid enum variant " ^ variant ^ " for enum " ^ id) e.span in
+    let (wires', w) = WireCollection.add_literal graph.thread_id (WithLength (Utils.int_log2 (List.length enum_variants), variant_idx)) graph.wires in
+    graph.wires <- wires';
+    Typing.const_data graph (Some w) ctx.current
   | Index (e', ind) ->
     let td = visit_expr graph ci ctx e' in
     let w = unwrap_or_err "Invalid value in indexing" e'.span td.w in
@@ -1110,17 +1119,29 @@ type event_graph_collection = {
   typedefs : TypedefMap.t;
   channel_classes : channel_class_def list;
   external_event_graphs : proc_graph list;
+  enum_mappings : (string * (string * int) list) list;
 }
 
 let build (config : Config.compile_config) (cunit : compilation_unit) =
+  let enum_mappings = List.map (fun (enum : enum_def) ->
+    let variants_with_indices = List.mapi (fun i variant -> 
+      (variant, i)
+    ) enum.variants in
+    (enum.name, variants_with_indices)
+  ) cunit.enum_defs in
   let typedefs = TypedefMap.of_list cunit.type_defs in
-  let ci = { typedefs; channel_classes = cunit.channel_classes } in
+  let ci = { 
+    typedefs; 
+    channel_classes = cunit.channel_classes;
+    enum_mappings;
+  } in
   let graphs = List.map (build_proc config ci) cunit.procs in
   {
     event_graphs = graphs;
     typedefs;
     channel_classes = cunit.channel_classes;
-    external_event_graphs = []
+    external_event_graphs = [];
+    enum_mappings;
   }
 
 

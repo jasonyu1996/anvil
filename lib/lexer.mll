@@ -57,6 +57,7 @@ rule read =
   | "assigned" { KEYWORD_ASSIGNED }
   | "by"      { KEYWORD_BY }
   | "loop"    { KEYWORD_LOOP }
+  | "enum"    { KEYWORD_ENUM }
   | "proc"    { KEYWORD_PROC }
   | "chan"    { KEYWORD_CHAN }
   | "in"      { KEYWORD_IN }

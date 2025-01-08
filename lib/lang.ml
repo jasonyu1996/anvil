@@ -87,6 +87,11 @@ type 'a data_type_generic = [
   | 'a data_type_generic_no_named
 ]
 
+type enum_def = {
+  name: identifier;
+  variants: identifier list;
+}
+
 (** A data type after resolution (no named type). *)
 type resolved_data_type = resolved_data_type data_type_generic_no_named
 
@@ -98,6 +103,7 @@ and type_def = {
   name: identifier;
   body: data_type;
 }
+
 
 (** Number of bits required to hold the tag for a variant type. *)
 let variant_tag_size (v: [< `Variant of (identifier * data_type option) list]) : int =
@@ -333,6 +339,7 @@ and expr =
   | Record of identifier * (identifier * expr_node) list (** constructing a record-type value *)
   | Index of expr_node * index (** an element of an array ([a[3]]) *)
   | Indirect of expr_node * identifier (** a member of a record ([a.b]) *)
+  | EnumRef of identifier * identifier (** a reference to an enum variant *)
   | Concat of expr_node list
   | Ready of message_specifier (** [ready(a, b)] *)
   | Match of expr_node * ((match_pattern * expr_node option) list)
@@ -448,13 +455,14 @@ type import_directive = {
 type compilation_unit = {
   channel_classes: channel_class_def list;
   type_defs: type_def list;
+  enum_defs: enum_def list;
   procs: proc_def list;
   imports : import_directive list;
   _extern_procs : proc_def list; (** processes that are external, usable but not built *)
 }
 
 let cunit_empty : compilation_unit =
-  { channel_classes = []; type_defs = []; procs = []; imports = []; _extern_procs = [] }
+  { channel_classes = []; type_defs = []; procs = []; imports = []; _extern_procs = [];enum_defs = [] }
 
 let cunit_add_channel_class
   (c : compilation_unit) (cc : channel_class_def) : compilation_unit =
@@ -463,6 +471,8 @@ let cunit_add_channel_class
 let cunit_add_type_def (c : compilation_unit) (ty : type_def) : compilation_unit =
   {c with type_defs = ty::c.type_defs}
 
+let cunit_add_enum_def (c : compilation_unit) (enum : enum_def) : 
+  compilation_unit = {c with enum_defs = enum::c.enum_defs}
 let cunit_add_proc
   (c : compilation_unit) (p : proc_def) : compilation_unit =
   {c with procs = p::c.procs}

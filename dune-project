@@ -19,9 +19,13 @@
  (name anvil)
  (synopsis "An HDL that helps avoid mistakes")
  (description "Anvil is a hardware description language with a type system designed to help the user avoid mistakes.")
- (depends ocaml dune menhir)
+ (depends 
+  (ocaml (>= 4.14.0))
+  (dune (>= 3.8))
+  menhir)
  (tags
-  (hdl safety fpga)))
+  (hdl safety fpga))
+ (version 0.1.0))
 
 (using menhir 2.1)
 
