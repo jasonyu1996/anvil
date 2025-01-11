@@ -45,6 +45,7 @@
 %token KEYWORD_PUT          (* put *)
 %token KEYWORD_LOGIC        (* logic *)
 %token KEYWORD_FOREIGN      (* foreign *)
+%token KEYWORD_GENERATE     (* generate *)
 %token KEYWORD_IF           (* if *)
 %token KEYWORD_THEN         (* then *)
 %token KEYWORD_ELSE         (* else *)
@@ -332,6 +333,8 @@ expr:
   { Lang.Recv recv_pack }
 | v = node(expr); EQ_GT; body = node(expr)
   { Lang.Wait (v, body) }
+| KEYWORD_GENERATE; LEFT_PAREN; i=IDENT; COLON; start = INT; COMMA; end_v = INT; COMMA; offset = INT; RIGHT_PAREN; EQUAL; LEFT_BRACE; body = node(expr); RIGHT_BRACE
+  { Lang.generate_expr (i,start, end_v, offset, body) }
 | KEYWORD_IF; cond = node(expr); KEYWORD_THEN; then_v = node(expr); KEYWORD_ELSE; else_v = node(expr)
   { Lang.IfExpr (cond, then_v, else_v) }
 // | KEYWORD_TRY; KEYWORD_SEND; send_pack = send_pack; KEYWORD_THEN;

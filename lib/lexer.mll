@@ -91,6 +91,7 @@ rule read =
   | "dfinish" { KEYWORD_DFINISH }
   | "import"  { KEYWORD_IMPORT }
   | "extern"  { KEYWORD_EXTERN }
+  | "generate" { KEYWORD_GENERATE }
   | int       { let n = Lexing.lexeme lexbuf |> int_of_string in INT n }
   | ident     { IDENT (Lexing.lexeme lexbuf) }
   | bit_literal { BIT_LITERAL (Lexing.lexeme lexbuf) }

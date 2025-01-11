@@ -69,62 +69,48 @@ proc queue () =
         cycle 1
     }
     loop {
-        (
-        (if (*counter == 4'b0000) then
-            set data := 8'b00000001
-        else
-            if (*counter == 4'b0001) then
-                set data := 8'b00000010
-            else
-                if (*counter == 4'b0010) then
-                    set data := 8'b00000011
-                else
-                    if (*counter == 4'b0011) then
-                        set data := 8'b00000100
-                    else
-                        if (*counter == 4'b0100) then
-                            set data := 8'b00000101
-                        else
-                            if (*counter == 4'b0101) then
-                                set data := 8'b00000110
-                            else
-                                if (*counter == 4'b0110) then
-                                    set data := 8'b00000111
-                                else
-                                    if (*counter == 4'b0111) then
-                                        set data := 8'b00001000
-                                    else
-                                        if (*counter == 4'b1000) then
-                                            set data := 8'b00001001
-                                        else
-                                            if (*counter == 4'b1001) then
-                                                set data := 8'b00001010
-                                            else
-                                                if (*counter == 4'b1010) then
-                                                    set data := 8'b00001011
-                                                else
-                                                    if (*counter == 4'b1011) then
-                                                        set data := 8'b00001100
-                                                    else
-                                                        if (*counter == 4'b1100) then
-                                                            set data := 8'b00001101
-                                                        else
-                                                            if (*counter == 4'b1101) then
-                                                                set data := 8'b00001110
-                                                            else
-                                                                if (*counter == 4'b1110) then
-                                                                    set data := 8'b00001111
-                                                                else
-                                                                    if (*counter == 4'b1111) then
-                                                                        dfinish
-                                                                    else
-                                                                        dfinish);cycle 1)=>
-            send enqueue_out.enqueue_req(*data)=>
-            dprint "Enqueuing %d in cycle %d" (*data, *cycle_counter);
+        
+            send enqueue_out.enqueue_req(8'd1)=>
+            dprint "Enqueuing %d in cycle %d" (8'd1, *cycle_counter);
             let x = recv enqueue_out.enqueue_res in
             x=>
-            dprint "Enqueued %d in cycle %d" (*data, *cycle_counter);
-            set counter := *counter + 4'b0001;
+            dprint "Enqueued %d in cycle %d" (8'd1, *cycle_counter);
+            send enqueue_out.enqueue_req(8'd2)=>
+            dprint "Enqueuing %d in cycle %d" (8'd2, *cycle_counter);
+            let x = recv enqueue_out.enqueue_res in
+            x=>
+            dprint "Enqueued %d in cycle %d" (8'd2, *cycle_counter);
+            send enqueue_out.enqueue_req(8'd3)=>
+            dprint "Enqueuing %d in cycle %d" (8'd3, *cycle_counter);
+            let x = recv enqueue_out.enqueue_res in
+            x=>
+            dprint "Enqueued %d in cycle %d" (8'd3, *cycle_counter);
+            send enqueue_out.enqueue_req(8'd4)=>
+            dprint "Enqueuing %d in cycle %d" (8'd4, *cycle_counter);
+            let x = recv enqueue_out.enqueue_res in
+            x=>
+            dprint "Enqueued %d in cycle %d" (8'd4, *cycle_counter);
+            send enqueue_out.enqueue_req(8'd5)=>
+            dprint "Enqueuing %d in cycle %d" (8'd5, *cycle_counter);
+            let x = recv enqueue_out.enqueue_res in
+            x=>
+            dprint "Enqueued %d in cycle %d" (8'd5, *cycle_counter);
+            send enqueue_out.enqueue_req(8'd6)=>
+            dprint "Enqueuing %d in cycle %d" (8'd6, *cycle_counter);
+            let x = recv enqueue_out.enqueue_res in
+            x=>
+            dprint "Enqueued %d in cycle %d" (8'd6, *cycle_counter);
+            send enqueue_out.enqueue_req(8'd7)=>
+            dprint "Enqueuing %d in cycle %d" (8'd7, *cycle_counter);
+            let x = recv enqueue_out.enqueue_res in
+            x=>
+            dprint "Enqueued %d in cycle %d" (8'd7, *cycle_counter);
+            send enqueue_out.enqueue_req(8'd8)=>
+            dprint "Enqueuing %d in cycle %d" (8'd8, *cycle_counter);
+            let x = recv enqueue_out.enqueue_res in
+            x=>
+            dprint "Enqueued %d in cycle %d" (8'd8, *cycle_counter);
+
             cycle 1                                      
     }
 
