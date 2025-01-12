@@ -586,3 +586,35 @@ let generate_expr (id, start, end_v, offset, body) =
       
   in
   generate_exprs start []
+
+let generate_match_expression (e, match_arms) =
+  
+  let is_default_pattern = function
+    | {d = Identifier "_"; _} -> true
+    | _ -> false
+  in
+  
+  let match_arms_node = List.map (fun (pat, body_opt) ->
+    let pat_node = ast_node_of_data Lexing.dummy_pos Lexing.dummy_pos pat in
+    let body_node_opt = Option.map (fun body -> 
+      ast_node_of_data Lexing.dummy_pos Lexing.dummy_pos body
+    ) body_opt in
+    (pat_node, body_node_opt)
+  ) match_arms in
+  
+  let default_case, other_cases = 
+    List.partition (fun (pat, _) -> is_default_pattern pat) match_arms_node
+  in
+  
+  match default_case with
+  | [] -> failwith "Match expression must have a default case (_)"
+  | [(_, None)] -> failwith "Default case must have a body"
+  | [(_, Some default_body)] ->
+      List.fold_right (fun (pattern, body_opt) acc ->
+        match body_opt with
+        | None -> failwith "Match arm must have a body"
+        | Some body -> 
+            let condition = ast_node_of_data e.span.st e.span.ed (Binop (Eq, e, pattern)) in
+            IfExpr (condition, body,  dummy_ast_node_of_data acc)
+      ) other_cases default_body.d
+  | _ -> failwith "Multiple default cases found in match expression"

@@ -355,8 +355,8 @@ expr:
   { Lang.Indirect (e, fieldname) }
 | LEFT_BRACE; components = separated_list(COMMA, node(expr)); RIGHT_BRACE
   { Lang.Concat components }
-| KEYWORD_MATCH; e = node(expr); KEYWORD_WITH; match_arm_list = match_arm+; KEYWORD_DONE
-  { Lang.Match (e, match_arm_list) }
+| KEYWORD_MATCH; e = node(expr); KEYWORD_WITH; COLON; match_arm_list = match_arm+;KEYWORD_DONE
+  { Lang.generate_match_expression (e, match_arm_list) }
 | ASTERISK; reg_ident = IDENT
   { Lang.Read reg_ident }
 | constructor_spec = constructor_spec; e = ioption(node(expr))
@@ -464,20 +464,25 @@ index:
 ;
 
 match_arm:
-| OR_GT; pattern = match_pattern; body_opt = match_arm_body?
+| OR_GT; pattern = expr; POINT_TO body_opt = expr?
   { (pattern, body_opt) }
 ;
-//To ask: are we going to use it
-%inline match_pattern:
-  cstr = IDENT; bind_name_opt = IDENT?
-  {
-    { cstr; bind_name = bind_name_opt } : Lang.match_pattern
-  }
-;
 
-%inline match_arm_body:
-  POINT_TO; e = node(expr)
-  { e }
+// match_arm:
+// | OR_GT; pattern = match_pattern; body_opt = match_arm_body?
+//   { (pattern, body_opt) }
+// ;
+
+// %inline match_pattern:
+//   cstr = IDENT; bind_name_opt = IDENT?
+//   {
+//     { cstr; bind_name = bind_name_opt } : Lang.match_pattern
+//   }
+// ;
+
+// %inline match_arm_body:
+//   POINT_TO; e = node(expr)
+//   { e }
 ;
 //Definition of messages: To Do: Doesnt support custom lifetime types, just sync?
 message_def:
