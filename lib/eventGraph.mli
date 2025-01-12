@@ -152,6 +152,7 @@ In addition to event graphs, it also includes the associated {{!typedefs}type de
 type event_graph_collection = {
   event_graphs : proc_graph list;
   typedefs : TypedefMap.t;
+  macro_defs : Lang.macro_def list;
   channel_classes : Lang.channel_class_def list;
   external_event_graphs : proc_graph list;
   enum_mappings : (string * (string * int) list) list;

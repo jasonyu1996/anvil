@@ -10,7 +10,8 @@ type cunit_info = {
   typedefs : TypedefMap.t;
   channel_classes : channel_class_def list;
   enum_mappings : (string * (string * int) list) list;
-  macro_mappings : (string * int) list;
+  (* macro_mappings : (string * int) list; *)
+  macro_defs : Lang.macro_def list
 }
 
 type atomic_delay = [
@@ -750,17 +751,17 @@ module BuildContext = Typing.BuildContext
 
 let binop_td_const graph ci _ctx span op n td =
   let w = unwrap_or_err "Invalid value" span td.w in
-  let sz = TypedefMap.data_type_size ci.typedefs w.dtype in
+  let sz = TypedefMap.data_type_size ci.typedefs ci.macro_defs w.dtype in
   let sz' = match op with
   | Add -> sz+1
   | Mul -> sz + Utils.int_log2 n
   | _ -> sz in
   let (wires', w') = if sz' > sz then
     let (wires', padding) = WireCollection.add_literal graph.thread_id (Lang.WithLength (sz' - sz, 0)) graph.wires in
-    WireCollection.add_concat graph.thread_id ci.typedefs [padding; w] wires'
+    WireCollection.add_concat graph.thread_id ci.typedefs ci.macro_defs [padding; w] wires'
   else (graph.wires, w) in
   let (wires'', wconst) = WireCollection.add_literal graph.thread_id (WithLength (sz', n)) wires' in
-  let (wires''', wres) = WireCollection.add_binary graph.thread_id ci.typedefs op w' wconst wires'' in
+  let (wires''', wres) = WireCollection.add_binary graph.thread_id ci.typedefs ci.macro_defs op w' wconst wires'' in
   graph.wires <- wires''';
   {td with w = Some wres}
 
@@ -768,21 +769,21 @@ let binop_td_const graph ci _ctx span op n td =
 let binop_td_td graph ci ctx span op td1 td2 =
   let w1 = unwrap_or_err "Invalid value" span td1.w in
   let w2 = unwrap_or_err "Invalid value" span td2.w in
-  let sz1 = TypedefMap.data_type_size ci.typedefs w1.dtype
-  and sz2 = TypedefMap.data_type_size ci.typedefs w2.dtype in
+  let sz1 = TypedefMap.data_type_size ci.typedefs ci.macro_defs w1.dtype
+  and sz2 = TypedefMap.data_type_size ci.typedefs ci.macro_defs w2.dtype in
   let sz' = match op with
   | Add -> (max sz1 sz2) +1
   | Mul -> sz1 + sz2
   | _ -> max sz1 sz2 in
   let (wires', w1') = if sz' > sz1 then
     let (wires', padding) = WireCollection.add_literal graph.thread_id (Lang.WithLength (sz' - sz1, 0)) graph.wires in
-    WireCollection.add_concat graph.thread_id ci.typedefs [padding; w1] wires'
+    WireCollection.add_concat graph.thread_id ci.typedefs ci.macro_defs [padding; w1] wires'
   else (graph.wires, w1) in
   let (wires', w2') = if sz' > sz2 then
     let (wires', padding) = WireCollection.add_literal graph.thread_id (Lang.WithLength (sz' - sz2, 0)) wires' in
-    WireCollection.add_concat graph.thread_id ci.typedefs [padding; w2] wires'
+    WireCollection.add_concat graph.thread_id ci.typedefs ci.macro_defs [padding; w2] wires'
   else (wires', w2) in
-  let (wires', wres) = WireCollection.add_binary graph.thread_id ci.typedefs op w1' w2' wires' in
+  let (wires', wres) = WireCollection.add_binary graph.thread_id ci.typedefs ci.macro_defs op w1' w2' wires' in
   graph.wires <- wires';
   let open Typing in
   Typing.merged_data graph (Some wres) ctx.current [td1; td2]
@@ -794,13 +795,13 @@ let rec lvalue_info_of graph ci ctx span lval =
   | Reg ident ->
     let r = List.find_opt (fun (r : reg_def) -> r.name = ident) graph.regs
       |> unwrap_or_err ("Undefined register " ^ ident) span in
-    let sz = TypedefMap.data_type_size ci.typedefs r.dtype in
+    let sz = TypedefMap.data_type_size ci.typedefs ci.macro_defs r.dtype in
     {reg_name = ident; range = (Const 0, sz); dtype = r.dtype}
   | Indexed (lval', idx) ->
     let lval_info' = lvalue_info_of graph ci ctx span lval' in
     let (le', _len') = lval_info'.range in
     let (le, len, dtype) =
-      TypedefMap.data_type_index ci.typedefs
+      TypedefMap.data_type_index ci.typedefs ci.macro_defs
         (visit_expr graph ci ctx)
         (binop_td_const Mul)
         lval_info'.dtype idx
@@ -811,7 +812,7 @@ let rec lvalue_info_of graph ci ctx span lval =
   | Indirected (lval', fieldname) ->
     let lval_info' = lvalue_info_of graph ci ctx span lval' in
     let (le', _len') = lval_info'.range in
-    let (le, len, dtype) = TypedefMap.data_type_indirect ci.typedefs lval_info'.dtype fieldname
+    let (le, len, dtype) = TypedefMap.data_type_indirect ci.typedefs ci.macro_defs lval_info'.dtype fieldname
       |> unwrap_or_err ("Invalid lvalue indirection through field " ^ fieldname) span in
     let le_n = MaybeConst.add_const le (binop_td_const Add) le'
     in
@@ -833,7 +834,7 @@ and visit_expr (graph : event_graph) (ci : cunit_info)
     )
   | Identifier ident ->
       let ctx_val = Typing.context_lookup ctx.typing_ctx ident  in
-      let macro_val = List.assoc_opt ident ci.macro_mappings in
+      let macro_val = List.assoc_opt ident (List.map (fun (macro : macro_def) ->(macro.id, macro.value)) ci.macro_defs) in 
       (match ctx_val, macro_val with
        | Some _, Some _ ->
           raise (EventGraphError (" Conflicting Identifier " ^ ident ^ " declarations found", e.span))
@@ -859,7 +860,7 @@ and visit_expr (graph : event_graph) (ci : cunit_info)
     and td2 = visit_expr graph ci ctx e2 in
     let w1 = unwrap_or_err "Invalid value" e1.span td1.w
     and w2 = unwrap_or_err "Invalid value" e2.span td2.w in
-    let (wires', w) = WireCollection.add_binary graph.thread_id ci.typedefs binop w1 w2 graph.wires in
+    let (wires', w) = WireCollection.add_binary graph.thread_id ci.typedefs ci.macro_defs binop w1 w2 graph.wires in
     graph.wires <- wires';
     Typing.merged_data graph (Some w) ctx.current [td1; td2]
   | Unop (unop, e') ->
@@ -915,7 +916,7 @@ and visit_expr (graph : event_graph) (ci : cunit_info)
   | Concat es ->
     let tds = List.map (fun e' -> (e', visit_expr graph ci ctx e')) es in
     let ws = List.map (fun (e', td) -> unwrap_or_err "Invalid value in concat" e'.span td.w) tds in
-    let (wires', w) = WireCollection.add_concat graph.thread_id ci.typedefs ws graph.wires in
+    let (wires', w) = WireCollection.add_concat graph.thread_id ci.typedefs ci.macro_defs ws graph.wires in
     graph.wires <- wires';
     List.map snd tds |> Typing.merged_data graph (Some w) ctx.current
   | Read reg_ident ->
@@ -959,7 +960,7 @@ and visit_expr (graph : event_graph) (ci : cunit_info)
   | Indirect (e', fieldname) ->
     let td = visit_expr graph ci ctx e' in
     let w = unwrap_or_err "Invalid value in indirection" e'.span td.w in
-    let (offset_le, len, new_dtype) = TypedefMap.data_type_indirect ci.typedefs w.dtype fieldname
+    let (offset_le, len, new_dtype) = TypedefMap.data_type_indirect ci.typedefs ci.macro_defs w.dtype fieldname
       |> unwrap_or_err "Invalid indirection" e.span in
     let (wires', new_w) = WireCollection.add_slice graph.thread_id new_dtype w (Const offset_le) len graph.wires in
     graph.wires <- wires';
@@ -979,7 +980,7 @@ and visit_expr (graph : event_graph) (ci : cunit_info)
     let td = visit_expr graph ci ctx e' in
     let w = unwrap_or_err "Invalid value in indexing" e'.span td.w in
     let (offset_le, len, new_dtype) =
-      TypedefMap.data_type_index ci.typedefs
+      TypedefMap.data_type_index ci.typedefs ci.macro_defs
         (visit_expr graph ci ctx)
         (binop_td_const e.span Mul)
         w.dtype ind
@@ -1004,7 +1005,7 @@ and visit_expr (graph : event_graph) (ci : cunit_info)
             let tds = List.map (fun e' -> (e', visit_expr graph ci ctx e')) expr_reordered in
             let ws = List.rev_map (fun ((e', {w; _}) : expr_node * timed_data) ->
               unwrap_or_err "Invalid value in record field" e'.span w) tds in
-            let (wires', w) = WireCollection.add_concat graph.thread_id ci.typedefs ws graph.wires in
+            let (wires', w) = WireCollection.add_concat graph.thread_id ci.typedefs ci.macro_defs ws graph.wires in
             graph.wires <- wires';
             List.map snd tds |> Typing.merged_data graph (Some w) ctx.current
           | _ -> raise (EventGraphError ("Invalid record type value!", e.span))
@@ -1022,26 +1023,26 @@ and visit_expr (graph : event_graph) (ci : cunit_info)
             let td = visit_expr graph ci ctx cstr_expr in
             let w = unwrap_or_err "Invalid value in variant construction" cstr_expr.span td.w in
             let tag_size = variant_tag_size dtype
-            and data_size = TypedefMap.data_type_size ci.typedefs e_dtype
-            and tot_size = TypedefMap.data_type_size ci.typedefs dtype
+            and data_size = TypedefMap.data_type_size ci.typedefs ci.macro_defs e_dtype
+            and tot_size = TypedefMap.data_type_size ci.typedefs ci.macro_defs dtype
             and var_idx = variant_lookup_index dtype cstr_spec.variant
               |> unwrap_or_err ("Invalid constructor: " ^ cstr_spec.variant) e.span in
             let (wires', w_tag) = WireCollection.add_literal graph.thread_id
               (WithLength (tag_size, var_idx)) graph.wires in
             let (wires', new_w) = if tot_size = tag_size + data_size then
               (* no padding *)
-              WireCollection.add_concat graph.thread_id ci.typedefs [w; w_tag] wires'
+              WireCollection.add_concat graph.thread_id ci.typedefs ci.macro_defs [w; w_tag] wires'
             else begin
               (* padding needed *)
               let (wires', w_pad) = WireCollection.add_literal graph.thread_id
                 (WithLength (tot_size - tag_size - data_size, 0)) wires' in
-              WireCollection.add_concat graph.thread_id ci.typedefs [w_pad; w; w_tag] wires'
+              WireCollection.add_concat graph.thread_id ci.typedefs ci.macro_defs [w_pad; w; w_tag] wires'
             end in
             graph.wires <- wires';
             { td with w = Some new_w }
           | None, None ->
             let tag_size = variant_tag_size dtype
-            and tot_size = TypedefMap.data_type_size ci.typedefs dtype
+            and tot_size = TypedefMap.data_type_size ci.typedefs ci.macro_defs dtype
             and var_idx = variant_lookup_index dtype cstr_spec.variant
               |> unwrap_or_err ("Invalid constructor: " ^ cstr_spec.variant) e.span in
             let (wires', w_tag) = WireCollection.add_literal graph.thread_id
@@ -1051,7 +1052,7 @@ and visit_expr (graph : event_graph) (ci : cunit_info)
             else begin
               let (wires', w_pad) = WireCollection.add_literal graph.thread_id
                 (WithLength (tot_size - tag_size, 0)) wires' in
-              WireCollection.add_concat graph.thread_id ci.typedefs [w_pad; w_tag] wires'
+              WireCollection.add_concat graph.thread_id ci.typedefs ci.macro_defs [w_pad; w_tag] wires'
             end in
             graph.wires <- wires';
             Typing.const_data graph (Some new_w) ctx.current
@@ -1132,6 +1133,7 @@ let build_proc (config : Config.compile_config) (ci : cunit_info) (proc : proc_d
 type event_graph_collection = {
   event_graphs : proc_graph list;
   typedefs : TypedefMap.t;
+  macro_defs : macro_def list;
   channel_classes : channel_class_def list;
   external_event_graphs : proc_graph list;
   enum_mappings : (string * (string * int) list) list;
@@ -1145,23 +1147,22 @@ let build (config : Config.compile_config) (cunit : compilation_unit) =
     (enum.name, variants_with_indices)
   ) cunit.enum_defs in
   
-  let macro_mappings = List.map (fun (macro : macro_def) ->
-    (macro.name, macro.value)
-  ) cunit.macro_defs in
+  
 
   
-  
+  let macro_defs = cunit.macro_defs in
   let typedefs = TypedefMap.of_list cunit.type_defs in
   let ci = { 
     typedefs; 
     channel_classes = cunit.channel_classes;
     enum_mappings;
-    macro_mappings;
+    macro_defs;
   } in
   let graphs = List.map (build_proc config ci) cunit.procs in
   {
     event_graphs = graphs;
     typedefs;
+    macro_defs;
     channel_classes = cunit.channel_classes;
     external_event_graphs = [];
     enum_mappings;

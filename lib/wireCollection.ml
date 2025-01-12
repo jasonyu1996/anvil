@@ -36,9 +36,9 @@ module Wire = struct
     }
 
   (* TODO: error handling *)
-  let new_binary id thread_id typedefs binop w1 w2 =
-    let sz1 = TypedefMap.data_type_size typedefs (w1.dtype :> Lang.data_type)
-    and sz2 = TypedefMap.data_type_size typedefs (w2.dtype :> Lang.data_type) in
+  let new_binary id thread_id typedefs (macro_defs: Lang.macro_def list) binop w1 w2 =
+    let sz1 = TypedefMap.data_type_size typedefs macro_defs (w1.dtype :> Lang.data_type)
+    and sz2 = TypedefMap.data_type_size typedefs macro_defs (w2.dtype :> Lang.data_type) in
     let sz = let open Lang in match binop with
     | Add | Sub | Xor | And | Or | Mul ->
       (* TODO: performance improvement *)
@@ -78,8 +78,8 @@ module Wire = struct
       dtype = r.dtype;
     }
 
-  let new_concat id thread_id typedefs ws =
-    let sz = List.fold_left (fun sum w -> sum + (TypedefMap.data_type_size typedefs w.dtype)) 0 ws in
+  let new_concat id thread_id typedefs macro_defs ws =
+    let sz = List.fold_left (fun sum w -> sum + (TypedefMap.data_type_size typedefs macro_defs w.dtype)) 0 ws in
     {
       id;
       thread_id;
@@ -125,10 +125,10 @@ let add_literal thread_id (lit : Lang.literal) (wc : t) : t * wire =
   let w = Wire.new_literal id thread_id lit in
   (w::wc, w)
 
-let add_binary thread_id (typedefs : TypedefMap.t) (op : Lang.binop)
+let add_binary thread_id (typedefs : TypedefMap.t) (macro_defs: Lang.macro_def list) (op : Lang.binop)
               (w1 : wire) (w2 : wire) (wc : t) : t * wire =
   let id = List.length wc in
-  let w = Wire.new_binary id thread_id typedefs op w1 w2 in
+  let w = Wire.new_binary id thread_id typedefs macro_defs op w1 w2 in
   (w::wc, w)
 
 let add_unary thread_id (typedefs : TypedefMap.t) (op : Lang.unop)
@@ -148,9 +148,9 @@ let add_reg_read thread_id (typedefs : TypedefMap.t) (r : Lang.reg_def) (wc : t)
   let w = Wire.new_reg_read id thread_id typedefs r in
   (w::wc, w)
 
-let add_concat thread_id (typedefs : TypedefMap.t) (ws : wire list) (wc : t) : t * wire =
+let add_concat thread_id (typedefs : TypedefMap.t) macro_defs (ws : wire list) (wc : t) : t * wire =
   let id = List.length wc in
-  let w = Wire.new_concat id thread_id typedefs ws in
+  let w = Wire.new_concat id thread_id typedefs macro_defs ws in
   (w::wc, w)
 
 let add_msg_port thread_id (typedefs : TypedefMap.t)

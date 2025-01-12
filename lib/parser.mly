@@ -548,8 +548,10 @@ sig_type_chan_local:
 ;
 
 data_type:
+| dtype = data_type; LEFT_BRACKET; n = IDENT; RIGHT_BRACKET
+  { `Parametrized (dtype, n) }
 | KEYWORD_LOGIC
-  { `Logic }
+  { `Logic }  
 | dtype = data_type; LEFT_BRACKET; n = INT; RIGHT_BRACKET
   { `Array (dtype, n) }
 | typename = IDENT
@@ -641,7 +643,7 @@ enum_def:
       { name = name; variants = variants } : Lang.enum_def
     }
 macro_def: 
-  | KEYWORD_USE; name = IDENT; EQUAL; value = INT
+  | KEYWORD_USE; id = IDENT; EQUAL; value = INT
     {
-      { name = name; value = value } : Lang.macro_def
+      { id = id; value = value } : Lang.macro_def
     }

@@ -1,13 +1,15 @@
+Use l = 2
+Use p = 32
 proc match_test () =
-    reg cycle_counter : logic[4]
+    reg cycle_counter : logic[l]
 
     loop{
-        set cycle_counter := *cycle_counter + 4'd1
+        set cycle_counter := *cycle_counter + 2'd1
     }
     loop{
         match *cycle_counter with:
-        |> 4'd1 -> dprint "This is first cycle" ()
-        |> 4'd2 -> dprint "This is the second cycle" ()
+        |> 2'd0 -> dprint "This is first cycle" ()
+        |> 2'd1 -> dprint "This is the second cycle" ()
         |> _ -> dprint "More than 2 cycles have passed" ()
         done;
         cycle 1

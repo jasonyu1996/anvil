@@ -76,6 +76,7 @@ let sig_lifetime_const : sig_lifetime =
 type 'a data_type_generic_no_named = [
   | `Logic
   | `Array of 'a * int
+  | `Parametrized of 'a * identifier
   | `Variant of (identifier * 'a option) list (** ADT sum type *)
   | `Record of (identifier * 'a) list (** ADT product type *)
   | `Tuple of 'a list
@@ -92,7 +93,7 @@ type enum_def = {
   variants: identifier list;
 }
 type macro_def = {
-  name: identifier;
+  id: identifier;
   value : int;
 }
 
