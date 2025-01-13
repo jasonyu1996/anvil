@@ -9,6 +9,8 @@
 %token SEMICOLON            (* ; *)
 %token COLON                (* : *)
 %token DOUBLE_COLON         (* :: *)
+%token KEYWORD_FUNCTION    (* func *)
+%token KEYWORD_CALL                (* call *)
 %token SHARP                (* # *)
 %token EQUAL                (* = *)
 %token POINT_TO             (* -> *)
@@ -107,6 +109,8 @@ cunit:
   { Lang.cunit_add_enum_def c en }
 | macro  = macro_def;c = cunit
   { Lang.cunit_add_macro_def c macro }
+| func_def = function_def; c = cunit
+  { Lang.cunit_add_func_def c func_def }
 | ty = type_def; c = cunit
   { Lang.cunit_add_type_def c ty }
 | cc = channel_class_def; c = cunit
@@ -337,6 +341,8 @@ expr:
   { Lang.generate_expr (i,start, end_v, offset, body) }
 | KEYWORD_IF; cond = node(expr); KEYWORD_THEN; then_v = node(expr); KEYWORD_ELSE; else_v = node(expr)
   { Lang.IfExpr (cond, then_v, else_v) }
+| KEYWORD_CALL ; func = IDENT; LEFT_PAREN; args = separated_list(COMMA, node(expr)); RIGHT_PAREN
+  { Lang.Call (func, args) }
 // | KEYWORD_TRY; KEYWORD_SEND; send_pack = send_pack; KEYWORD_THEN;
 //   succ_expr = node(expr); KEYWORD_ELSE; fail_expr = node(expr)
 //   { Lang.TrySend (send_pack, succ_expr, fail_expr) }
@@ -646,4 +652,10 @@ macro_def:
   | KEYWORD_USE; id = IDENT; EQUAL; value = INT
     {
       { id = id; value = value } : Lang.macro_def
+    }
+
+function_def:
+  | KEYWORD_FUNCTION; name = IDENT; LEFT_PAREN; args = separated_list(COMMA, IDENT); RIGHT_PAREN; EQUAL; body = node(expr)
+    {
+      { name = name; args = args; body = body } : Lang.func_def
     }

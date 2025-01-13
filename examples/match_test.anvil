@@ -1,10 +1,19 @@
 Use l = 2
 Use p = 32
+func add (a,b) = 
+(
+    if(b==2'd0) then a+2'd1
+    else
+    (
+        a+b
+    )
+)
 proc match_test () =
     reg cycle_counter : logic[l]
 
     loop{
-        set cycle_counter := *cycle_counter + 2'd1
+        set cycle_counter := call add (*cycle_counter, 2'd0);
+        cycle 1
     }
     loop{
         match *cycle_counter with:

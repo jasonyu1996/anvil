@@ -56,6 +56,8 @@ rule read =
   | "shared"  { KEYWORD_SHARED }
   | "assigned" { KEYWORD_ASSIGNED }
   | "by"      { KEYWORD_BY }
+  | "func"    { KEYWORD_FUNCTION }
+  | "call"    { KEYWORD_CALL }
   | "loop"    { KEYWORD_LOOP }
   | "enum"    { KEYWORD_ENUM }
   | "proc"    { KEYWORD_PROC }

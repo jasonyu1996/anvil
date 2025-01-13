@@ -10,7 +10,7 @@ type cunit_info = {
   typedefs : TypedefMap.t;
   channel_classes : channel_class_def list;
   enum_mappings : (string * (string * int) list) list;
-  (* macro_mappings : (string * int) list; *)
+  func_defs : Lang.func_def list;
   macro_defs : Lang.macro_def list
 }
 
@@ -855,6 +855,11 @@ and visit_expr (graph : event_graph) (ci : cunit_info)
     let lvi = lvalue_info_of graph ci ctx e.span lval in
     ctx.current.actions <- (RegAssign (lvi, td) |> tag_with_span e.span)::ctx.current.actions;
     Typing.cycles_data graph 1 ctx.current
+  | Call (id, arg_list) ->  
+      let func = List.find_opt (fun (f: Lang.func_def) -> f.name = id) ci.func_defs
+        |> unwrap_or_err ("Undefined function: " ^ id) e.span in
+      let substituted_body = Lang.substitute_func_args func arg_list in
+      visit_expr graph ci ctx substituted_body
   | Binop (binop, e1, e2) ->
     let td1 = visit_expr graph ci ctx e1
     and td2 = visit_expr graph ci ctx e2 in
@@ -1145,18 +1150,17 @@ let build (config : Config.compile_config) (cunit : compilation_unit) =
       (variant, i)
     ) enum.variants in
     (enum.name, variants_with_indices)
-  ) cunit.enum_defs in
-  
-  
-
+  ) cunit.enum_defs in  
   
   let macro_defs = cunit.macro_defs in
   let typedefs = TypedefMap.of_list cunit.type_defs in
+  let func_defs = cunit.func_defs in
   let ci = { 
     typedefs; 
     channel_classes = cunit.channel_classes;
     enum_mappings;
     macro_defs;
+    func_defs
   } in
   let graphs = List.map (build_proc config ci) cunit.procs in
   {
