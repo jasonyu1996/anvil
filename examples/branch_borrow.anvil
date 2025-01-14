@@ -1,0 +1,11 @@
+proc branch_borrow() =
+    reg a : logic[2]
+
+    loop {
+        if (1'b1) then (
+            set a := 2'b10
+        )
+        else (
+            dprint "a = %d" (!a)
+        )
+    }

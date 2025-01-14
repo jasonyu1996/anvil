@@ -13,20 +13,20 @@ val of_list : Lang.type_def list -> t
 val data_type_name_resolve : t -> Lang.data_type -> Lang.data_type option
 
 (** Look up and calculate the size of a data type in bits. *)
-val data_type_size : t -> Lang.data_type -> int
+val data_type_size : t -> Lang.macro_def list -> Lang.data_type -> int
 
 (** Look up a field in a data type. If found, return [Some (l, r, dtype)] where
 [l] and [r] are the boundaries of the offset of the field within the data type,
 and [dtype] is the data type of the field.*)
 val data_type_indirect :
-  t ->
+  t -> Lang.macro_def list ->
   Lang.data_type -> string -> (int * int * Lang.data_type) option
 
 (** Resolve the indexing of a data type. If valid, return [Some (l, r, dtype)],
 the meaning of which is the same as in {!data_type_indirect}.
 *)
 val data_type_index :
-  t ->
+  t -> Lang.macro_def list ->
   (Lang.expr_node -> 'a) ->
   (int -> 'a -> 'a) ->
   Lang.data_type -> Lang.index -> ('a MaybeConst.maybe_int_const * int * Lang.data_type) option

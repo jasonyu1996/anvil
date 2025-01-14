@@ -26,6 +26,7 @@ rule read =
   | ':'       { COLON }
   | ';'       { SEMICOLON }
   | '#'       { SHARP }
+  | '*'       { ASTERISK }
   | '='       { EQUAL }
   | '+'       { PLUS }
   | '-'       { MINUS }
@@ -50,11 +51,15 @@ rule read =
   | "!="      { EXCL_EQ }
   | "|>"      { OR_GT }
   | "!"       { EXCL }
+  | "ready"   { KEYWORD_READY }
   | "put"     { KEYWORD_PUT }
   | "shared"  { KEYWORD_SHARED }
   | "assigned" { KEYWORD_ASSIGNED }
   | "by"      { KEYWORD_BY }
+  | "func"    { KEYWORD_FUNCTION }
+  | "call"    { KEYWORD_CALL }
   | "loop"    { KEYWORD_LOOP }
+  | "enum"    { KEYWORD_ENUM }
   | "proc"    { KEYWORD_PROC }
   | "chan"    { KEYWORD_CHAN }
   | "in"      { KEYWORD_IN }
@@ -81,6 +86,7 @@ rule read =
   | "wait"    { KEYWORD_WAIT }
   | "cycle"   { KEYWORD_CYCLE }
   | "reg"     { KEYWORD_REG }
+  | "Use"     { KEYWORD_USE }
   | "spawn"   { KEYWORD_SPAWN }
   | "try"     { KEYWORD_TRY }
   | "dprint"  { KEYWORD_DPRINT }
@@ -88,6 +94,7 @@ rule read =
   | "import"  { KEYWORD_IMPORT }
   | "extern"  { KEYWORD_EXTERN }
   | "int"     { KEYWORD_INT }
+  | "generate" { KEYWORD_GENERATE }
   | int       { let n = Lexing.lexeme lexbuf |> int_of_string in INT n }
   | ident     { IDENT (Lexing.lexeme lexbuf) }
   | bit_literal { BIT_LITERAL (Lexing.lexeme lexbuf) }

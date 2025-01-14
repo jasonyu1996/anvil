@@ -360,7 +360,7 @@ let format_dtype (ctx : codegen_context) (dtype : data_type) =
   match dtype with
   | `Logic -> "logic"
   | `Opaque typename -> typename
-  | _ -> (data_type_size ctx.cunit.type_defs dtype) - 1 |> Printf.sprintf "logic[%d:0]"
+  | _ -> (data_type_size ctx.cunit.type_defs ctx.cunit.macro_defs dtype) - 1 |> Printf.sprintf "logic[%d:0]"
 
 let format_port (ctx : codegen_context) port =
   let inout = match port.dir with

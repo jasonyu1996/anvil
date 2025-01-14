@@ -100,6 +100,15 @@ type 'a data_type_generic = [
   | 'a data_type_generic_no_named
 ]
 
+type enum_def = {
+  name: identifier;
+  variants: identifier list;
+}
+type macro_def = {
+  id: identifier;
+  value : int;
+}
+
 (** A data type after resolution (no named type). *)
 type resolved_data_type = resolved_data_type data_type_generic_no_named
 
@@ -111,6 +120,7 @@ and type_def = {
   name: identifier;
   body: data_type;
 }
+
 
 (** Number of bits required to hold the tag for a variant type. *)
 let variant_tag_size (v: [< `Variant of (identifier * data_type option) list]) : int =
@@ -332,6 +342,7 @@ and constructor_spec = {
 and expr =
   | Literal of literal
   | Identifier of identifier
+  | Call of identifier *(expr_node list)
   (* send and recv *)
   | Assign of lvalue * expr_node
   | Binop of binop * expr_node * expr_node
@@ -346,7 +357,9 @@ and expr =
   | Record of identifier * (identifier * expr_node) list (** constructing a record-type value *)
   | Index of expr_node * index (** an element of an array ([a[3]]) *)
   | Indirect of expr_node * identifier (** a member of a record ([a.b]) *)
+  | EnumRef of identifier * identifier (** a reference to an enum variant *)
   | Concat of expr_node list
+  | Ready of message_specifier (** [ready(a, b)] *)
   | Match of expr_node * ((match_pattern * expr_node option) list)
   | Read of identifier (** reading a value from a register (leading to a borrow) *)
   | Debug of debug_op
@@ -463,18 +476,26 @@ type import_directive = {
   is_extern : bool; (** is this import external?
       Currently an external import means importing SystemVerilog code *)
 }
+type func_def =  {
+  name: identifier;
+  args: identifier list;
+  body: expr_node;
+}
 
 (** A compilation unit, corresponding to a source file. *)
 type compilation_unit = {
   channel_classes: channel_class_def list;
   type_defs: type_def list;
+  enum_defs: enum_def list;
+  macro_defs: macro_def list;
+  func_defs : func_def list;
   procs: proc_def list;
   imports : import_directive list;
   _extern_procs : proc_def list; (** processes that are external, usable but not built *)
 }
 
 let cunit_empty : compilation_unit =
-  { channel_classes = []; type_defs = []; procs = []; imports = []; _extern_procs = [] }
+  { channel_classes = []; type_defs = []; procs = []; imports = []; _extern_procs = [];enum_defs = [];macro_defs = [];func_defs = []}
 
 let cunit_add_channel_class
   (c : compilation_unit) (cc : channel_class_def) : compilation_unit =
@@ -483,6 +504,12 @@ let cunit_add_channel_class
 let cunit_add_type_def (c : compilation_unit) (ty : type_def) : compilation_unit =
   {c with type_defs = ty::c.type_defs}
 
+let cunit_add_func_def (c : compilation_unit) (f : func_def) : compilation_unit =
+  {c with func_defs = f::c.func_defs}
+let cunit_add_enum_def (c : compilation_unit) (enum : enum_def) : 
+  compilation_unit = {c with enum_defs = enum::c.enum_defs}
+let cunit_add_macro_def (c : compilation_unit) (macro : macro_def) :
+  compilation_unit = {c with macro_defs = macro::c.macro_defs}
 let cunit_add_proc
   (c : compilation_unit) (p : proc_def) : compilation_unit =
   {c with procs = p::c.procs}
@@ -528,3 +555,158 @@ and string_of_literal (lit : literal) : string =
   | Hexadecimal (n, hexits) -> "Hexadecimal (" ^ string_of_int n ^ ", [" ^ String.concat ";" (List.map string_of_digit hexits) ^ "])"
   | WithLength (n, v) -> "WithLength (" ^ string_of_int n ^ ", " ^ string_of_int v ^ ")"
   | NoLength v -> "NoLength " ^ string_of_int v
+let rec substitute_identifier (id: identifier) (value: int) (expr: expr_node) : expr_node =
+  let new_expr = match expr.d with
+  | Identifier name when name = id ->
+      let length = Utils.int_log2 value + 1 in
+      Literal (WithLength (length, value))
+  | LetIn (ids, e1, e2) ->
+      LetIn (ids, substitute_identifier id value e1, substitute_identifier id value e2)
+  | Binop (op, e1, e2) ->
+      Binop (op, substitute_identifier id value e1, substitute_identifier id value e2)
+  | Unop (op, e) ->
+      Unop (op, substitute_identifier id value e)
+  | Tuple exprs ->
+      Tuple (List.map (substitute_identifier id value) exprs)
+  | Wait (e1, e2) ->
+      Wait (substitute_identifier id value e1, substitute_identifier id value e2)
+  | Index (arr, idx) ->
+      let new_arr = substitute_identifier id value arr in
+      let new_idx = match idx with
+        | Single e -> Single (substitute_identifier id value e)
+        | Range (e1, e2) -> Range (substitute_identifier id value e1, substitute_identifier id value e2)
+      in
+      Index (new_arr, new_idx)
+  | Assign (lv, e) ->
+      Assign (lv, substitute_identifier id value e)
+  | Send {send_msg_spec; send_data} ->
+      Send {
+        send_msg_spec;
+        send_data = substitute_identifier id value send_data
+      }
+  | Match (e, arms) ->
+      Match (
+        substitute_identifier id value e,
+        List.map (fun (pat, expr_opt) ->
+          (pat, Option.map (substitute_identifier id value) expr_opt)
+        ) arms
+      )
+  | Debug (DebugPrint (msg, exprs)) ->
+      Debug (DebugPrint (msg, List.map (substitute_identifier id value) exprs))
+  | Debug other_debug -> Debug other_debug
+  | IfExpr (cond, then_expr, else_expr) ->
+      IfExpr (
+        substitute_identifier id value cond,
+        substitute_identifier id value then_expr,
+        substitute_identifier id value else_expr
+      )
+  | _ -> expr.d
+  in
+  { expr with d = new_expr }
+
+let generate_expr (id, start, end_v, offset, body) =
+  let rec generate_exprs curr acc =
+    if curr > end_v then
+      match List.rev acc with
+      | [] -> Tuple [] 
+      | [single] -> single.d 
+      | hd::tl -> 
+          List.fold_left 
+            (fun acc expr -> LetIn ([], expr, dummy_ast_node_of_data acc)) 
+            hd.d 
+            tl
+    else
+      let substituted = substitute_identifier id curr body in
+      generate_exprs (curr + offset) (substituted :: acc);
+      
+  in
+  generate_exprs start []
+
+let generate_match_expression (e, match_arms) =
+  
+  let is_default_pattern = function
+    | {d = Identifier "_"; _} -> true
+    | _ -> false
+  in
+  
+  let match_arms_node = List.map (fun (pat, body_opt) ->
+    let pat_node = ast_node_of_data Lexing.dummy_pos Lexing.dummy_pos pat in
+    let body_node_opt = Option.map (fun body -> 
+      ast_node_of_data Lexing.dummy_pos Lexing.dummy_pos body
+    ) body_opt in
+    (pat_node, body_node_opt)
+  ) match_arms in
+  
+  let default_case, other_cases = 
+    List.partition (fun (pat, _) -> is_default_pattern pat) match_arms_node
+  in
+  
+  match default_case with
+  | [] -> failwith "Match expression must have a default case (_)"
+  | [(_, None)] -> failwith "Default case must have a body"
+  | [(_, Some default_body)] ->
+      List.fold_right (fun (pattern, body_opt) acc ->
+        match body_opt with
+        | None -> failwith "Match arm must have a body"
+        | Some body -> 
+            let condition = ast_node_of_data e.span.st e.span.ed (Binop (Eq, e, pattern)) in
+            IfExpr (condition, body,  dummy_ast_node_of_data acc)
+      ) other_cases default_body.d
+  | _ -> failwith "Multiple default cases found in match expression"
+  
+  let rec substitute_expr_identifier (id: identifier) (value: expr_node) (expr: expr_node) : expr_node =
+    let new_expr = match expr.d with
+    | Identifier name when name = id ->
+        value.d
+    | LetIn (ids, e1, e2) ->
+        if List.mem id ids then expr.d
+        else LetIn (ids, substitute_expr_identifier id value e1, substitute_expr_identifier id value e2)
+    | Binop (op, e1, e2) ->
+        Binop (op, substitute_expr_identifier id value e1, substitute_expr_identifier id value e2)
+    | Unop (op, e) ->
+        Unop (op, substitute_expr_identifier id value e)
+    | Tuple exprs ->
+        Tuple (List.map (substitute_expr_identifier id value) exprs)
+    | Wait (e1, e2) ->
+        Wait (substitute_expr_identifier id value e1, substitute_expr_identifier id value e2)
+    | Index (arr, idx) ->
+        let new_arr = substitute_expr_identifier id value arr in
+        let new_idx = match idx with
+          | Single e -> Single (substitute_expr_identifier id value e)
+          | Range (e1, e2) -> Range (substitute_expr_identifier id value e1, substitute_expr_identifier id value e2)
+        in
+        Index (new_arr, new_idx)
+    | Assign (lv, e) ->
+        Assign (lv, substitute_expr_identifier id value e)
+    | Send {send_msg_spec; send_data} ->
+        Send {
+          send_msg_spec;
+          send_data = substitute_expr_identifier id value send_data
+        }
+    | Match (e, arms) ->
+        Match (
+          substitute_expr_identifier id value e,
+          List.map (fun (pat, expr_opt) ->
+            (pat, Option.map (substitute_expr_identifier id value) expr_opt)
+          ) arms
+        )
+    | Debug (DebugPrint (msg, exprs)) ->
+        Debug (DebugPrint (msg, List.map (substitute_expr_identifier id value) exprs))
+    | Debug other_debug -> Debug other_debug
+    | IfExpr (cond, then_expr, else_expr) ->
+        IfExpr (
+          substitute_expr_identifier id value cond,
+          substitute_expr_identifier id value then_expr,
+          substitute_expr_identifier id value else_expr
+        )
+    | _ -> expr.d
+    in
+    { expr with d = new_expr }
+  
+  let substitute_func_args (func: func_def) (passed_args: expr_node list) : expr_node =
+    if List.length func.args <> List.length passed_args then
+      failwith "Number of arguments does not match function definition";
+  
+    List.fold_left2 (fun acc_body arg_name arg_value ->
+      substitute_expr_identifier arg_name arg_value acc_body
+    ) func.body func.args passed_args

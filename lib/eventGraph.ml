@@ -9,6 +9,9 @@ type wire_collection = WireCollection.t
 type cunit_info = {
   typedefs : TypedefMap.t;
   channel_classes : channel_class_def list;
+  enum_mappings : (string * (string * int) list) list;
+  func_defs : Lang.func_def list;
+  macro_defs : Lang.macro_def list
 }
 
 type atomic_delay = [
@@ -125,10 +128,11 @@ type proc_graph = {
     proc_body : proc_def_body_maybe_extern;
     spawns : (identifier * spawn_def) list;
 }
-
 type event_graph_collection = {
   event_graphs : proc_graph list;
   typedefs : TypedefMap.t;
+  macro_defs : macro_def list;
   channel_classes : channel_class_def list;
   external_event_graphs : proc_graph list;
+  enum_mappings : (string * (string * int) list) list;
 }

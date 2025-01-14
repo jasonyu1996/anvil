@@ -16,6 +16,9 @@ event graphs.
 type cunit_info = {
   typedefs : TypedefMap.t;
   channel_classes : Lang.channel_class_def list;
+  enum_mappings : (string * (string * int) list) list;
+  func_defs : Lang.func_def list;
+  macro_defs : Lang.macro_def list
 }
 
 type wire = WireCollection.wire
@@ -157,8 +160,10 @@ In addition to event graphs, it also includes the associated {{!typedefs}type de
 type event_graph_collection = {
   event_graphs : proc_graph list;
   typedefs : TypedefMap.t;
+  macro_defs : Lang.macro_def list;
   channel_classes : Lang.channel_class_def list;
   external_event_graphs : proc_graph list;
+  enum_mappings : (string * (string * int) list) list;
 }
 
 (** Print the structure of the graph to standard error stream. *)

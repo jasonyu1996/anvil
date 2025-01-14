@@ -54,7 +54,8 @@ let compile out config =
   let all_channel_classes = List.concat_map (fun (_, cunit) -> let open Lang in cunit.channel_classes) !cunits in
   let all_type_defs = List.concat_map (fun (_, cunit) -> let open Lang in cunit.type_defs) !cunits in
   let all_procs = List.concat_map (fun (file_name, cunit) -> let open Lang in List.map (fun p -> (file_name, p)) cunit.procs) !cunits in
-  let proc_map = List.map (fun (file_name, proc) -> (let open Lang in proc.name, (proc, file_name))) all_procs
+  let all_func_defs = List.concat_map (fun (_, cunit) -> let open Lang in cunit.func_defs) !cunits in
+  let proc_map = List.map (fun (file_name, proc) -> (let open Lang in (proc:proc_def).name, (proc, file_name))) all_procs
     |> Utils.StringMap.of_list in
   let sched = BuildScheduler.create () in
   (* add processes that are concrete *)
@@ -78,7 +79,8 @@ let compile out config =
         let cunit = let open Lang in
           (* hacky *)
           {channel_classes = all_channel_classes; type_defs = all_type_defs;
-          procs = [proc]; imports = []; _extern_procs = []} in
+           procs = [proc]; imports = []; _extern_procs = []; 
+           func_defs = all_func_defs; enum_defs = []; macro_defs = []} in
         let graph_collection =
           try GraphBuilder.build config sched task.module_name task.param_values cunit
           with
