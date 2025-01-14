@@ -12,8 +12,11 @@ This module provides the related types and methods to create, manipulate, and ty
 event graphs.
 *)
 
-(** Exception that can be throw during event graph generation *)
-exception EventGraphError of string * Lang.code_span
+(** Information about a compilation unit. *)
+type cunit_info = {
+  typedefs : TypedefMap.t;
+  channel_classes : Lang.channel_class_def list;
+}
 
 type wire = WireCollection.wire
 type wire_collection = WireCollection.t
@@ -158,18 +161,13 @@ type event_graph_collection = {
   external_event_graphs : proc_graph list;
 }
 
-(** Construct a collection of event graphs from a compilation unit.
-If lifetime checks are not disabled in the configuration,
-this also performs lifetime checking and throws {!LifetimeCheckError}
-and {!EventGraphError} upon failure.
-*)
-val build : Config.compile_config -> BuildScheduler.build_scheduler ->
-    string -> Lang.param_value list ->
-    Lang.compilation_unit -> event_graph_collection
+(** Print the structure of the graph to standard error stream. *)
+val print_graph : event_graph -> unit
+
+val lifetime_const : event -> lifetime
+val lifetime_immediate : event -> lifetime
+
+(** Exception that can be throw during event graph generation *)
+exception EventGraphError of string * Lang.code_span
 
 exception LifetimeCheckError of string
-
-(** When a pair of endpoints are instantiated within a process, the process has access to
-both of them although they merely mirror each other. This function {i canonicalises} a given endpoint
-name so in such cases both endpoints are transformed into the same name. *)
-val canonicalize_endpoint_name : Lang.identifier -> event_graph -> Lang.identifier

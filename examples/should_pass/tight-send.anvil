@@ -1,0 +1,10 @@
+chan ch = {
+    left req : (logic@req)
+}
+
+proc top(e : right ch) =
+    reg r : logic
+    loop {
+        send e::req (!r) =>
+        cycle 1
+    }
