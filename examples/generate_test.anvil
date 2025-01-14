@@ -1,0 +1,13 @@
+proc generate_test () = 
+    loop{
+        generate (i : 1,10,1) =
+        {
+            generate (j : 1,10,2) =
+            {
+                dprint "i = %d, j = %d" (i,j)
+            }
+            
+        }=>
+        dfinish;
+        cycle 1
+    }

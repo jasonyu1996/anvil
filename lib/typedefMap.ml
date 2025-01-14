@@ -13,30 +13,37 @@ let data_type_name_resolve (type_defs : t) (dtype : data_type) : data_type optio
   | `Named type_name -> Utils.StringMap.find_opt type_name type_defs |> Option.map (fun (x : type_def) -> x.body)
   | _ -> Some dtype
 
-let rec data_type_size (type_defs : t) (dtype : data_type) : int =
+let rec data_type_size (type_defs : t) (macro_defs : macro_def list) (dtype : data_type) : int =
   match dtype with
   | `Logic -> 1
-  | `Array (dtype', n) -> (data_type_size type_defs dtype') * n
+  | `Parametrized (dtype, param_name) ->
+      let param_value = 
+        match List.find_opt (fun (m: macro_def) -> m.id = param_name) macro_defs with
+        | Some macro -> macro.value
+        | None -> failwith ("Unknown parameter " ^ param_name)
+      in
+      data_type_size type_defs macro_defs (`Array(dtype, param_value))
+  | `Array (dtype', n) -> (data_type_size type_defs macro_defs dtype') * n
   | `Named type_name ->
       let type_def = Utils.StringMap.find type_name type_defs in
-      data_type_size type_defs type_def.body
+      data_type_size type_defs macro_defs type_def.body
   | `Variant vlist as var ->
       let mx_data_size = List.fold_left (fun m n -> max m (
         let inner_dtype_op = snd n in
         match inner_dtype_op with
         | None -> 0
-        | Some inner_dtype -> data_type_size type_defs inner_dtype
+        | Some inner_dtype -> data_type_size type_defs macro_defs inner_dtype
       )) 0 vlist
       and tag_size = variant_tag_size var in
       mx_data_size + tag_size
   | `Record flist ->
-      List.fold_left (fun m n -> m + (snd n |> data_type_size type_defs)) 0 flist
+      List.fold_left (fun m n -> m + (snd n |> data_type_size type_defs macro_defs)) 0 flist
   | `Tuple comp_dtype_list ->
-      List.fold_left (fun m n -> m + (data_type_size type_defs n)) 0 comp_dtype_list
+      List.fold_left (fun m n -> m + (data_type_size type_defs macro_defs n)) 0 comp_dtype_list
   | `Opaque _ -> raise (TypeError "Opaque data type is unsized!")
 
 
-let data_type_indirect (type_defs : t) (dtype : data_type) (fieldname : identifier) : (int * int * data_type) option =
+let data_type_indirect (type_defs : t) (macro_defs: macro_def list) (dtype : data_type) (fieldname : identifier) : (int * int * data_type) option =
   let ( let* ) = Option.bind in
   let* dtype' = data_type_name_resolve type_defs dtype in
   match dtype' with
@@ -49,15 +56,15 @@ let data_type_indirect (type_defs : t) (dtype : data_type) (fieldname : identifi
           if field = fieldname then
             found := Some field_type
           else
-            offset := !offset + (data_type_size type_defs field_type)
+            offset := !offset + (data_type_size type_defs macro_defs field_type)
         end else ()
       in
       List.iter lookup flist;
       let* found_d = !found in
-      Some (!offset, data_type_size type_defs found_d, found_d)
+      Some (!offset, data_type_size type_defs macro_defs found_d, found_d)
   | _ -> None
 
-let data_type_index (type_defs : t) (expr_eval : expr_node -> 'a)
+let data_type_index (type_defs : t) (macro_defs : macro_def list) (expr_eval : expr_node -> 'a)
     (mul : int -> 'a -> 'a)
     (dtype : data_type) (ind : index) : ('a MaybeConst.maybe_int_const * int * data_type) option =
   let ( let* ) = Option.bind in
@@ -70,7 +77,7 @@ let data_type_index (type_defs : t) (expr_eval : expr_node -> 'a)
   in
   match dtype' with
   | `Array (base_type, _n) ->
-      let base_size = data_type_size type_defs base_type in
+      let base_size = data_type_size type_defs macro_defs base_type in
       begin
         match ind with
         | Single e ->
