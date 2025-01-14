@@ -16,7 +16,9 @@ let data_type_name_resolve (type_defs : t) (dtype : data_type) : data_type optio
 let rec data_type_size (type_defs : t) (dtype : data_type) : int =
   match dtype with
   | `Logic -> 1
-  | `Array (dtype', n) -> (data_type_size type_defs dtype') * n
+  | `Array (dtype', n) ->
+    let n_concrete = ParamEnv.get_opt n |> Option.get in
+    (data_type_size type_defs dtype') * n_concrete
   | `Named type_name ->
       let type_def = Utils.StringMap.find type_name type_defs in
       data_type_size type_defs type_def.body
@@ -82,7 +84,7 @@ let data_type_index (type_defs : t) (expr_eval : expr_node -> 'a)
             let le_off = MaybeConst.mul_const base_size mul idx in
             let sz = literal_eval lit_sz in
             (* TODO: bounds check for the const case *)
-            Some (le_off, base_size * sz, `Array (base_type, sz))
+            Some (le_off, base_size * sz, `Array (base_type, Concrete sz))
         | Range _ -> None
       end
   | _ -> None
@@ -105,8 +107,9 @@ let type_check_binop (type_defs : t) binop dtype1 dtype2 =
   match binop with
   | Add | Sub | Xor | And | Or | Mul ->
     (* TODO: performance improvement *)
-    if dtype1_resolved = dtype2_resolved then
+    Some (max dtype1_resolved dtype2_resolved)
+    (* if dtype1_resolved = dtype2_resolved then
       Some dtype1_resolved
-    else None
+    else None *)
   | Lt | Gt | Lte | Gte | Eq | Neq -> Some `Logic
   | Shl | Shr -> Some dtype1_resolved

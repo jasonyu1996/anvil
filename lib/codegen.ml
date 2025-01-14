@@ -70,19 +70,19 @@ let codegen_ports printer (graphs : event_graph_collection)
   print_port_list ([Port.clk; Port.rst] @ port_list);
   port_list
 
-let codegen_spawns printer (graphs : event_graph_collection) (g : event_graph) =
+let codegen_spawns printer (graphs : event_graph_collection) (g : proc_graph) =
   let gen_connect = fun (dst : string) (src : string) ->
     Printf.sprintf ",.%s (%s)" dst src |> CodegenPrinter.print_line printer
   in
-  let gen_spawn = fun (idx : int) (spawn : spawn_def) ->
-    Printf.sprintf "%s _spawn_%d (" spawn.proc idx|> CodegenPrinter.print_line printer ~lvl_delta_post:1;
+  let gen_spawn = fun (idx : int) ((module_name, spawn) : string * spawn_def) ->
+    Printf.sprintf "%s _spawn_%d (" module_name idx|> CodegenPrinter.print_line printer ~lvl_delta_post:1;
     CodegenPrinter.print_line printer ".clk_i,";
     CodegenPrinter.print_line printer ".rst_ni";
     (* connect the wires *)
-    let proc_other = CodegenHelpers.lookup_proc graphs.external_event_graphs spawn.proc |> Option.get in
+    let proc_other = CodegenHelpers.lookup_proc graphs.external_event_graphs module_name |> Option.get in
     let connect_endpoints = fun (arg_endpoint : endpoint_def) (param_ident : identifier) ->
       let endpoint_local = MessageCollection.lookup_endpoint g.messages param_ident |> Option.get in
-      let endpoint_name_local = CodegenFormat.canonicalize_endpoint_name param_ident g in
+      let endpoint_name_local = CodegenFormat.canonicalize_endpoint_name param_ident (List.hd g.threads) in
       let cc = MessageCollection.lookup_channel_class graphs.channel_classes endpoint_local.channel_class |> Option.get in
       let print_msg_con = fun (msg : message_def) ->
         if Port.message_has_valid_port msg then
@@ -255,7 +255,7 @@ let codegen_proc printer (graphs : EventGraph.event_graph_collection) (g : proc_
 
       codegen_endpoints printer graphs initEvents;
 
-      codegen_spawns printer graphs initEvents;
+      codegen_spawns printer graphs g;
 
       codegen_regs printer graphs initEvents;
 
@@ -273,7 +273,8 @@ let codegen_proc printer (graphs : EventGraph.event_graph_collection) (g : proc_
 let generate_preamble out =
   [
     "/* verilator lint_off UNOPTFLAT */";
-    "/* verilator lint_off WIDTHTRUNC */"
+    "/* verilator lint_off WIDTHTRUNC */";
+    "/* verilator lint_off WIDTHEXPAND */"
   ] |> List.iter (Printf.fprintf out "%s\n")
 
 let generate_extern_import out file_name =

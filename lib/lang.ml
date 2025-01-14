@@ -10,6 +10,8 @@ type code_span = {
 (** A dummy code span that does not represent any valid span. *)
 let code_span_dummy = { st = Lexing.dummy_pos; ed = Lexing.dummy_pos }
 
+type 'a maybe_param = 'a ParamEnv.maybe_param
+
 type identifier = string
 
 (** A node in AST. Containing the data plus the code span info. *)
@@ -22,6 +24,17 @@ type 'a ast_node = {
 let ast_node_of_data st ed d = { span = {st; ed}; d }
 let tag_with_span s d = { span = s; d }
 let dummy_ast_node_of_data d = { span = code_span_dummy; d }
+
+(** Type of a parameter. *)
+type param_type =
+  | IntParam (** an integer constant *)
+  | TypeParam (** a type *)
+
+(** A compile-time parameter. *)
+type param = {
+  param_name : identifier;
+  param_ty : param_type;
+}
 
 (** This identifies a message type within the context of a process.
 It consists of the {{!endpoint}endpoint name} and the {{!msg}message type name}.
@@ -75,7 +88,7 @@ let sig_lifetime_const : sig_lifetime =
 (** Type definition without named type. *)
 type 'a data_type_generic_no_named = [
   | `Logic
-  | `Array of 'a * int
+  | `Array of 'a * int maybe_param
   | `Variant of (identifier * 'a option) list (** ADT sum type *)
   | `Record of (identifier * 'a) list (** ADT product type *)
   | `Tuple of 'a list
@@ -254,7 +267,7 @@ type literal =
 let literal_bit_len (lit : literal) : int option =
   match lit with
   | Binary (n, _) | Decimal (n, _) | Hexadecimal (n, _) | WithLength (n, _) -> Some n
-  | _ -> None
+  | NoLength v -> Some (Utils.int_log2 (v + 1))
 
 let literal_eval (lit : literal) : int =
   match lit with
@@ -269,7 +282,7 @@ let literal_eval (lit : literal) : int =
 
 let dtype_of_literal (lit : literal) : resolved_data_type =
   let n = literal_bit_len lit |> Option.get in
-  `Array (`Logic, n)
+  `Array (`Logic, Concrete n)
 
 type binop = Add | Sub | Xor | And | Or | Lt | Gt | Lte | Gte |
              Shl | Shr | Eq | Neq | Mul
@@ -392,13 +405,20 @@ type endpoint_def = {
   with the same channel *)
 }
 
+type param_value =
+  | IntParamValue of int
+  | TypeParamValue of data_type
+
 (** A spawn of a process. *)
 type spawn_def = {
   proc: identifier;
   (* channels to pass as args *)
+  (* TODO: this naming collides with compile-time parameters *)
   params: identifier list; (** names of the endpoints passed to the spawned process *)
+  compile_params: param_value list; (** concrete param value list *)
 }
 
+(* TODO: specify the type? *)
 type shared_var_def = {
   ident: identifier;
   assigning_thread: int;
@@ -434,6 +454,7 @@ type proc_def = {
   (* arguments are endpoints passed from outside *)
   args: endpoint_def list; (** endpoints passed from outside *)
   body: proc_def_body_maybe_extern; (** process body *)
+  params: param list; (** compile-time parameters *)
 }
 
 (** An import directive for importing code from other files. *)

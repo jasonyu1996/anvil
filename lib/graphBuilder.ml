@@ -428,10 +428,22 @@ and visit_expr (graph : event_graph) (ci : cunit_info)
 
 
 (* Builds the graph representation for each process To Do: Add support for commands outside loop (be executed once or continuosly)*)
-let build_proc (config : Config.compile_config) (ci : cunit_info) (proc : proc_def) : proc_graph =
+let build_proc (config : Config.compile_config) sched module_name param_values
+              (ci : cunit_info) (proc : proc_def) : proc_graph =
+  let proc =
+    if param_values = [] then
+      proc
+    else
+      ParamConcretise.concretise_proc param_values proc
+  in
   match proc.body with
   | Native body ->
     let msg_collection = MessageCollection.create body.channels proc.args ci.channel_classes in
+    let spawns =
+    List.map (fun s ->
+      let module_name = BuildScheduler.add_proc_task sched s.proc s.compile_params in
+      (module_name, s)
+    ) body.spawns in
     let shared_vars_info = Hashtbl.create (List.length body.shared_vars) in
     List.iter (fun sv ->
       let v = {
@@ -470,19 +482,19 @@ let build_proc (config : Config.compile_config) (ci : cunit_info) (proc : proc_d
           graph.last_event_id <- td.lt.live.id;
           graph
       ) body.loops in
-      {name = proc.name; extern_module = None;
+      {name = module_name; extern_module = None;
         threads = proc_threads; shared_vars_info; messages = msg_collection;
-        proc_body = proc.body}
+        proc_body = proc.body; spawns}
     | Extern (extern_mod, _extern_body) ->
       let msg_collection = MessageCollection.create [] proc.args ci.channel_classes in
-      {name = proc.name; extern_module = Some extern_mod; threads = [];
+      {name = module_name; extern_module = Some extern_mod; threads = [];
         shared_vars_info = Hashtbl.create 0; messages = msg_collection;
-        proc_body = proc.body}
+        proc_body = proc.body; spawns = []}
 
-let build (config : Config.compile_config) (cunit : compilation_unit) =
+let build (config : Config.compile_config) sched module_name param_values (cunit : compilation_unit) =
   let typedefs = TypedefMap.of_list cunit.type_defs in
   let ci = { typedefs; channel_classes = cunit.channel_classes } in
-  let graphs = List.map (build_proc config ci) cunit.procs in
+  let graphs = List.map (build_proc config sched module_name param_values ci) cunit.procs in
   {
     event_graphs = graphs;
     typedefs;

@@ -67,6 +67,7 @@
 %token KEYWORD_DFINISH      (* dfinish *)
 %token KEYWORD_IMPORT       (* import *)
 %token KEYWORD_EXTERN       (* extern *)
+%token KEYWORD_INT          (* int *)
 %token <int>INT             (* int literal *)
 %token <string>IDENT        (* identifier *)
 %token <string>BIT_LITERAL  (* bit literal *)
@@ -119,22 +120,36 @@ import_directive:
 
 
 proc_def:
-| KEYWORD_PROC; ident = IDENT; LEFT_PAREN; args = proc_def_arg_list; RIGHT_PAREN;
-  EQUAL; body = proc_def_body;
+| KEYWORD_PROC; ident = IDENT;
+  LEFT_PAREN; args = proc_def_arg_list; RIGHT_PAREN;
+  EQUAL; body = proc_def_body
   {
     {
       name = ident;
       args = args;
-      body = let open Lang in Native body;
+      params = [];
+      body = let open Lang in Native body
+    } : Lang.proc_def
+  }
+| KEYWORD_PROC; ident = IDENT; LEFT_ABRACK; params = separated_list(COMMA, param_def); RIGHT_ABRACK;
+  LEFT_PAREN; args = proc_def_arg_list; RIGHT_PAREN;
+  EQUAL; body = proc_def_body
+  {
+    {
+      name = ident;
+      args = args;
+      params = params;
+      body = let open Lang in Native body
     } : Lang.proc_def
   }
 | KEYWORD_PROC; ident = IDENT; LEFT_PAREN; args = proc_def_arg_list; RIGHT_PAREN;
   EQUAL; KEYWORD_EXTERN; LEFT_PAREN; mod_name = STR_LITERAL; RIGHT_PAREN;
-  body = proc_def_body_extern;
+  body = proc_def_body_extern
   {
     {
       name = ident;
       args = args;
+      params = [];
       body = let open Lang in Extern (mod_name, body)
     } : Lang.proc_def
   }
@@ -183,6 +198,17 @@ proc_def_body_extern:
   s1 = STR_LITERAL?; COLON; s2 = STR_LITERAL?; RIGHT_PAREN; body = proc_def_body_extern
   {
     let open Lang in {body with msg_ports = (msg, s0, s1, s2)::body.msg_ports}
+  }
+;
+
+param_def:
+| name = IDENT; COLON; KEYWORD_INT
+  {
+    let open Lang in {param_name = name; param_ty = IntParam}
+  }
+| name = IDENT; COLON; KEYWORD_TYPE
+  {
+    let open Lang in {param_name = name; param_ty = TypeParam}
   }
 ;
 
@@ -256,14 +282,32 @@ channel_def:
 ;
 // Instantiating the proc for comm
 spawn:
-  proc = IDENT; LEFT_PAREN; params = separated_list(COMMA, IDENT); RIGHT_PAREN
+| proc = IDENT; LEFT_PAREN; params = separated_list(COMMA, IDENT); RIGHT_PAREN
   {
     {
       proc = proc;
       params = params;
+      compile_params = [];
+    } : Lang.spawn_def
+  }
+| proc = IDENT; LEFT_ABRACK; compile_params = separated_list(COMMA, param_value); RIGHT_ABRACK;
+  LEFT_PAREN; params = separated_list(COMMA, IDENT); RIGHT_PAREN
+  {
+    {
+      proc = proc;
+      params = params;
+      compile_params = compile_params;
     } : Lang.spawn_def
   }
 ;
+
+param_value:
+| n = INT
+  { Lang.IntParamValue n }
+| t = data_type
+  { Lang.TypeParamValue t }
+;
+
 //register declaration, To Do: Add support for declaration as well as init
 reg_def:
   ident = IDENT; COLON; dtype = data_type
@@ -528,10 +572,17 @@ sig_type_chan_local:
   }
 ;
 
+int_maybe_param:
+| n = INT
+  { ParamEnv.Concrete n }
+| ident = IDENT
+  { ParamEnv.Param ident }
+;
+
 data_type:
 | KEYWORD_LOGIC
   { `Logic }
-| dtype = data_type; LEFT_BRACKET; n = INT; RIGHT_BRACKET
+| dtype = data_type; LEFT_BRACKET; n = int_maybe_param; RIGHT_BRACKET
   { `Array (dtype, n) }
 | typename = IDENT
   { `Named typename }

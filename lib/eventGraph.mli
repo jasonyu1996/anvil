@@ -125,7 +125,8 @@ and sustained_action = {
   ty : sustained_action_type
 }
 
-(** An event graph, usually corresponding to a single looping thread. *)
+(** An event graph, usually corresponding to a single looping thread.
+All parameters in an event graph have been concretised. *)
 and event_graph = {
   thread_id : int; (** unique identifier of the looping thread *)
   mutable events : event list;
@@ -146,6 +147,7 @@ type proc_graph = {
     shared_vars_info : (Lang.identifier, shared_var_info) Hashtbl.t;
     messages : MessageCollection.t;
     proc_body : Lang.proc_def_body_maybe_extern;
+    spawns : (Lang.identifier * Lang.spawn_def) list;
 }
 
 (** A collection of event graphs, corresponding to a compilation unit.

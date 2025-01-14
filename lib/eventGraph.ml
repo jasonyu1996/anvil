@@ -123,6 +123,7 @@ type proc_graph = {
     shared_vars_info : (Lang.identifier, shared_var_info) Hashtbl.t;
     messages : MessageCollection.t;
     proc_body : proc_def_body_maybe_extern;
+    spawns : (identifier * spawn_def) list;
 }
 
 type event_graph_collection = {

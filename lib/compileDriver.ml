@@ -53,36 +53,55 @@ let compile out config =
   (* collect all channel class and type definitions *)
   let all_channel_classes = List.concat_map (fun (_, cunit) -> let open Lang in cunit.channel_classes) !cunits in
   let all_type_defs = List.concat_map (fun (_, cunit) -> let open Lang in cunit.type_defs) !cunits in
-  let all_procs = List.concat_map (fun (_, cunit) -> let open Lang in cunit.procs) !cunits in
-  let event_graphs =
-    List.map (fun (filename, cunit) ->
-      try
-        GraphBuilder.build config
-          (
-            let open Lang in
-            {cunit with channel_classes = all_channel_classes; type_defs = all_type_defs; _extern_procs = all_procs}
-          )
-      with
-      | EventGraph.LifetimeCheckError msg ->
-        Printf.sprintf "Borrow checking failed: %s" msg
-          |> raise_compile_error_brief
-      | Except.TypeError msg ->
-        Printf.sprintf "Type error: %s\n" msg
-          |> raise_compile_error_brief
-      | Except.UnimplementedError msg ->
-        Printf.sprintf "Unimplemented error: %s\n" msg
-          |> raise_compile_error_brief
-      | EventGraph.EventGraphError (msg, span) ->
-        Printf.sprintf "Event graph error (%s)" msg
-          |> raise_compile_error filename span
-      | Except.UnknownError msg ->
-        Printf.sprintf "Unknown error (%s)" msg
-          |> raise_compile_error_brief
+  let all_procs = List.concat_map (fun (file_name, cunit) -> let open Lang in List.map (fun p -> (file_name, p)) cunit.procs) !cunits in
+  let proc_map = List.map (fun (file_name, proc) -> (let open Lang in proc.name, (proc, file_name))) all_procs
+    |> Utils.StringMap.of_list in
+  let sched = BuildScheduler.create () in
+  (* add processes that are concrete *)
+  List.iter (fun (_, proc) ->
+    let open Lang in
+    if proc.params = [] then
+      let _ = BuildScheduler.add_proc_task sched proc.name [] in ()
+  ) all_procs;
+  let modules_visited = ref Utils.StringSet.empty in
+  let event_graph_complete = ref false in
+  let graph_collection_queue = Queue.create () in
+  while not !event_graph_complete do
+    match BuildScheduler.next sched with
+    | None -> event_graph_complete := true
+    | Some task -> (
+      if Utils.StringSet.mem task.module_name !modules_visited |> not then (
+        modules_visited := Utils.StringSet.add task.module_name !modules_visited;
+        let proc, file_name = Utils.StringMap.find
+          (let open BuildScheduler in task.proc_name)
+          proc_map in
+        let cunit = let open Lang in
+          (* hacky *)
+          {channel_classes = all_channel_classes; type_defs = all_type_defs;
+          procs = [proc]; imports = []; _extern_procs = []} in
+        let graph_collection =
+          try GraphBuilder.build config sched task.module_name task.param_values cunit
+          with
+          | EventGraph.LifetimeCheckError msg ->
+            Printf.sprintf "Borrow checking failed: %s" msg
+              |> raise_compile_error_brief
+          | Except.TypeError msg ->
+            Printf.sprintf "Type error: %s\n" msg
+              |> raise_compile_error_brief
+          | Except.UnimplementedError msg ->
+            Printf.sprintf "Unimplemented error: %s\n" msg
+              |> raise_compile_error_brief
+          | EventGraph.EventGraphError (msg, span) ->
+            Printf.sprintf "Event graph error (%s)" msg
+              |> raise_compile_error file_name span
+          | Except.UnknownError msg ->
+            Printf.sprintf "Unknown error (%s)" msg
+              |> raise_compile_error_brief
+        in
+        Queue.add graph_collection graph_collection_queue
+      )
     )
-    !cunits
-  in
-  let all_event_graphs = List.concat_map
-    (fun graph_collection -> let open EventGraph in graph_collection.event_graphs) event_graphs in
+  done;
   (* generate preamble *)
   Codegen.generate_preamble out;
   (* pull code from imported external files *)
@@ -100,6 +119,9 @@ let compile out config =
     ) cunit.imports
   ) !cunits;
   (* generate the code from event graphs *)
+  let all_collections = Queue.to_seq graph_collection_queue |> List.of_seq in
+  let all_event_graphs = List.concat_map (fun collection -> let open EventGraph in collection.event_graphs) all_collections in
   List.iter (fun graphs ->
-    Codegen.generate out config {graphs with EventGraph.external_event_graphs = all_event_graphs}) event_graphs
+    Codegen.generate out config
+     {graphs with EventGraph.external_event_graphs = all_event_graphs}) all_collections
 
