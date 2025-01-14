@@ -4,7 +4,7 @@ chan reg_itfc = {
 
 proc reggg(e : right reg_itfc) =
     loop {
-        let a = recv e::req in (
+        let a = recv e.req in (
             a => (
                 cycle 1 =>
                 dprint "Received %d" (a)
@@ -25,7 +25,7 @@ proc concurrent() =
             dprint "Value a = %d, b = %d" (a, b);
             cycle 1 => (
                 dprint "Concat result = %d" ({a, a});
-                send reg_le::req (1'b1) => (
+                send reg_le.req (1'b1) => (
                     dprint "Sent" ();
                     cycle 1 => (
                         dfinish

@@ -6,12 +6,12 @@ chan ch = {
 proc foo (ch: left ch) =
 reg r : logic[1]
     loop {
-        let x = recv ch::req in
+        let x = recv ch.req in
         x =>
         ((if 1'b1 then
             set r := x
         else
             dprint "Never Happens" ());cycle 1)=>
-        send ch::res(!r)=>
+        send ch.res(*r)=>
         cycle 1
     }

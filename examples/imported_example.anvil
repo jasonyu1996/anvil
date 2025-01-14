@@ -42,13 +42,13 @@ proc full_adder(ch : left addCh) =
     reg cout : logic[1]
     shared (#10) x assigned by 0
 loop {
-    let r = recv ch::req in
+    let r = recv ch.req in
     r => (
         put x := 4'b1111;
         let s=(r.a^r.b^r.cr) in
         let c=((r.a&r.b) | (r.b&r.cr) | (r.cr&r.a)) in
         (set sum := s; set cout := c) =>
-        send ch::res(add1_res::{sum = !sum; cout = !cout})
+        send ch.res(add1_res::{sum = *sum; cout = *cout})
     )
 }
 loop
@@ -68,22 +68,22 @@ proc RCA(ch : left RCAch) =
     spawn full_adder(ch2_le)
     spawn full_adder(ch3_le)
 loop {
-    let r = recv ch::req in
+    let r = recv ch.req in
     r =>
-        send ch0_ri::req(add1_req::{a = r.a[0]; b = r.b[0]; cr = r.cr}) =>
-        let r0 = recv ch0_ri::res in
+        send ch0_ri.req(add1_req::{a = r.a[0]; b = r.b[0]; cr = r.cr}) =>
+        let r0 = recv ch0_ri.res in
         r0 =>
-        send ch1_ri::req(add1_req::{a = r.a[1]; b = r.b[1]; cr = r0.cout}) =>
-        let r1 = recv ch1_ri::res in
+        send ch1_ri.req(add1_req::{a = r.a[1]; b = r.b[1]; cr = r0.cout}) =>
+        let r1 = recv ch1_ri.res in
         r1 =>
-        send ch2_ri::req(add1_req::{a = r.a[2]; b = r.b[2]; cr = r1.cout}) =>
-        let r2 = recv ch2_ri::res in
+        send ch2_ri.req(add1_req::{a = r.a[2]; b = r.b[2]; cr = r1.cout}) =>
+        let r2 = recv ch2_ri.res in
         r2 =>
-        send ch3_ri::req(add1_req::{a = r.a[3]; b = r.b[3]; cr = r2.cout}) =>
-        let r3 = recv ch3_ri::res in
+        send ch3_ri.req(add1_req::{a = r.a[3]; b = r.b[3]; cr = r2.cout}) =>
+        let r3 = recv ch3_ri.res in
         r3 =>
-        // send ch::res(add4_res::{sum = {r3.sum, r2.sum, r1.sum, r0.sum}; cout = r3.cout})
-        send ch::res(add4_res::{sum = {r3.sum, r2.sum, r1.sum, r0.sum}; cout = r3.cout}) =>
+        // send ch.res(add4_res::{sum = {r3.sum, r2.sum, r1.sum, r0.sum}; cout = r3.cout})
+        send ch.res(add4_res::{sum = {r3.sum, r2.sum, r1.sum, r0.sum}; cout = r3.cout}) =>
         cycle 1
 }
 

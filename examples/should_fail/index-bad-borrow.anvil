@@ -3,7 +3,7 @@ proc top() =
     loop {
         let a = 10'd42 in
         cycle 1 =>
-        let a_select = a[!r+:5] in
+        let a_select = a[*r+:5] in
         set r := 4'd3 =>
         dprint "Value = %d" (a_select)
     }

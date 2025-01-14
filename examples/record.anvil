@@ -15,5 +15,5 @@ type data = {
 proc record () =
     loop {
         cycle 1 =>
-        let v = data::{a = 64'b0; op = op::And; b = 64'b1} in ()
+        let v = data.{a = 64'b0; op = op.And; b = 64'b1} in ()
     }

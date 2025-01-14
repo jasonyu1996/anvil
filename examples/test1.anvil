@@ -6,10 +6,10 @@ chan ch =
 
 proc foo (ch: left ch) =
 loop{
-    let x = recv ch::req in 
+    let x = recv ch.req in
     x =>
     dprint "x: %d" (x);
-    send ch::res(1'b1)=>
+    send ch.res(1'b1)=>
     cycle 1
 }
 
@@ -18,8 +18,8 @@ proc test1() =
 chan ch_in -- ch_out : ch
 spawn foo(ch_in)
 loop{
-    send ch_in::req(1'b1)=>
-    let y = recv ch_out::res in
+    send ch_in.req(1'b1)=>
+    let y = recv ch_out.res in
     y =>
     dprint "y: %d" (y);
     cycle 1

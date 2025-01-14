@@ -3,6 +3,6 @@ proc concurrent() =
     loop {
         set r := 1'b1 =>
         set r := 1'b0 =>
-        let rv = !r in
+        let rv = *r in
         dprint "Value = %d" (rv)
     }

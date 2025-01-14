@@ -1,8 +1,8 @@
 proc sub<n : int>() =
     reg r : logic[n]
     loop {
-        dprint "Value = %d" (!r);
-        set r := !r + 1
+        dprint "Value = %d" (*r);
+        set r := *r + 1
     }
 
 proc param_int() =

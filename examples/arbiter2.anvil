@@ -17,52 +17,52 @@ reg c2_ack : logic[1]
 reg c3_ack : logic[1]
 reg c4_ack : logic[1]
 loop {
-    set cycle_count := !cycle_count + 5'b00001;
+    set cycle_count := *cycle_count + 5'b00001;
     cycle 1
 }
 loop {
-    let in1 = recv ch1::req in
-    let in2 = recv ch2::req in
-    let in3 = recv ch3::req in
-    let in4 = recv ch4::req in
+    let in1 = recv ch1.req in
+    let in2 = recv ch2.req in
+    let in3 = recv ch3.req in
+    let in4 = recv ch4.req in
     (
-        if (ready ch1::req) then 
+        if (ready ch1.req) then
             (in1=>
             set result := in1;
             set InReady := 1'b1;
-            send ch1::res(1'b1)
+            send ch1.res(1'b1)
             )
-        else if (ready ch2::req) then 
+        else if (ready ch2.req) then
             (in2=>
             set result := in2;
             set InReady := 1'b1;
-            send ch2::res(1'b1)
+            send ch2.res(1'b1)
             )
-        else if (ready ch3::req) then 
+        else if (ready ch3.req) then
             (in3=>
             set result := in3;
             set InReady := 1'b1;
-            send ch3::res(1'b1)
+            send ch3.res(1'b1)
             )
-        else if (ready ch4::req) then 
+        else if (ready ch4.req) then
             (in4=>
             set result := in4;
             set InReady := 1'b1;
-            send ch4::res(1'b1)
+            send ch4.res(1'b1)
             )
         else (
-            dprint "No Producer is ready in cycle %d" (!cycle_count)
+            dprint "No Producer is ready in cycle %d" (*cycle_count)
         )
     );cycle 1=>
     (
-        if (!InReady == 1'b1) then 
-            send ch::gnt(!result)
-        else dprint "No Producer is ready in cycle %d" (!cycle_count)
+        if (*InReady == 1'b1) then
+            send ch.gnt(*result)
+        else dprint "No Producer is ready in cycle %d" (*cycle_count)
     )=>
     cycle 1
 }
 
-proc arbiter2() = 
+proc arbiter2() =
 
 chan  ch1_in -- ch1_out : producer_ch
 chan  ch2_in -- ch2_out : producer_ch
@@ -76,70 +76,70 @@ reg p3_blocked : value_1bit
 reg p4_blocked : value_1bit
 reg cycle_count : logic[5]
 loop {
-    set cycle_count := !cycle_count + 5'b00001;
+    set cycle_count := *cycle_count + 5'b00001;
     cycle 1
 }
 loop
 {
-    send ch1_in::req(8'b00000001)=>
-    let c1_ack = recv ch1_out::res in
+    send ch1_in.req(8'b00000001)=>
+    let c1_ack = recv ch1_out.res in
     c1_ack=>
     if(c1_ack==1'b1) then (
-        dprint "Producer 1 got access in cycle %d" (!cycle_count);
+        dprint "Producer 1 got access in cycle %d" (*cycle_count);
         cycle 4
     )
     else (
-        dprint "Producer 1 is blocked in cycle %d" (!cycle_count)
+        dprint "Producer 1 is blocked in cycle %d" (*cycle_count)
     );
     cycle 1
 }
 
 loop
 {
-    send ch2_in::req(8'b00000010)=>
-    let c2_ack = recv ch2_out::res in
+    send ch2_in.req(8'b00000010)=>
+    let c2_ack = recv ch2_out.res in
     c2_ack=>
     if(c2_ack==1'b1) then (
-        dprint "Producer 2 got access in cycle %d" (!cycle_count);
+        dprint "Producer 2 got access in cycle %d" (*cycle_count);
         cycle 4
     )
     else (
-        dprint "Producer 2 is blocked in cycle %d" (!cycle_count)
+        dprint "Producer 2 is blocked in cycle %d" (*cycle_count)
     );
     cycle 1
 }
 
 loop
 {
-    send ch3_in::req(8'b00000100)=>
-    let c3_ack = recv ch3_out::res in
+    send ch3_in.req(8'b00000100)=>
+    let c3_ack = recv ch3_out.res in
     c3_ack=>
     if(c3_ack==1'b1) then (
-        dprint "Producer 3 got access in cycle %d" (!cycle_count);
+        dprint "Producer 3 got access in cycle %d" (*cycle_count);
         cycle 4
     )
     else (
-        dprint "Producer 3 is blocked in cycle %d" (!cycle_count)
+        dprint "Producer 3 is blocked in cycle %d" (*cycle_count)
     );
     cycle 1
 }
 loop
 {
-    send ch4_in::req(8'b00001000)=>
-    let c4_ack = recv ch4_out::res in
+    send ch4_in.req(8'b00001000)=>
+    let c4_ack = recv ch4_out.res in
     c4_ack=>
     if(c4_ack==1'b1) then (
-        dprint "Producer 4 got access in cycle %d" (!cycle_count);
+        dprint "Producer 4 got access in cycle %d" (*cycle_count);
         cycle 4
     )
     else (
-        dprint "Producer 4 is blocked in cycle %d" (!cycle_count)
+        dprint "Producer 4 is blocked in cycle %d" (*cycle_count)
     );
     cycle 1
 }
 loop {
-    let result = recv ch_out::gnt in
+    let result = recv ch_out.gnt in
     result =>
-    dprint "Consumer got %d in cycle %d" (result,!cycle_count);
+    dprint "Consumer got %d in cycle %d" (result,*cycle_count);
     cycle 1
 }

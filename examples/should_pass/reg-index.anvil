@@ -3,7 +3,7 @@ proc test_regIndex1() =
     reg y:logic[4]
     loop {
         if 1'b1 then
-            set y[!x] := 1'b1
+            set y[*x] := 1'b1
         else
             cycle 1
     }

@@ -6,6 +6,6 @@ proc branch_borrow() =
             set a := 2'b10
         )
         else (
-            dprint "a = %d" (!a)
+            dprint "a = %d" (*a)
         )
     }

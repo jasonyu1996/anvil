@@ -4,7 +4,7 @@ proc test_regBranch() =
     reg cycle_counter: value_4bit
     loop {
          if 1'b1 then
-            set cycle_counter := !cycle_counter + 4'b0001
+            set cycle_counter := *cycle_counter + 4'b0001
          else
-            dprint "Never Taken" ()
+            ( dprint "Never Taken" (); cycle 1 )
     }
