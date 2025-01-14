@@ -342,7 +342,6 @@ let lifetime_check (config : Config.compile_config) (ci : cunit_info) (g : event
         if not_borrowed reg_borrows lval_info.reg_name lt |> not then
           raise (EventGraphError ("Attempted assignment to a borrowed register!", a.span))
         else ();
-        Printf.eprintf "Lt %d %d\n"  lt.live.id td.lt.live.id;
         if lifetime_in_range g.events lt td.lt |> not then
           raise (EventGraphError ("Value does not live long enough in reg assignment!", a.span))
         else ();
