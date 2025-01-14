@@ -13,40 +13,43 @@ proc PipelineProcessor(ch : left proc_main) =
     reg cycle_counter:logic[4]
 
     loop {
-        set cycle_counter := !cycle_counter + 4'b0001
+        set cycle_counter := *cycle_counter + 4'b0001;
+        cycle 1
     }
 
     loop {
-        let instruction = recv ch::req in
+        
+        let instruction = recv ch.req in
         instruction=>
-        set IF_ID_instruction := instruction
+        set IF_ID_instruction := instruction;
+        cycle 1
     }
 
     loop {
-        set ID_EX_operand_a := {5'b00000, !IF_ID_instruction[5+:3]};
-        set ID_EX_operand_b := {5'b00000, !IF_ID_instruction[2+:3]};
-        set ID_EX_opcode := !IF_ID_instruction[0+:2]
+        set ID_EX_operand_a := {5'b00000, *IF_ID_instruction[5+:3]};
+        set ID_EX_operand_b := {5'b00000, *IF_ID_instruction[2+:3]};
+        set ID_EX_opcode := *IF_ID_instruction[0+:2];
+        cycle 1
     }
 
     loop {
-        (if (!ID_EX_opcode == 2'b00) then (
-            set EX_MEM_result := !ID_EX_operand_a + !ID_EX_operand_b
-        ) else if (!ID_EX_opcode == 2'b01) then (
-            set EX_MEM_result := !ID_EX_operand_a - !ID_EX_operand_b
-        ) else if (!ID_EX_opcode == 2'b10) then (
-            set EX_MEM_result := !ID_EX_operand_a & !ID_EX_operand_b
-        ) else if (!ID_EX_opcode == 2'b11) then (
-            set EX_MEM_result := !ID_EX_operand_a | !ID_EX_operand_b
+        (if (*ID_EX_opcode == 2'b00) then (
+            set EX_MEM_result := *ID_EX_operand_a + *ID_EX_operand_b
+        ) else if (*ID_EX_opcode == 2'b01) then (
+            set EX_MEM_result := *ID_EX_operand_a - *ID_EX_operand_b
+        ) else if (*ID_EX_opcode == 2'b10) then (
+            set EX_MEM_result := *ID_EX_operand_a & *ID_EX_operand_b
+        ) else if (*ID_EX_opcode == 2'b11) then (
+            set EX_MEM_result := *ID_EX_operand_a | *ID_EX_operand_b
         ) else (
             set EX_MEM_result := 8'b0
-        ))
-        
+        ));
+        cycle 1
     }
 
     loop {
-        set MEM_WB_result := !EX_MEM_result=>
-        send ch::res(!MEM_WB_result)=>
-        dprint "(Top) Sent Result (%d) on cycle: %d" (!MEM_WB_result, !cycle_counter)
+        send ch.res(*EX_MEM_result)=>
+        cycle 1
     }
 
 
@@ -56,28 +59,33 @@ proc pipelineTB () =
     reg counter: logic[4]
     reg instruction: logic[8]
     reg cycle_counter: logic[4]
+    reg operand_a: logic[3]
+    reg operand_b: logic[3]
+    reg opcode: logic[2]
 
     loop {
-        set cycle_counter := !cycle_counter + 4'b0001
+        set cycle_counter := *cycle_counter + 4'b0001;
+        cycle 1
+    }
+    loop {
+        set operand_a := *operand_a + 3'b001;
+        set operand_b := *operand_b + 3'b001;
+        cycle 1
     }
 
     loop {
-        send proc_input::req(!instruction)=>
-        dprint "(Top) Sent instruction (%b) in cycle: %d" (!instruction, !cycle_counter);
-        if !counter == 4'b0000 then (
-            set instruction := 8'b00100100
-        )else if !counter == 4'b0001 then (
-            set instruction := 8'b01000100
-        )else if !counter == 4'b0010 then (
-            set instruction := 8'b01101000
-        )else if !counter == 4'b0011 then (
-            set instruction := 8'b10001100
-        )else dprint "" ();
-        set counter := !counter + 4'b0001
+        set instruction := {*operand_a, *operand_b, *opcode};
+        cycle 1
+    }
+    loop {
+        dprint "(Top) Sent instruction (%d) in cycle: %d" (*instruction, *cycle_counter);
+        send proc_output.req(*instruction)=>
+        cycle 1
     }    
 
     loop {
-        let result = recv proc_output::res in
+        let result = recv proc_output.res in
         result=>
-        dprint "(Top) Recieved Result (%d) on cycle: %d" (result, !cycle_counter)
+        dprint "(Top) Recieved Result (%d) on cycle: %d" (result, *cycle_counter);
+        cycle 1
     }
