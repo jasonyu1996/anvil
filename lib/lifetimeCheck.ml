@@ -235,7 +235,8 @@ let lifetime_in_range events (lt1 : lifetime) (lt2 : lifetime) =
     let r = event_pat_matches lt1.live lt2.dead in
     (not r.at) && (not r.aft)
   ) *)
-  (event_is_successor lt2.live lt1.live) && (event_pat_rel events lt1.dead lt2.dead)
+  (event_pat_rel events [(lt2.live, `Cycles 0)] [(lt1.live, `Cycles 0)])
+    && (event_pat_rel events lt1.dead lt2.dead)
 
 (** Definitely disjoint? *)
 let lifetime_disjoint events lt1 lt2 =
@@ -341,6 +342,7 @@ let lifetime_check (config : Config.compile_config) (ci : cunit_info) (g : event
         if not_borrowed reg_borrows lval_info.reg_name lt |> not then
           raise (EventGraphError ("Attempted assignment to a borrowed register!", a.span))
         else ();
+        Printf.eprintf "Lt %d %d\n"  lt.live.id td.lt.live.id;
         if lifetime_in_range g.events lt td.lt |> not then
           raise (EventGraphError ("Value does not live long enough in reg assignment!", a.span))
         else ();
