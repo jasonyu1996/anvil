@@ -114,6 +114,8 @@ let event_succ_distance non_succ_dist msg_dist_f either_dist_f events (ev : even
         | `Send _ | `Recv _ | `Sync _ -> msg_dist_f d1
       )
     | `Branch (_, ev1) ->
+      (* We need to check carefully to decide if we are sure
+        the branch has/hasn't been taken. *)
       if (List.mem ev' succs) || (List.mem ev' preds_cur) then
         get_dist ev1
       else
