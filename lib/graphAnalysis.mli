@@ -12,5 +12,5 @@ val find_first_msg_after : EventGraph.event -> Lang.message_specifier -> bool ->
 val event_succ_msg_match_earliest : EventGraph.event -> Lang.message_specifier -> bool -> EventGraph.event option
 val event_succ_msg_match_latest : EventGraph.event -> Lang.message_specifier -> bool -> EventGraph.event option
 val event_distance_max : int
-val event_min_distance : EventGraph.event list -> EventGraph.event -> int Hashtbl.Make(Int).t
-val event_max_distance : EventGraph.event list -> EventGraph.event -> int Hashtbl.Make(Int).t
+val event_min_distance : EventGraph.event list -> EventGraph.event -> EventGraph.event -> int Hashtbl.Make(Int).t
+val event_max_distance : EventGraph.event list -> EventGraph.event -> EventGraph.event -> int Hashtbl.Make(Int).t

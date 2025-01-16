@@ -5,9 +5,8 @@ proc test_regIndex2() =
         cycle 1 =>
         (
             if 1'b1 then
-                set y[*x] := 1'b1
-            else
-            dprint "Never Taken" ()
+                set y := 1'b1
+            else ()
         )=>
-        dprint "y: %d" (*y);
+        dprint "y: %d" (*y)
     }
