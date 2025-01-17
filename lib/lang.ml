@@ -360,7 +360,7 @@ and expr =
   | EnumRef of identifier * identifier (** a reference to an enum variant *)
   | Concat of expr_node list
   | Ready of message_specifier (** [ready(a, b)] *)
-  | Match of expr_node * ((match_pattern * expr_node option) list)
+  (* | Match of expr_node * ((match_pattern * expr_node option) list) *)
   | Read of identifier (** reading a value from a register (leading to a borrow) *)
   | Debug of debug_op
   | Send of send_pack
@@ -529,6 +529,8 @@ let get_message_direction (msg_dir : message_direction)
   | Left -> msg_dir
   | Right -> reverse msg_dir
 
+let string_of_channel_class (cc : channel_class_def) : string =
+  Printf.sprintf "Channel class %s" cc.name
 let rec string_of_expr (e : expr) : string =
   match e with
   | Literal lit -> "Literal " ^ string_of_literal lit
@@ -555,72 +557,6 @@ and string_of_literal (lit : literal) : string =
   | Hexadecimal (n, hexits) -> "Hexadecimal (" ^ string_of_int n ^ ", [" ^ String.concat ";" (List.map string_of_digit hexits) ^ "])"
   | WithLength (n, v) -> "WithLength (" ^ string_of_int n ^ ", " ^ string_of_int v ^ ")"
   | NoLength v -> "NoLength " ^ string_of_int v
-let rec substitute_identifier (id: identifier) (value: int) (expr: expr_node) : expr_node =
-  let new_expr = match expr.d with
-  | Identifier name when name = id ->
-      let length = Utils.int_log2 value + 1 in
-      Literal (WithLength (length, value))
-  | LetIn (ids, e1, e2) ->
-      LetIn (ids, substitute_identifier id value e1, substitute_identifier id value e2)
-  | Binop (op, e1, e2) ->
-      Binop (op, substitute_identifier id value e1, substitute_identifier id value e2)
-  | Unop (op, e) ->
-      Unop (op, substitute_identifier id value e)
-  | Tuple exprs ->
-      Tuple (List.map (substitute_identifier id value) exprs)
-  | Wait (e1, e2) ->
-      Wait (substitute_identifier id value e1, substitute_identifier id value e2)
-  | Index (arr, idx) ->
-      let new_arr = substitute_identifier id value arr in
-      let new_idx = match idx with
-        | Single e -> Single (substitute_identifier id value e)
-        | Range (e1, e2) -> Range (substitute_identifier id value e1, substitute_identifier id value e2)
-      in
-      Index (new_arr, new_idx)
-  | Assign (lv, e) ->
-      Assign (lv, substitute_identifier id value e)
-  | Send {send_msg_spec; send_data} ->
-      Send {
-        send_msg_spec;
-        send_data = substitute_identifier id value send_data
-      }
-  | Match (e, arms) ->
-      Match (
-        substitute_identifier id value e,
-        List.map (fun (pat, expr_opt) ->
-          (pat, Option.map (substitute_identifier id value) expr_opt)
-        ) arms
-      )
-  | Debug (DebugPrint (msg, exprs)) ->
-      Debug (DebugPrint (msg, List.map (substitute_identifier id value) exprs))
-  | Debug other_debug -> Debug other_debug
-  | IfExpr (cond, then_expr, else_expr) ->
-      IfExpr (
-        substitute_identifier id value cond,
-        substitute_identifier id value then_expr,
-        substitute_identifier id value else_expr
-      )
-  | _ -> expr.d
-  in
-  { expr with d = new_expr }
-
-let generate_expr (id, start, end_v, offset, body) =
-  let rec generate_exprs curr acc =
-    if curr > end_v then
-      match List.rev acc with
-      | [] -> Tuple [] 
-      | [single] -> single.d 
-      | hd::tl -> 
-          List.fold_left 
-            (fun acc expr -> LetIn ([], expr, dummy_ast_node_of_data acc)) 
-            hd.d 
-            tl
-    else
-      let substituted = substitute_identifier id curr body in
-      generate_exprs (curr + offset) (substituted :: acc);
-      
-  in
-  generate_exprs start []
 
 let generate_match_expression (e, match_arms) =
   
@@ -676,20 +612,16 @@ let generate_match_expression (e, match_arms) =
           | Range (e1, e2) -> Range (substitute_expr_identifier id value e1, substitute_expr_identifier id value e2)
         in
         Index (new_arr, new_idx)
+    | Concat exprs ->
+        Concat (List.map (substitute_expr_identifier id value) exprs)
     | Assign (lv, e) ->
-        Assign (lv, substitute_expr_identifier id value e)
+        let new_lv = substitute_lvalue id value lv in
+        Assign (new_lv, substitute_expr_identifier id value e)
     | Send {send_msg_spec; send_data} ->
         Send {
           send_msg_spec;
           send_data = substitute_expr_identifier id value send_data
         }
-    | Match (e, arms) ->
-        Match (
-          substitute_expr_identifier id value e,
-          List.map (fun (pat, expr_opt) ->
-            (pat, Option.map (substitute_expr_identifier id value) expr_opt)
-          ) arms
-        )
     | Debug (DebugPrint (msg, exprs)) ->
         Debug (DebugPrint (msg, List.map (substitute_expr_identifier id value) exprs))
     | Debug other_debug -> Debug other_debug
@@ -699,14 +631,56 @@ let generate_match_expression (e, match_arms) =
           substitute_expr_identifier id value then_expr,
           substitute_expr_identifier id value else_expr
         )
+    | Indirect (e, field) ->
+        Indirect (substitute_expr_identifier id value e, field)
+    | Call (name, args) ->
+        Call (name, List.map (substitute_expr_identifier id value) args)
     | _ -> expr.d
     in
     { expr with d = new_expr }
   
+  and substitute_lvalue (id: identifier) (value: expr_node) (lv: lvalue) : lvalue =
+      match (lv:lvalue) with
+      | Reg name -> 
+          if name = id then
+            match value.d with
+            | Identifier new_id -> Reg new_id
+            | _ -> failwith "Expected identifier"
+          else
+            lv
+      | Indexed (lv', idx) ->
+          let new_lv = substitute_lvalue id value lv' in
+          let new_idx = match idx with
+            | Single e -> Single (substitute_expr_identifier id value e)
+            | Range (e1, e2) -> Range (substitute_expr_identifier id value e1, substitute_expr_identifier id value e2)
+          in
+          Indexed (new_lv, new_idx)
+      | Indirected (lv', field) ->
+          let new_lv = substitute_lvalue id value lv' in
+          Indirected (new_lv, field)
+
   let substitute_func_args (func: func_def) (passed_args: expr_node list) : expr_node =
     if List.length func.args <> List.length passed_args then
-      failwith "Number of arguments does not match function definition";
+      failwith (Printf.sprintf "Number of arguments does not match function definition of %s" func.name);
   
     List.fold_left2 (fun acc_body arg_name arg_value ->
       substitute_expr_identifier arg_name arg_value acc_body
     ) func.body func.args passed_args
+
+    let generate_expr (id, start, end_v, offset, body) =
+      let rec generate_exprs (curr:int) acc =
+        if curr > end_v then
+          match List.rev acc with
+          | [] -> Tuple [] 
+          | [single] -> single.d 
+          | hd::tl -> 
+              List.fold_left 
+                (fun acc expr -> LetIn ([], expr, dummy_ast_node_of_data acc)) 
+                hd.d 
+                tl
+        else
+          let substituted = substitute_expr_identifier id (dummy_ast_node_of_data(Literal(NoLength(curr)))) body in
+          generate_exprs (curr + offset) (substituted :: acc);
+          
+      in
+      generate_exprs start []

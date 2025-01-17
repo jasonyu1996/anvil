@@ -45,11 +45,14 @@ let create (channels : channel_def list)
   in
   let endpoints = List.concat_map codegen_chan channels in
   let gather_from_endpoint (endpoint: endpoint_def) =
-    let cc = Option.get (lookup_channel_class channel_classes endpoint.channel_class) in
-    let msg_map = fun (msg: message_def) ->
-      let msg_dir = get_message_direction msg.dir endpoint.dir in
-      (endpoint, msg, msg_dir)
-    in List.map msg_map cc.messages
+    match lookup_channel_class channel_classes endpoint.channel_class with
+    | Some cc ->
+        let msg_map = fun (msg: message_def) ->
+          let msg_dir = get_message_direction msg.dir endpoint.dir in
+          (endpoint, msg, msg_dir)
+        in List.map msg_map cc.messages
+    | None ->
+        failwith (Printf.sprintf "Channel class %s not found" endpoint.channel_class)
   in
   let local_messages = List.filter (fun p -> not p.foreign) (args @ endpoints) |>
   List.concat_map gather_from_endpoint in
