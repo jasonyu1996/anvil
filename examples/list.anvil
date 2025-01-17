@@ -14,8 +14,8 @@ proc list() =
             Rec::{op = 1'b1; a = 8'd8; b = 8'd2}, // 1
             Rec::{op = 1'b0; a = 8'd2; b = 8'd0}  // 2
         ] =>
-        dprint "0 = %d" (!r[0].b); // 3
-        dprint "1 = %d" (!r[1].a); // 8
-        dprint "2 = %d" (!r[2].op) // 0
+        dprint "0 = %d" (*r[0].b); // 3
+        dprint "1 = %d" (*r[1].a); // 8
+        dprint "2 = %d" (*r[2].op) // 0
     }
 

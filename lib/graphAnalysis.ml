@@ -92,8 +92,10 @@ let event_succ_msg_match_latest (ev : event) (msg : message_specifier) =
 
 module IntHashtbl = Hashtbl.Make(Int)
 let event_distance_max = 1 lsl 20
-let event_succ_distance non_succ_dist msg_dist_f either_dist_f events (ev : event) =
+let event_succ_distance non_succ_dist msg_dist_f either_dist_f events (ev : event) (cur: event) =
   let preds = event_predecessors ev in
+  let preds_cur = event_predecessors cur in
+  let succs = event_successors cur in
   let dist = IntHashtbl.create 8 in
   IntHashtbl.add dist ev.id 0;
   let get_dist ev' = IntHashtbl.find_opt dist ev'.id |> Option.value ~default:non_succ_dist in
@@ -111,8 +113,15 @@ let event_succ_distance non_succ_dist msg_dist_f either_dist_f events (ev : even
         | `Cycles n' -> d1 + n'
         | `Send _ | `Recv _ | `Sync _ -> msg_dist_f d1
       )
-    | `Branch (_, ev1) -> get_dist ev1
-    | `Either (ev1, ev2) -> either_dist_f (get_dist ev1) (get_dist ev2)
+    | `Branch (_, ev1) ->
+      (* We need to check carefully to decide if we are sure
+        the branch has/hasn't been taken. *)
+      if (List.mem ev' succs) || (List.mem ev' preds_cur) then
+        get_dist ev1
+      else
+        non_succ_dist
+    | `Either (ev1, ev2) ->
+      either_dist_f (get_dist ev1) (get_dist ev2)
     in
     set_dist ev' (min d event_distance_max)
   );

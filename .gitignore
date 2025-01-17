@@ -2,3 +2,6 @@
 /*.sv
 *.conflicts
 /.vscode/
+
+.codegpt
+.DS_Store

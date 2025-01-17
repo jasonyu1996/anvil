@@ -15,11 +15,11 @@ let format_msg_ack_signal_name (endpoint_name : identifier) (message_name : iden
 
 let format_wirename (thread_id : int) (id : int) : string = Printf.sprintf "thread_%d_wire$%d" thread_id id
 
-let format_dtype (typedefs : TypedefMap.t) (dtype : data_type) =
+let format_dtype (typedefs : TypedefMap.t) (macro_defs : Lang.macro_def list) (dtype : data_type) =
   match dtype with
   | `Logic -> "logic"
   | `Opaque typename -> typename
-  | _ -> (TypedefMap.data_type_size typedefs dtype) - 1 |> Printf.sprintf "logic[%d:0]"
+  | _ -> (TypedefMap.data_type_size typedefs macro_defs dtype) - 1 |> Printf.sprintf "logic[%d:0]"
 
 let format_literal = function
   | Binary (len, b) -> Printf.sprintf "%d'b%s" len (List.map string_of_digit b |> List.rev |> String.concat "")

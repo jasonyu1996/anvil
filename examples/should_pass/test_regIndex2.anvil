@@ -1,0 +1,12 @@
+proc test_regIndex2() =
+    reg x:logic[2]
+    reg y:logic[4]
+    loop {
+        cycle 1 =>
+        (
+            if 1'b1 then
+                set y := 1'b1
+            else ()
+        )=>
+        dprint "y: %d" (*y)
+    }

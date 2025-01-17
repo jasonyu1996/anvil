@@ -5,6 +5,6 @@ chan ch = {
 proc top(e : right ch) =
     reg r : logic
     loop {
-        send e::req (!r) =>
+        send e.req (*r) =>
         cycle 1
     }

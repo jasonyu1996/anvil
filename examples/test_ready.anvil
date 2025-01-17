@@ -1,0 +1,25 @@
+chan ch = {
+    left req: (logic[8]@#1)
+}
+
+proc reciver(ch : left ch) =
+    loop {
+        let in1 = recv ch.req in
+        (
+            if (ready ch.req) then
+               ( in1 =>
+                dprint "Received: %d" (in1))
+            else
+                dprint "Not ready" ()
+        )
+    }
+
+proc test_ready () =
+    chan ch_input -- ch_output : ch
+    spawn reciver(ch_input)
+    loop {
+        send ch_input.req(8'b00000111)=>
+        cycle 1=>
+        cycle 1=>
+        dprint "sent " (8'b00000111)
+    }

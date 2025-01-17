@@ -16,6 +16,9 @@ event graphs.
 type cunit_info = {
   typedefs : TypedefMap.t;
   channel_classes : Lang.channel_class_def list;
+  enum_mappings : (string * (string * int) list) list;
+  func_defs : Lang.func_def list;
+  macro_defs : Lang.macro_def list
 }
 
 type wire = WireCollection.wire
@@ -127,7 +130,8 @@ and sustained_action = {
   ty : sustained_action_type
 }
 
-(** An event graph, usually corresponding to a single looping thread. *)
+(** An event graph, usually corresponding to a single looping thread.
+All parameters in an event graph have been concretised. *)
 and event_graph = {
   thread_id : int; (** unique identifier of the looping thread *)
   mutable events : event list;
@@ -148,6 +152,7 @@ type proc_graph = {
     shared_vars_info : (Lang.identifier, shared_var_info) Hashtbl.t;
     messages : MessageCollection.t;
     proc_body : Lang.proc_def_body_maybe_extern;
+    spawns : (Lang.identifier * Lang.spawn_def) list;
 }
 
 (** A collection of event graphs, corresponding to a compilation unit.
@@ -157,8 +162,10 @@ In addition to event graphs, it also includes the associated {{!typedefs}type de
 type event_graph_collection = {
   event_graphs : proc_graph list;
   typedefs : TypedefMap.t;
+  macro_defs : Lang.macro_def list;
   channel_classes : Lang.channel_class_def list;
   external_event_graphs : proc_graph list;
+  enum_mappings : (string * (string * int) list) list;
 }
 
 (** Print the structure of the graph to standard error stream. *)

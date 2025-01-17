@@ -4,7 +4,7 @@ proc top() =
         if (1'b1) then
             set r := 1'b1
         else (
-            let w = !r in
+            let w = *r in
             cycle 1 =>
             dprint "Value = %d" (w)
         )

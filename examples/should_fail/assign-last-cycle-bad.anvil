@@ -5,7 +5,7 @@ chan ch = {
 proc top(e : right ch) =
     reg r : logic
     loop {
-        send e::req (!r) =>
+        send e.req (*r) =>
         if 1'b1 then
             set r := 1'b0
         else

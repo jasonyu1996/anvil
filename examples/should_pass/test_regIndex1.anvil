@@ -1,0 +1,16 @@
+proc test_regIndex1() =
+    reg x:logic[2]
+    reg y:logic[4]
+    loop {
+        (
+            if 1'b1 then
+                set y[*x] := 1'b1
+            else
+            dprint "Never Taken" ()
+        )=>
+        if 1'b1 then
+            set x := *x + 2'b01
+        else
+            dprint "Never Taken" ();
+        cycle 1
+    }
