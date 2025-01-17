@@ -9,7 +9,7 @@ Use pi = 39
 proc enum_test() = 
 
     loop{
-        let pi = 4'd5 in 
+        let pix = 4'd5 in 
         dprint "%d and macro pi = %d" (color::yellow,pi);
         cycle 1
     }
