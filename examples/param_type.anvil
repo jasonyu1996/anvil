@@ -1,8 +1,8 @@
 proc sub<T : type>() =
     reg r : T
     loop {
-        dprint "Value = %d" (!r);
-        set r := !r + 1
+        dprint "Value = %d" (*r);
+        set r := *r + 1
     }
 
 proc param_type() =

@@ -6,5 +6,5 @@ proc top(e : right ch) =
     reg r : logic
     loop {
         set r := 1'b1 =>
-        send e::req (!r)
+        send e.req (*r)
     }

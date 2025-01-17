@@ -5,7 +5,7 @@ chan reg_itfc = {
 
 proc reggg(e : right reg_itfc) =
     loop {
-        let a = recv e::req in
+        let a = recv e.req in
         a =>
         dprint "Received %d" (a)
     }
@@ -14,7 +14,7 @@ proc top (e : left reg_itfc) =
     reg r : logic
     loop {
         set r := 1'b0 =>
-        send e::req (!r) =>
+        send e.req (*r) =>
         set r := 1'b1
     }
 

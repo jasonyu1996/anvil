@@ -6,16 +6,16 @@ chan adder_ch = {
 }
 
 proc adder(e : left adder_ch) = extern("real_extern_adder")
-    e::req("data": :)
-    e::resp("res": :)
+    e.req("data": :)
+    e.resp("res": :)
 
 proc extern_proc2() =
     chan ch_le -- ch_ri : adder_ch
     spawn adder(ch_le)
     reg cnt : logic[8]
     loop {
-        send ch_ri::req (!cnt) =>
-        let r = recv ch_ri::resp in
+        send ch_ri.req (*cnt) =>
+        let r = recv ch_ri.resp in
         r =>
         dprint "Result = %d" (r);
         set cnt := r

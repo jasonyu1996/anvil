@@ -2,7 +2,7 @@ type value_8bit = logic[8]
 type value_4bit = logic[4]
 type value_3bit = logic[3]
 type value_5bit = logic[5]
-type dequeue_resp = 
+type dequeue_resp =
 {
     data : value_8bit;
     valid : logic[1]
@@ -26,15 +26,15 @@ proc Queue_8bit(en_ch : left enqueue_ch, de_ch : left dequeue_ch) =
     reg not_full : logic[1]
 
     loop {
-        if ((!head == !tail) && (!full == 1'b0)) then
+        if ((*head == *tail) && (*full == 1'b0)) then
             dprint "Cant Accept Dequeue Request: Queue Empty" ()
         else
         (
-            let d_req = recv de_ch::dequeue_req in
+            let d_req = recv de_ch.dequeue_req in
             d_req=>
-            send de_ch::dequeue_res(!queue[!tail])=>
-            set tail := !tail + 3'b001;
-            (if(!full) then
+            send de_ch.dequeue_res(*queue[*tail])=>
+            set tail := *tail + 3'b001;
+            (if(*full) then
                 set not_full := 1'b1
             else
                 set not_full := 1'b0)
@@ -43,28 +43,28 @@ proc Queue_8bit(en_ch : left enqueue_ch, de_ch : left dequeue_ch) =
     }
 
     loop {
-        let data = recv en_ch::enqueue_req in
+        let data = recv en_ch.enqueue_req in
         data=>
-        (   
-            if((!full == 1'b0) || (!not_full == 1'b1)) then
+        (
+            if((*full == 1'b0) || (*not_full == 1'b1)) then
             (
-                set queue[!head] := data;
+                set queue[*head] := data;
                 set enqueue_resp := 1'b1
             )
             else
             (
                 set enqueue_resp := 1'b0
             );
-        if ((!head + 3'b001) == !tail) then
+        if ((*head + 3'b001) == *tail) then
             set full := 1'b1
         else
         (
             set full := 1'b0
         ))=>
 
-        
-        send en_ch::enqueue_res(!enqueue_resp)=>
-        set head := !head + {2'b00, !enqueue_resp};
+
+        send en_ch.enqueue_res(*enqueue_resp)=>
+        set head := *head + {2'b00, *enqueue_resp};
         cycle 1
     }
 
@@ -96,43 +96,43 @@ proc Processor(ins_ch: left ins_ch) =
     spawn Queue_8bit(en_MEM_WB_le, de_MEM_WB_le)
 
     loop {
-        let instruction = recv ins_ch::req in
+        let instruction = recv ins_ch.req in
         instruction=>
-        send en_IF_ID_le::enqueue_req(instruction)=>
+        send en_IF_ID_le.enqueue_req(instruction)=>
         cycle 1
     }
 
     loop {
-        let instruction = recv de_IF_ID_le::dequeue_req in
+        let instruction = recv de_IF_ID_le.dequeue_req in
         instruction=>
-        (send en_ID_OP_le::enqueue_req({6'b000000, instruction[0+:2]});
-        send en_ID_A_le::enqueue_req({5'b00000, instruction[2+:3]});
-        send en_ID_B_le::enqueue_req({5'b00000, instruction[5+:3]}))=>
+        (send en_ID_OP_le.enqueue_req({6'b000000, instruction[0+:2]});
+        send en_ID_A_le.enqueue_req({5'b00000, instruction[2+:3]});
+        send en_ID_B_le.enqueue_req({5'b00000, instruction[5+:3]}))=>
         cycle 1
     }
     loop{
-        let opcode = recv de_ID_OP_le::dequeue_req in
-        let operand_a = recv de_ID_A_le::dequeue_req in
-        let operand_b = recv de_ID_B_le::dequeue_req in
+        let opcode = recv de_ID_OP_le.dequeue_req in
+        let operand_a = recv de_ID_A_le.dequeue_req in
+        let operand_b = recv de_ID_B_le.dequeue_req in
         opcode=>
         operand_a=>
         operand_b=>
         (
-            if(!opcode == 2'b00) then
-                send en_EX_MEM_le::enqueue_req(operand_a + operand_b)
-            else if(!opcode == 2'b01) then
-                send en_EX_MEM_le::enqueue_req(operand_a - operand_b)
-            else if(!opcode == 2'b10) then
-                send en_EX_MEM_le::enqueue_req(operand_a & operand_b)
-            else if(!opcode == 2'b11) then
-                send en_EX_MEM_le::enqueue_req(operand_a | operand_b)
+            if(*opcode == 2'b00) then
+                send en_EX_MEM_le.enqueue_req(operand_a + operand_b)
+            else if(*opcode == 2'b01) then
+                send en_EX_MEM_le.enqueue_req(operand_a - operand_b)
+            else if(*opcode == 2'b10) then
+                send en_EX_MEM_le.enqueue_req(operand_a & operand_b)
+            else if(*opcode == 2'b11) then
+                send en_EX_MEM_le.enqueue_req(operand_a | operand_b)
         )=>
         cycle 1
     }
 
     loop{
-        let result = recv de_EX_MEM_le::dequeue_req in
+        let result = recv de_EX_MEM_le.dequeue_req in
         result=>
-        send en_MEM_WB_le::enqueue_req(result)=>
+        send en_MEM_WB_le.enqueue_req(result)=>
         cycle 1
     }

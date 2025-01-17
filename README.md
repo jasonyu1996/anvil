@@ -40,10 +40,16 @@ make clean MODULE_NAME=<name>
 
 ### Tests
 
-To run tests on type checking, go to the `example` directory
-and
+To run all tests, use
 ```
+python3 run-tests.py
+```
+
+Alternatively, you can run type checking tests and simulation tests separately with
+```
+cd examples
 sh typecheck-test.sh
+bash test-all.sh
 ```
 
 ### Documentations

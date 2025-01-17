@@ -171,7 +171,7 @@ let event_pat_rel events (ev_pat1 : event_pat) (ev_pat2 : event_pat) =
       | `Eternal -> fun _ev2 d_pat2 -> d_pat2 = `Eternal
       | `Cycles n1 ->
         (* compute the min possible cycle distance from n1 to successors *)
-        let dist = event_min_distance events ev1 in
+        let dist = event_min_distance events ev1 ev1 in
         let get_dist ev' = IntHashtbl.find_opt dist ev'.id |> Option.value ~default:0 in
         (
           fun ev2 d_pat2 ->
@@ -182,7 +182,7 @@ let event_pat_rel events (ev_pat1 : event_pat) (ev_pat2 : event_pat) =
                 let d = get_dist ev2 in
                 n1 <= d + n2
               else (
-                let dist2 = event_max_distance events ev2 in
+                let dist2 = event_max_distance events ev2 ev1 in
                 let d = IntHashtbl.find_opt dist2 ev1.id |> Option.value ~default:event_distance_max in
                 n1 + d <= n2
               )
@@ -209,7 +209,7 @@ let event_pat_rel events (ev_pat1 : event_pat) (ev_pat2 : event_pat) =
               | `Cycles n2 -> (* earliest estimate *)
                 if event_is_predecessor ev2 ri1 then true
                 else (
-                  let dist = event_max_distance events ev2 in
+                  let dist = event_max_distance events ev2 ev1 in
                   let d = IntHashtbl.find_opt dist ri1.id |> Option.value ~default:event_distance_max in
                   d <= n2
                 )
@@ -257,7 +257,7 @@ let lifetime_check (config : Config.compile_config) (ci : cunit_info) (g : event
   (* check that it takes at least one cycle to execute *)
   let root_ev = List.find (fun e -> e.source = `Root) g.events in
   let last_ev = List.hd g.events in (* assuming reverse topo order *)
-  let dist = event_min_distance g.events root_ev in
+  let dist = event_min_distance g.events root_ev root_ev in
   if IntHashtbl.find dist last_ev.id = 0 then
     raise (LifetimeCheckError "Thread must take at least one cycle to complete a loop!");
 
