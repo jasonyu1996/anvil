@@ -22,10 +22,11 @@ let lookup_endpoint (mc : t) =
   lookup_endpoint_internal mc.args mc.endpoints
 
 let lookup_message (mc : t) (msg_spec : message_specifier) (channel_classes : channel_class_def list) =
-  let ( >>= ) = Option.bind in
-  lookup_endpoint mc msg_spec.endpoint >>=
-    (fun endpoint -> lookup_channel_class channel_classes endpoint.channel_class) >>=
-    (fun cc -> List.find_opt (fun (m : message_def) -> m.name = msg_spec.msg) cc.messages)
+  let ( let* ) = Option.bind in
+  let* endpoint = lookup_endpoint mc msg_spec.endpoint in
+  let* cc = lookup_channel_class channel_classes endpoint.channel_class in
+  let* msg = List.find_opt (fun (m : message_def) -> m.name = msg_spec.msg) cc.messages in
+  Some (ParamConcretise.concretise_message cc.params endpoint.channel_params msg)
 
 let create (channels : channel_def list)
            (args : endpoint_def list)
@@ -38,8 +39,10 @@ let create (channels : channel_def list)
       | RightForeign -> (false, true)
     in
     let left_endpoint = { name = chan.endpoint_left; channel_class = chan.channel_class;
+                          channel_params = chan.channel_params;
                           dir = Left; foreign = left_foreign; opp = Some chan.endpoint_right } in
     let right_endpoint = { name = chan.endpoint_right; channel_class = chan.channel_class;
+                          channel_params = chan.channel_params;
                           dir = Right; foreign = right_foreign; opp = Some chan.endpoint_left } in
     [left_endpoint; right_endpoint]
   in
@@ -49,7 +52,7 @@ let create (channels : channel_def list)
     | Some cc ->
         let msg_map = fun (msg: message_def) ->
           let msg_dir = get_message_direction msg.dir endpoint.dir in
-          (endpoint, msg, msg_dir)
+          (endpoint, ParamConcretise.concretise_message cc.params endpoint.channel_params msg, msg_dir)
         in List.map msg_map cc.messages
     | None ->
         failwith (Printf.sprintf "Channel class %s not found" endpoint.channel_class)

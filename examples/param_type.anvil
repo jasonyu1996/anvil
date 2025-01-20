@@ -8,5 +8,5 @@ proc sub<T : type>() =
 proc param_type() =
     spawn sub<logic[4]>()
     loop {
-        ()
+        cycle 1
     }

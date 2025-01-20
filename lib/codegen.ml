@@ -19,6 +19,7 @@ module Port = struct
   let gather_ports_from_endpoint (channel_classes : channel_class_def list) (endpoint : endpoint_def) : t list =
     let cc = Option.get (MessageCollection.lookup_channel_class channel_classes endpoint.channel_class) in
     let gen_endpoint_ports = fun (msg : message_def) ->
+      let msg = ParamConcretise.concretise_message cc.params endpoint.channel_params msg in
       let folder_inner = fun fmt msg_dir (n, port_list) (stype : sig_type_chan_local) ->
         let new_port : t = {
           name = fmt endpoint.name msg.name n;
@@ -85,6 +86,7 @@ let codegen_spawns printer (graphs : event_graph_collection) (g : proc_graph) =
       let endpoint_name_local = CodegenFormat.canonicalize_endpoint_name param_ident (List.hd g.threads) in
       let cc = MessageCollection.lookup_channel_class graphs.channel_classes endpoint_local.channel_class |> Option.get in
       let print_msg_con = fun (msg : message_def) ->
+        let msg = ParamConcretise.concretise_message cc.params endpoint_local.channel_params msg in
         if Port.message_has_valid_port msg then
           gen_connect (Format.format_msg_valid_signal_name arg_endpoint.name msg.name)
             (Format.format_msg_valid_signal_name endpoint_name_local msg.name)
@@ -100,7 +102,8 @@ let codegen_spawns printer (graphs : event_graph_collection) (g : proc_graph) =
           List.iteri (print_data_con Format.format_msg_data_signal_name) msg.sig_types;
         end
       in List.iter print_msg_con cc.messages
-    in List.iter2 connect_endpoints proc_other.messages.args spawn.params;
+    in
+    List.iter2 connect_endpoints proc_other.messages.args spawn.params;
     CodegenPrinter.print_line printer ~lvl_delta_pre:(-1) ");"
   in List.iteri gen_spawn g.spawns
 
@@ -117,7 +120,7 @@ let codegen_wire_assignment printer (g : event_graph) (w : WireCollection.wire) 
   let expr =
     match w.source with
     | Literal lit -> Format.format_literal lit
-    
+
     | Binary (binop, w1, w2) ->
       Printf.sprintf "%s %s %s"
         (Format.format_wirename w1.thread_id w1.id)
@@ -158,7 +161,7 @@ let codegen_wire_assignment printer (g : event_graph) (w : WireCollection.wire) 
 let codegen_post_declare printer (graphs : event_graph_collection) (g : event_graph) =
   (* wire declarations *)
   let codegen_wire_decl = fun (w: WireCollection.wire) ->
-    Printf.sprintf "%s %s;" (Format.format_dtype graphs.typedefs graphs.macro_defs w.dtype) (Format.format_wirename w.thread_id w.id) |>
+    Printf.sprintf "%s %s;" (Format.format_dtype graphs.typedefs graphs.macro_defs (`Array (`Logic, ParamEnv.Concrete w.size))) (Format.format_wirename w.thread_id w.id) |>
       CodegenPrinter.print_line printer
   in List.iter codegen_wire_decl g.wires;
   List.iter (codegen_wire_assignment printer g) g.wires

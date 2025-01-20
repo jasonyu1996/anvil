@@ -8,5 +8,5 @@ proc sub<n : int>() =
 proc param_int() =
     spawn sub<4>()
     loop {
-        ()
+        cycle 1
     }

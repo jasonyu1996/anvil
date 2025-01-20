@@ -10,7 +10,8 @@ let of_list typedef_list =
 
 let data_type_name_resolve (type_defs : t) (dtype : data_type) : data_type option =
   match dtype with
-  | `Named type_name -> Utils.StringMap.find_opt type_name type_defs |> Option.map (fun (x : type_def) -> x.body)
+  | `Named (type_name, params) -> Utils.StringMap.find_opt type_name type_defs |> Option.map (fun (x : type_def) ->
+      ParamConcretise.concretise_dtype x.params params x.body)
   | _ -> Some dtype
 
 let rec data_type_size (type_defs : t) (macro_defs : macro_def list) (dtype : data_type) : int =
@@ -18,19 +19,19 @@ let rec data_type_size (type_defs : t) (macro_defs : macro_def list) (dtype : da
   | `Logic -> 1
   | `Array (dtype', n) ->
       let n_concrete = match n with
-        | ParamEnv.Concrete value -> value  
-        | ParamEnv.Param param_name -> 
+        | ParamEnv.Concrete value -> value
+        | ParamEnv.Param param_name ->
             match List.find_opt (fun (m: macro_def) -> m.id = param_name) macro_defs with
             | Some macro -> macro.value
-            | None -> 
+            | None ->
                 match ParamEnv.get_opt (Param param_name) with
                 | Some value -> value
                 | None -> failwith ("Unknown parameter " ^ param_name)
       in
       (data_type_size type_defs macro_defs dtype') * n_concrete
-  | `Named type_name ->
+  | `Named (type_name, params) ->
       let type_def = Utils.StringMap.find type_name type_defs in
-      data_type_size type_defs macro_defs type_def.body
+      ParamConcretise.concretise_dtype type_def.params params type_def.body |> data_type_size type_defs macro_defs
   | `Variant vlist as var ->
       let mx_data_size = List.fold_left (fun m n -> max m (
         let inner_dtype_op = snd n in
