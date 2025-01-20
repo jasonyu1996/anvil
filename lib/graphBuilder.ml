@@ -390,7 +390,7 @@ let binop_td_const graph (ci:cunit_info) _ctx span op n td =
         )
       | Record (record_ty_name, field_exprs) ->
         (
-          match TypedefMap.data_type_name_resolve ci.typedefs @@ `Named record_ty_name with
+          match TypedefMap.data_type_name_resolve ci.typedefs @@ `Named (record_ty_name, []) with
           | Some (`Record record_fields) ->
             (
               match Utils.list_match_reorder (List.map fst record_fields) field_exprs with
@@ -400,14 +400,14 @@ let binop_td_const graph (ci:cunit_info) _ctx span op n td =
                   unwrap_or_err "Invalid value in record field" e'.span w) tds in
                 let (wires', w) = WireCollection.add_concat graph.thread_id ci.typedefs ci.macro_defs ws graph.wires in
                 graph.wires <- wires';
-                List.map snd tds |> Typing.merged_data graph (Some w) (`Named record_ty_name) ctx.current
+                List.map snd tds |> Typing.merged_data graph (Some w) (`Named (record_ty_name, [])) ctx.current
               | _ -> raise (EventGraphError ("Invalid record type value!", e.span))
             )
           | _ -> raise (EventGraphError ("Invalid record type name!", e.span))
         )
       | Construct (cstr_spec, cstr_expr_opt) ->
         (
-          match TypedefMap.data_type_name_resolve ci.typedefs @@ `Named cstr_spec.variant_ty_name with
+          match TypedefMap.data_type_name_resolve ci.typedefs @@ `Named (cstr_spec.variant_ty_name, []) with
           | Some (`Variant _ as dtype) ->
             let e_dtype_opt = variant_lookup_dtype dtype cstr_spec.variant in
             (
@@ -448,7 +448,7 @@ let binop_td_const graph (ci:cunit_info) _ctx span op n td =
                   WireCollection.add_concat graph.thread_id ci.typedefs ci.macro_defs [w_pad; w_tag] wires'
                 end in
                 graph.wires <- wires';
-                Typing.const_data graph (Some new_w)  (`Named cstr_spec.variant_ty_name) ctx.current
+                Typing.const_data graph (Some new_w)  (`Named (cstr_spec.variant_ty_name, [])) ctx.current
               | _ -> raise (EventGraphError ("Invalid variant construct expression!", e.span))
             )
           | _ -> raise (EventGraphError ("Invalid variant type name!", e.span))

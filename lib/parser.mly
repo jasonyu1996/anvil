@@ -227,9 +227,14 @@ param_def:
 
 // For defining struct for messages and message types
 type_def:
-  KEYWORD_TYPE; name = IDENT; EQUAL; dtype = data_type
+| KEYWORD_TYPE; name = IDENT; EQUAL; dtype = data_type
   {
-    { name = name; body = dtype } : Lang.type_def
+    { name = name; body = dtype; params = [] } : Lang.type_def
+  }
+| KEYWORD_TYPE; name = IDENT; LEFT_ABRACK; params = separated_list(COMMA, param_def); RIGHT_ABRACK;
+  EQUAL; dtype = data_type
+  {
+    { name = name; body = dtype; params = params } : Lang.type_def
   }
 ;
 
@@ -611,7 +616,9 @@ data_type:
 | dtype = data_type; LEFT_BRACKET; n = int_maybe_param; RIGHT_BRACKET
   { `Array (dtype, n) }
 | typename = IDENT
-  { `Named typename }
+  { `Named (typename, []) }
+| typename = IDENT; LEFT_ABRACK; compile_params = separated_list(COMMA, param_value); RIGHT_ABRACK;
+  { `Named (typename, compile_params) }
 | LEFT_BRACKET; variants = variant_def+; RIGHT_BRACKET
   { `Variant variants }
 | LEFT_BRACE; fields = separated_nonempty_list(SEMICOLON, field_def); RIGHT_BRACE
@@ -698,7 +705,7 @@ enum_def:
     {
       { name = name; variants = variants } : Lang.enum_def
     }
-macro_def: 
+macro_def:
   | KEYWORD_USE; id = IDENT; EQUAL; value = INT
     {
       { id = id; value = value } : Lang.macro_def

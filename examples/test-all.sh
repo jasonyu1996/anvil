@@ -17,6 +17,10 @@ TESTS=(
     multicycle_counter
     comb_loop
     list
+    param_int
+    param_type
+    param_int_typedef
+    param_type_typedef
 )
 
 passed=0

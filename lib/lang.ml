@@ -103,21 +103,23 @@ type endpoint_def = {
   with the same channel *)
 }
 
-(** Type definition without named type. *)
-type 'a data_type_generic_no_named = [
+(** A data type. *)
+type data_type = [
   | `Logic
-  | `Array of 'a * int maybe_param
-  | `Variant of (identifier * 'a option) list (** ADT sum type *)
-  | `Record of (identifier * 'a) list (** ADT product type *)
-  | `Tuple of 'a list
+  | `Array of data_type * int maybe_param
+  | `Variant of (identifier * data_type option) list (** ADT sum type *)
+  | `Record of (identifier * data_type) list (** ADT product type *)
+  | `Tuple of data_type list
   | `Opaque of identifier (** type reserved for internal purposes *)
+  | `Named of identifier * param_value list (** named type which can be concretised
+                                            parameter values; the name itself might be
+                                            a parameter *)
   (* | `Endpoint of endpoint_def * first-class endpoints *)
 ]
+and param_value =
+  | IntParamValue of int
+  | TypeParamValue of data_type
 
-type 'a data_type_generic = [
-  | `Named of identifier (** named type *)
-  | 'a data_type_generic_no_named
-]
 
 type enum_def = {
   name: identifier;
@@ -128,16 +130,11 @@ type macro_def = {
   value : int;
 }
 
-(** A data type after resolution (no named type). *)
-type resolved_data_type = resolved_data_type data_type_generic_no_named
-
-(** A data type. *)
-type data_type = data_type data_type_generic
-
 (** A type definition ([type name = body])*)
 and type_def = {
   name: identifier;
   body: data_type;
+  params: param list; (** list of parameters *)
 }
 
 (** Unit type. Basically an empty tuple. *)
@@ -311,9 +308,9 @@ let literal_eval (lit : literal) : int =
   | WithLength (_, v) -> v
   | NoLength v -> v
 
-let dtype_of_literal (lit : literal) : resolved_data_type =
+let dtype_of_literal (lit : literal) =
   let n = literal_bit_len lit |> Option.get in
-  `Array (`Logic, Concrete n)
+  `Array (`Logic, ParamEnv.Concrete n)
 
 type binop = Add | Sub | Xor | And | Or | Lt | Gt | Lte | Gte |
              Shl | Shr | Eq | Neq | Mul
@@ -381,7 +378,8 @@ and expr =
   | EnumRef of identifier * identifier (** a reference to an enum variant *)
   | Concat of expr_node list
   | Ready of message_specifier (** [ready(a, b)] *)
-  (* | Match of expr_node * ((match_pattern * expr_node option) list) *)
+  | Match of expr_node * ((match_pattern * expr_node option) list) (** Currently unused. Match expressions are
+                                  converted into if expressions in the parser directly. *)
   | Read of identifier (** reading a value from a register (leading to a borrow) *)
   | Debug of debug_op
   | Send of send_pack
@@ -422,10 +420,6 @@ type cycle_proc = {
   trans_func: expr_node;
   sigs: sig_def list;
 }
-
-type param_value =
-  | IntParamValue of int
-  | TypeParamValue of data_type
 
 (** A spawn of a process. *)
 type spawn_def = {
