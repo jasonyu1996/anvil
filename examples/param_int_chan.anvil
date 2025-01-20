@@ -1,0 +1,18 @@
+chan ch<n : int> = {
+    left req : (logic[n]@#2)
+}
+
+proc sub<n : int>(e : left ch<n>) =
+    loop {
+        let v = recv e.req in
+        v => dprint "Value = %d" (v);
+        cycle 2
+    }
+
+proc param_int_chan() =
+    chan e_le -- e_ri : ch<4>
+    spawn sub<4>(e_le)
+    loop {
+        send e_ri.req(4'd3) =>
+        cycle 2
+    }

@@ -1,0 +1,16 @@
+type foo<n : int> = {
+    v : logic[n]
+}
+
+proc sub<n : int>() =
+    reg r : foo<n>
+    loop {
+        dprint "Value = %d" ((*r).v);
+        set r.v := (*r).v + 1
+    }
+
+proc param_int_typedef() =
+    spawn sub<4>()
+    loop {
+        cycle 1
+    }

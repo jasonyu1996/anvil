@@ -85,20 +85,42 @@ let sig_lifetime_this_cycle : sig_lifetime =
 let sig_lifetime_const : sig_lifetime =
   { e = `Eternal }
 
-(** Type definition without named type. *)
-type 'a data_type_generic_no_named = [
-  | `Logic
-  | `Array of 'a * int maybe_param
-  | `Variant of (identifier * 'a option) list (** ADT sum type *)
-  | `Record of (identifier * 'a) list (** ADT product type *)
-  | `Tuple of 'a list
-  | `Opaque of identifier (** type reserved for internal purposes *)
-]
 
-type 'a data_type_generic = [
-  | `Named of identifier (** named type *)
-  | 'a data_type_generic_no_named
+(** Direction of an endpoint. *)
+type endpoint_direction = Left | Right
+
+(** A data type. *)
+type data_type = [
+  | `Logic
+  | `Array of data_type * int maybe_param
+  | `Variant of (identifier * data_type option) list (** ADT sum type *)
+  | `Record of (identifier * data_type) list (** ADT product type *)
+  | `Tuple of data_type list
+  | `Opaque of identifier (** type reserved for internal purposes *)
+  | `Named of identifier * param_value list (** named type which can be concretised
+                                            parameter values; the name itself might be
+                                            a parameter *)
+  (* | `Endpoint of endpoint_def * first-class endpoints *)
 ]
+and param_value =
+  | IntParamValue of int
+  | TypeParamValue of data_type
+
+(** Endpoint definition. A pair is
+created once a channel class
+is instantiated. *)
+type endpoint_def = {
+  name: identifier;
+  channel_class: identifier;
+  channel_params: param_value list;
+  dir: endpoint_direction; (** direction of the endpoint *)
+  (* used by this process? *)
+  foreign: bool; (** must this endpoint be passed to other processes rather than
+  used within this process? *)
+  opp: identifier option; (** if the endpoint is created locally, the other endpoint associated
+  with the same channel *)
+}
+
 
 type enum_def = {
   name: identifier;
@@ -109,18 +131,15 @@ type macro_def = {
   value : int;
 }
 
-(** A data type after resolution (no named type). *)
-type resolved_data_type = resolved_data_type data_type_generic_no_named
-
-(** A data type. *)
-type data_type = data_type data_type_generic
-
 (** A type definition ([type name = body])*)
 and type_def = {
   name: identifier;
   body: data_type;
+  params: param list; (** list of parameters *)
 }
 
+(** Unit type. Basically an empty tuple. *)
+let unit_dtype = `Tuple []
 
 (** Number of bits required to hold the tag for a variant type. *)
 let variant_tag_size (v: [< `Variant of (identifier * data_type option) list]) : int =
@@ -205,6 +224,7 @@ type message_def = {
 type channel_class_def = {
   name: identifier;
   messages: message_def list;
+  params: param list;  (** List of generic parameters *)
 }
 
 (** The visibility of a channel. *)
@@ -216,6 +236,7 @@ type channel_visibility =
 (** A channel (instantiation of a channel class) definition. *)
 type channel_def = {
   channel_class: identifier;
+  channel_params: param_value list;
   endpoint_left: identifier;
   endpoint_right: identifier;
   visibility: channel_visibility;
@@ -290,9 +311,9 @@ let literal_eval (lit : literal) : int =
   | WithLength (_, v) -> v
   | NoLength v -> v
 
-let dtype_of_literal (lit : literal) : resolved_data_type =
+let dtype_of_literal (lit : literal) =
   let n = literal_bit_len lit |> Option.get in
-  `Array (`Logic, Concrete n)
+  `Array (`Logic, ParamEnv.Concrete n)
 
 type binop = Add | Sub | Xor | And | Or | Lt | Gt | Lte | Gte |
              Shl | Shr | Eq | Neq | Mul
@@ -360,12 +381,14 @@ and expr =
   | EnumRef of identifier * identifier (** a reference to an enum variant *)
   | Concat of expr_node list
   | Ready of message_specifier (** [ready(a, b)] *)
-  (* | Match of expr_node * ((match_pattern * expr_node option) list) *)
+  | Match of expr_node * ((match_pattern * expr_node option) list) (** Currently unused. Match expressions are
+                                  converted into if expressions in the parser directly. *)
   | Read of identifier (** reading a value from a register (leading to a borrow) *)
   | Debug of debug_op
   | Send of send_pack
   | Recv of recv_pack
   | SharedAssign of identifier * expr_node (** make ready a shared value *)
+  | List of expr_node list (** array/list of expressions *)
 and expr_node = expr ast_node
 
 (** A "location" that can be assigned to. *)
@@ -400,27 +423,6 @@ type cycle_proc = {
   trans_func: expr_node;
   sigs: sig_def list;
 }
-
-(** Direction of an endpoint. *)
-type endpoint_direction = Left | Right
-
-(** Endpoint definition. A pair is
-created once a channel class
-is instantiated. *)
-type endpoint_def = {
-  name: identifier;
-  channel_class: identifier;
-  dir: endpoint_direction; (** direction of the endpoint *)
-  (* used by this process? *)
-  foreign: bool; (** must this endpoint be passed to other processes rather than
-  used within this process? *)
-  opp: identifier option; (** if the endpoint is created locally, the other endpoint associated
-  with the same channel *)
-}
-
-type param_value =
-  | IntParamValue of int
-  | TypeParamValue of data_type
 
 (** A spawn of a process. *)
 type spawn_def = {
@@ -506,7 +508,7 @@ let cunit_add_type_def (c : compilation_unit) (ty : type_def) : compilation_unit
 
 let cunit_add_func_def (c : compilation_unit) (f : func_def) : compilation_unit =
   {c with func_defs = f::c.func_defs}
-let cunit_add_enum_def (c : compilation_unit) (enum : enum_def) : 
+let cunit_add_enum_def (c : compilation_unit) (enum : enum_def) :
   compilation_unit = {c with enum_defs = enum::c.enum_defs}
 let cunit_add_macro_def (c : compilation_unit) (macro : macro_def) :
   compilation_unit = {c with macro_defs = macro::c.macro_defs}
@@ -559,24 +561,20 @@ and string_of_literal (lit : literal) : string =
   | NoLength v -> "NoLength " ^ string_of_int v
 
 let generate_match_expression (e, match_arms) =
-  
   let is_default_pattern = function
     | {d = Identifier "_"; _} -> true
     | _ -> false
   in
-  
   let match_arms_node = List.map (fun (pat, body_opt) ->
     let pat_node = ast_node_of_data Lexing.dummy_pos Lexing.dummy_pos pat in
-    let body_node_opt = Option.map (fun body -> 
+    let body_node_opt = Option.map (fun body ->
       ast_node_of_data Lexing.dummy_pos Lexing.dummy_pos body
     ) body_opt in
     (pat_node, body_node_opt)
   ) match_arms in
-  
-  let default_case, other_cases = 
+  let default_case, other_cases =
     List.partition (fun (pat, _) -> is_default_pattern pat) match_arms_node
   in
-  
   match default_case with
   | [] -> failwith "Match expression must have a default case (_)"
   | [(_, None)] -> failwith "Default case must have a body"
@@ -584,103 +582,103 @@ let generate_match_expression (e, match_arms) =
       List.fold_right (fun (pattern, body_opt) acc ->
         match body_opt with
         | None -> failwith "Match arm must have a body"
-        | Some body -> 
+        | Some body ->
             let condition = ast_node_of_data e.span.st e.span.ed (Binop (Eq, e, pattern)) in
             IfExpr (condition, body,  dummy_ast_node_of_data acc)
       ) other_cases default_body.d
   | _ -> failwith "Multiple default cases found in match expression"
-  
-  let rec substitute_expr_identifier (id: identifier) (value: expr_node) (expr: expr_node) : expr_node =
-    let new_expr = match expr.d with
-    | Identifier name when name = id ->
-        value.d
-    | LetIn (ids, e1, e2) ->
-        if List.mem id ids then expr.d
-        else LetIn (ids, substitute_expr_identifier id value e1, substitute_expr_identifier id value e2)
-    | Binop (op, e1, e2) ->
-        Binop (op, substitute_expr_identifier id value e1, substitute_expr_identifier id value e2)
-    | Unop (op, e) ->
-        Unop (op, substitute_expr_identifier id value e)
-    | Tuple exprs ->
-        Tuple (List.map (substitute_expr_identifier id value) exprs)
-    | Wait (e1, e2) ->
-        Wait (substitute_expr_identifier id value e1, substitute_expr_identifier id value e2)
-    | Index (arr, idx) ->
-        let new_arr = substitute_expr_identifier id value arr in
+
+let rec substitute_expr_identifier (id: identifier) (value: expr_node) (expr: expr_node) : expr_node =
+  let new_expr = match expr.d with
+  | Identifier name when name = id ->
+      value.d
+  | LetIn (ids, e1, e2) ->
+      if List.mem id ids then expr.d
+      else LetIn (ids, substitute_expr_identifier id value e1, substitute_expr_identifier id value e2)
+  | Binop (op, e1, e2) ->
+      Binop (op, substitute_expr_identifier id value e1, substitute_expr_identifier id value e2)
+  | Unop (op, e) ->
+      Unop (op, substitute_expr_identifier id value e)
+  | Tuple exprs ->
+      Tuple (List.map (substitute_expr_identifier id value) exprs)
+  | Wait (e1, e2) ->
+      Wait (substitute_expr_identifier id value e1, substitute_expr_identifier id value e2)
+  | Index (arr, idx) ->
+      let new_arr = substitute_expr_identifier id value arr in
+      let new_idx = match idx with
+        | Single e -> Single (substitute_expr_identifier id value e)
+        | Range (e1, e2) -> Range (substitute_expr_identifier id value e1, substitute_expr_identifier id value e2)
+      in
+      Index (new_arr, new_idx)
+  | Concat exprs ->
+      Concat (List.map (substitute_expr_identifier id value) exprs)
+  | Assign (lv, e) ->
+      let new_lv = substitute_lvalue id value lv in
+      Assign (new_lv, substitute_expr_identifier id value e)
+  | Send {send_msg_spec; send_data} ->
+      Send {
+        send_msg_spec;
+        send_data = substitute_expr_identifier id value send_data
+      }
+  | Debug (DebugPrint (msg, exprs)) ->
+      Debug (DebugPrint (msg, List.map (substitute_expr_identifier id value) exprs))
+  | Debug other_debug -> Debug other_debug
+  | IfExpr (cond, then_expr, else_expr) ->
+      IfExpr (
+        substitute_expr_identifier id value cond,
+        substitute_expr_identifier id value then_expr,
+        substitute_expr_identifier id value else_expr
+      )
+  | Indirect (e, field) ->
+      Indirect (substitute_expr_identifier id value e, field)
+  | Call (name, args) ->
+      Call (name, List.map (substitute_expr_identifier id value) args)
+  | _ -> expr.d
+  in
+  { expr with d = new_expr }
+
+and substitute_lvalue (id: identifier) (value: expr_node) (lv: lvalue) : lvalue =
+    match (lv:lvalue) with
+    | Reg name ->
+        if name = id then
+          match value.d with
+          | Identifier new_id -> Reg new_id
+          | _ -> failwith "Expected identifier"
+        else
+          lv
+    | Indexed (lv', idx) ->
+        let new_lv = substitute_lvalue id value lv' in
         let new_idx = match idx with
           | Single e -> Single (substitute_expr_identifier id value e)
           | Range (e1, e2) -> Range (substitute_expr_identifier id value e1, substitute_expr_identifier id value e2)
         in
-        Index (new_arr, new_idx)
-    | Concat exprs ->
-        Concat (List.map (substitute_expr_identifier id value) exprs)
-    | Assign (lv, e) ->
-        let new_lv = substitute_lvalue id value lv in
-        Assign (new_lv, substitute_expr_identifier id value e)
-    | Send {send_msg_spec; send_data} ->
-        Send {
-          send_msg_spec;
-          send_data = substitute_expr_identifier id value send_data
-        }
-    | Debug (DebugPrint (msg, exprs)) ->
-        Debug (DebugPrint (msg, List.map (substitute_expr_identifier id value) exprs))
-    | Debug other_debug -> Debug other_debug
-    | IfExpr (cond, then_expr, else_expr) ->
-        IfExpr (
-          substitute_expr_identifier id value cond,
-          substitute_expr_identifier id value then_expr,
-          substitute_expr_identifier id value else_expr
-        )
-    | Indirect (e, field) ->
-        Indirect (substitute_expr_identifier id value e, field)
-    | Call (name, args) ->
-        Call (name, List.map (substitute_expr_identifier id value) args)
-    | _ -> expr.d
-    in
-    { expr with d = new_expr }
-  
-  and substitute_lvalue (id: identifier) (value: expr_node) (lv: lvalue) : lvalue =
-      match (lv:lvalue) with
-      | Reg name -> 
-          if name = id then
-            match value.d with
-            | Identifier new_id -> Reg new_id
-            | _ -> failwith "Expected identifier"
-          else
-            lv
-      | Indexed (lv', idx) ->
-          let new_lv = substitute_lvalue id value lv' in
-          let new_idx = match idx with
-            | Single e -> Single (substitute_expr_identifier id value e)
-            | Range (e1, e2) -> Range (substitute_expr_identifier id value e1, substitute_expr_identifier id value e2)
-          in
-          Indexed (new_lv, new_idx)
-      | Indirected (lv', field) ->
-          let new_lv = substitute_lvalue id value lv' in
-          Indirected (new_lv, field)
+        Indexed (new_lv, new_idx)
+    | Indirected (lv', field) ->
+        let new_lv = substitute_lvalue id value lv' in
+        Indirected (new_lv, field)
 
-  let substitute_func_args (func: func_def) (passed_args: expr_node list) : expr_node =
-    if List.length func.args <> List.length passed_args then
-      failwith (Printf.sprintf "Number of arguments does not match function definition of %s" func.name);
-  
-    List.fold_left2 (fun acc_body arg_name arg_value ->
-      substitute_expr_identifier arg_name arg_value acc_body
-    ) func.body func.args passed_args
+let substitute_func_args (func: func_def) (passed_args: expr_node list) : expr_node =
+  if List.length func.args <> List.length passed_args then
+    failwith (Printf.sprintf "Number of arguments does not match function definition of %s" func.name);
 
-    let generate_expr (id, start, end_v, offset, body) =
-      let rec generate_exprs (curr:int) acc =
-        if curr > end_v then
-          match List.rev acc with
-          | [] -> Tuple [] 
-          | [single] -> single.d 
-          | hd::tl -> 
-              List.fold_left 
-                (fun acc expr -> LetIn ([], expr, dummy_ast_node_of_data acc)) 
-                hd.d 
-                tl
-        else
-          let substituted = substitute_expr_identifier id (dummy_ast_node_of_data(Literal(NoLength(curr)))) body in
-          generate_exprs (curr + offset) (substituted :: acc);
-          
-      in
-      generate_exprs start []
+  List.fold_left2 (fun acc_body arg_name arg_value ->
+    substitute_expr_identifier arg_name arg_value acc_body
+  ) func.body func.args passed_args
+
+let generate_expr (id, start, end_v, offset, body) =
+  let rec generate_exprs (curr:int) acc =
+    if curr > end_v then
+      match List.rev acc with
+      | [] -> Tuple []
+      | [single] -> single.d
+      | hd::tl ->
+          List.fold_left
+            (fun acc expr -> LetIn ([], expr, dummy_ast_node_of_data acc))
+            hd.d
+            tl
+    else
+      let substituted = substitute_expr_identifier id (dummy_ast_node_of_data(Literal(NoLength(curr)))) body in
+      generate_exprs (curr + offset) (substituted :: acc);
+
+  in
+  generate_exprs start []

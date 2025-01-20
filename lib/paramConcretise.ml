@@ -1,17 +1,57 @@
 open ParamEnv
 open Lang
 
-let rec concretise_dtype int_env type_env (dtype : data_type) : data_type =
+let rec concretise_params int_env type_env params =
+  List.map (fun p ->
+    match p with
+    | IntParamValue _ -> p
+    | TypeParamValue dtype ->
+      (
+        match dtype with
+        | `Named (ident, []) ->
+          (* this is just an identifier, might also be an int param *)
+          (
+            match concretise_and_get int_env (Param ident) with
+            | Some n -> IntParamValue n
+            | None -> TypeParamValue (concretise_dtype_params int_env type_env dtype)
+          )
+        | _ -> TypeParamValue (concretise_dtype_params int_env type_env dtype)
+      )
+  ) params
+and concretise_dtype_params int_env type_env (dtype : data_type) : data_type =
   match dtype with
   | `Array (v, n) ->
-    `Array (concretise_dtype int_env type_env v, concretise int_env n |> Option.get)
-  | `Named ident ->
-    let t = Param ident in
-    (
-      match concretise_and_get type_env t with
-      | Some v -> v
-      | None -> dtype
-    )
+    `Array (concretise_dtype_params int_env type_env v, concretise int_env n |> Option.get)
+  | `Named (ident, params) ->
+    if params = [] then
+      let t = Param ident in
+      (
+        match concretise_and_get type_env t with
+        | Some v -> v
+        | None -> dtype
+      )
+    else
+      let params' = concretise_params int_env type_env params in
+      `Named (ident, params')
+  | `Record fields ->
+    let fields' = List.map (fun (field_ident, field_dtype) ->
+                        (field_ident, concretise_dtype_params int_env type_env field_dtype))
+                        fields
+    in
+    `Record fields'
+  | `Variant variants ->
+    let variants' = List.map
+            (fun (var_ident, var_dtype_opt) ->
+              (
+                var_ident,
+                Option.map (concretise_dtype_params int_env type_env) var_dtype_opt
+              ))
+            variants
+            in
+    `Variant variants'
+  | `Tuple elems_dtypes ->
+    let elems_dtypes' = List.map (concretise_dtype_params int_env type_env) elems_dtypes in
+    `Tuple elems_dtypes'
   | _ -> dtype
 
 let build_param_envs param_values params =
@@ -36,35 +76,44 @@ let concretise_proc param_values proc =
     proc
   else (
     let (int_param_env, type_param_env) = build_param_envs param_values proc.params in
+    let args = List.map
+      (fun (a : Lang.endpoint_def) ->
+        let params = concretise_params int_param_env type_param_env a.channel_params in
+        {a with channel_params = params}
+      ) proc.args in
     (
       match proc.body with
       | Extern _ -> proc
       | Native body ->
         let regs = List.map
-          (fun r -> {r with dtype = concretise_dtype int_param_env type_param_env r.dtype})
+          (fun r -> {r with dtype = concretise_dtype_params int_param_env type_param_env r.dtype})
           body.regs in
         let spawns = List.map
           (fun sp ->
-            let compile_params = List.map
-              (fun pv ->
-                match pv with
-                | TypeParamValue (`Named ident) ->
-                  (
-                    (* TODO: hacky *)
-                    let int_v = concretise_and_get int_param_env (Param ident)
-                    and type_v = concretise_and_get type_param_env (Param ident) in
-                    match int_v, type_v with
-                    | Some n, None -> IntParamValue n
-                    | None, Some t -> TypeParamValue t
-                    | None, None -> pv
-                    | _ -> raise (Except.TypeError "Ambigous parameters!")
-                  )
-                | _ -> pv
-              ) sp.compile_params in
+            let compile_params = concretise_params int_param_env type_param_env sp.compile_params in
             {sp with compile_params}
           )
           body.spawns in
-        {proc with body = Native {body with regs; spawns}}
+        let channels = List.map
+          (fun ch ->
+            let params = concretise_params int_param_env type_param_env ch.channel_params in
+            {ch with channel_params = params}
+          )
+          body.channels in
+        {proc with args; body = Native {body with regs; spawns; channels}}
     )
   )
 
+let concretise_dtype params param_values =
+  let (int_param_env, type_param_env) = build_param_envs param_values params in
+  concretise_dtype_params int_param_env type_param_env
+
+let concretise_message params param_values (msg : Lang.message_def) =
+  let (int_param_env, type_param_env) = build_param_envs param_values params in
+  let sig_types = List.map
+    (fun (stype : Lang.sig_type_chan_local) ->
+      {stype with dtype = concretise_dtype_params int_param_env type_param_env stype.dtype}
+    )
+    msg.sig_types
+  in
+  {msg with sig_types}
