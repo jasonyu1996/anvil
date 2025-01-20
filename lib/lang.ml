@@ -657,14 +657,6 @@ and substitute_lvalue (id: identifier) (value: expr_node) (lv: lvalue) : lvalue 
         let new_lv = substitute_lvalue id value lv' in
         Indirected (new_lv, field)
 
-let substitute_func_args (func: func_def) (passed_args: expr_node list) : expr_node =
-  if List.length func.args <> List.length passed_args then
-    failwith (Printf.sprintf "Number of arguments does not match function definition of %s" func.name);
-
-  List.fold_left2 (fun acc_body arg_name arg_value ->
-    substitute_expr_identifier arg_name arg_value acc_body
-  ) func.body func.args passed_args
-
 let generate_expr (id, start, end_v, offset, body) =
   let rec generate_exprs (curr:int) acc =
     if curr > end_v then

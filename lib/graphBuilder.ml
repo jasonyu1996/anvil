@@ -109,6 +109,8 @@ module Typing = struct
       lt_check_phase;
     }
 
+    let clear_bindings (ctx : t) : t =
+      {ctx with typing_ctx = context_empty}
     let add_binding (ctx : t) (v : identifier) (d : timed_data) : t =
       {ctx with typing_ctx = context_add ctx.typing_ctx v d}
     let wait g (ctx : t) (other : event) : t =
@@ -240,9 +242,12 @@ and visit_expr (graph : event_graph) (ci : cunit_info)
   | Call (id, arg_list) ->
       let func = List.find_opt (fun (f: Lang.func_def) -> f.name = id) ci.func_defs
         |> unwrap_or_err ("Undefined function: " ^ id) e.span in
-      let args = List.map visit_expr
-      let substituted_body = Lang.substitute_func_args func arg_list in
-      visit_expr graph ci ctx substituted_body
+      let td_args = List.map (visit_expr graph ci ctx) arg_list in
+      let ctx' = BuildContext.clear_bindings ctx |> ref in
+      List.iter2 (fun td name ->
+        ctx' := BuildContext.add_binding !ctx' name td
+      ) td_args func.args;
+      visit_expr graph ci !ctx' func.body
   | Binop (binop, e1, e2) ->
     let td1 = visit_expr graph ci ctx e1
     and td2 = visit_expr graph ci ctx e2 in
