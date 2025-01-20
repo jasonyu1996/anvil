@@ -21,6 +21,8 @@ TESTS=(
     param_type
     param_int_typedef
     param_type_typedef
+    param_int_chan
+    param_type_chan
 )
 
 passed=0

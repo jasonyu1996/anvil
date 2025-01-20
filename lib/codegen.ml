@@ -19,6 +19,7 @@ module Port = struct
   let gather_ports_from_endpoint (channel_classes : channel_class_def list) (endpoint : endpoint_def) : t list =
     let cc = Option.get (MessageCollection.lookup_channel_class channel_classes endpoint.channel_class) in
     let gen_endpoint_ports = fun (msg : message_def) ->
+      let msg = ParamConcretise.concretise_message cc.params endpoint.channel_params msg in
       let folder_inner = fun fmt msg_dir (n, port_list) (stype : sig_type_chan_local) ->
         let new_port : t = {
           name = fmt endpoint.name msg.name n;
@@ -85,6 +86,7 @@ let codegen_spawns printer (graphs : event_graph_collection) (g : proc_graph) =
       let endpoint_name_local = CodegenFormat.canonicalize_endpoint_name param_ident (List.hd g.threads) in
       let cc = MessageCollection.lookup_channel_class graphs.channel_classes endpoint_local.channel_class |> Option.get in
       let print_msg_con = fun (msg : message_def) ->
+        let msg = ParamConcretise.concretise_message cc.params endpoint_local.channel_params msg in
         if Port.message_has_valid_port msg then
           gen_connect (Format.format_msg_valid_signal_name arg_endpoint.name msg.name)
             (Format.format_msg_valid_signal_name endpoint_name_local msg.name)
@@ -100,7 +102,8 @@ let codegen_spawns printer (graphs : event_graph_collection) (g : proc_graph) =
           List.iteri (print_data_con Format.format_msg_data_signal_name) msg.sig_types;
         end
       in List.iter print_msg_con cc.messages
-    in List.iter2 connect_endpoints proc_other.messages.args spawn.params;
+    in
+    List.iter2 connect_endpoints proc_other.messages.args spawn.params;
     CodegenPrinter.print_line printer ~lvl_delta_pre:(-1) ");"
   in List.iteri gen_spawn g.spawns
 

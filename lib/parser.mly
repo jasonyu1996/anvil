@@ -240,11 +240,21 @@ type_def:
 
 // For channel declaration for each pair of process
 channel_class_def:
-  KEYWORD_CHAN; ident = IDENT; EQUAL; LEFT_BRACE; messages = separated_list(COMMA, message_def); RIGHT_BRACE
+| KEYWORD_CHAN; ident = IDENT; EQUAL; LEFT_BRACE; messages = separated_list(COMMA, message_def); RIGHT_BRACE
   {
     {
       name = ident;
       messages = messages;
+      params = [];
+    } : Lang.channel_class_def
+  }
+| KEYWORD_CHAN; ident = IDENT; LEFT_ABRACK; params = separated_list(COMMA, param_def); RIGHT_ABRACK;
+  EQUAL; LEFT_BRACE; messages = separated_list(COMMA, message_def); RIGHT_BRACE
+  {
+    {
+      name = ident;
+      messages = messages;
+      params = params;
     } : Lang.channel_class_def
   }
 ;
@@ -255,11 +265,12 @@ proc_def_arg_list:
 ;
 // To Do: Can be renamed to inherited channel or something
 proc_def_arg:
-  foreign = foreign_tag; ident = IDENT; COLON; chan_dir = channel_direction; chan_class_ident = IDENT
+  foreign = foreign_tag; ident = IDENT; COLON; chan_dir = channel_direction; chan_class = channel_class_concrete
   {
     {
       name = ident;
-      channel_class = chan_class_ident;
+      channel_class = fst chan_class;
+      channel_params = snd chan_class;
       dir = chan_dir;
       foreign = foreign;
       opp = None;
@@ -281,9 +292,9 @@ channel_direction:
 ;
 // channels are instantantiated with endpoint aquisition by native channel inside the proc
 channel_def:
-  left_foreign = foreign_tag; left_endpoint = IDENT; DOUBLE_MINUS;
+| left_foreign = foreign_tag; left_endpoint = IDENT; DOUBLE_MINUS;
   right_foreign = foreign_tag; right_endpoint = IDENT; COLON;
-  chan_class = IDENT
+  chan_class = channel_class_concrete
   {
     let visibility = match left_foreign, right_foreign with
       | true, true -> Lang.BothForeign
@@ -291,13 +302,22 @@ channel_def:
       | _ -> Lang.LeftForeign
     in
     {
-      channel_class = chan_class;
+      channel_class = fst chan_class;
+      channel_params = snd chan_class;
       endpoint_left = left_endpoint;
       endpoint_right = right_endpoint;
       visibility = visibility;
     } : Lang.channel_def
   }
 ;
+
+channel_class_concrete:
+| chan_class_name = IDENT
+  { (chan_class_name, []) }
+| chan_class_name = IDENT; LEFT_ABRACK; params = separated_list(COMMA, param_value); RIGHT_ABRACK
+  { (chan_class_name, params) }
+;
+
 // Instantiating the proc for comm
 spawn:
 | proc = IDENT; LEFT_PAREN; params = separated_list(COMMA, IDENT); RIGHT_PAREN

@@ -3,7 +3,7 @@ type foo<t : type> = {
 }
 
 proc sub<n : int>() =
-    reg r : foo<logic[4]>
+    reg r : foo<logic[n]>
     loop {
         dprint "Value = %d" ((*r).v);
         set r.v := (*r).v + 1

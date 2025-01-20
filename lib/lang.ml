@@ -89,20 +89,6 @@ let sig_lifetime_const : sig_lifetime =
 (** Direction of an endpoint. *)
 type endpoint_direction = Left | Right
 
-(** Endpoint definition. A pair is
-created once a channel class
-is instantiated. *)
-type endpoint_def = {
-  name: identifier;
-  channel_class: identifier;
-  dir: endpoint_direction; (** direction of the endpoint *)
-  (* used by this process? *)
-  foreign: bool; (** must this endpoint be passed to other processes rather than
-  used within this process? *)
-  opp: identifier option; (** if the endpoint is created locally, the other endpoint associated
-  with the same channel *)
-}
-
 (** A data type. *)
 type data_type = [
   | `Logic
@@ -119,6 +105,21 @@ type data_type = [
 and param_value =
   | IntParamValue of int
   | TypeParamValue of data_type
+
+(** Endpoint definition. A pair is
+created once a channel class
+is instantiated. *)
+type endpoint_def = {
+  name: identifier;
+  channel_class: identifier;
+  channel_params: param_value list;
+  dir: endpoint_direction; (** direction of the endpoint *)
+  (* used by this process? *)
+  foreign: bool; (** must this endpoint be passed to other processes rather than
+  used within this process? *)
+  opp: identifier option; (** if the endpoint is created locally, the other endpoint associated
+  with the same channel *)
+}
 
 
 type enum_def = {
@@ -223,6 +224,7 @@ type message_def = {
 type channel_class_def = {
   name: identifier;
   messages: message_def list;
+  params: param list;  (** List of generic parameters *)
 }
 
 (** The visibility of a channel. *)
@@ -234,6 +236,7 @@ type channel_visibility =
 (** A channel (instantiation of a channel class) definition. *)
 type channel_def = {
   channel_class: identifier;
+  channel_params: param_value list;
   endpoint_left: identifier;
   endpoint_right: identifier;
   visibility: channel_visibility;

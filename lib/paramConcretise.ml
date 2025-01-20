@@ -76,6 +76,11 @@ let concretise_proc param_values proc =
     proc
   else (
     let (int_param_env, type_param_env) = build_param_envs param_values proc.params in
+    let args = List.map
+      (fun (a : Lang.endpoint_def) ->
+        let params = concretise_params int_param_env type_param_env a.channel_params in
+        {a with channel_params = params}
+      ) proc.args in
     (
       match proc.body with
       | Extern _ -> proc
@@ -89,10 +94,26 @@ let concretise_proc param_values proc =
             {sp with compile_params}
           )
           body.spawns in
-        {proc with body = Native {body with regs; spawns}}
+        let channels = List.map
+          (fun ch ->
+            let params = concretise_params int_param_env type_param_env ch.channel_params in
+            {ch with channel_params = params}
+          )
+          body.channels in
+        {proc with args; body = Native {body with regs; spawns; channels}}
     )
   )
 
 let concretise_dtype params param_values =
   let (int_param_env, type_param_env) = build_param_envs param_values params in
   concretise_dtype_params int_param_env type_param_env
+
+let concretise_message params param_values (msg : Lang.message_def) =
+  let (int_param_env, type_param_env) = build_param_envs param_values params in
+  let sig_types = List.map
+    (fun (stype : Lang.sig_type_chan_local) ->
+      {stype with dtype = concretise_dtype_params int_param_env type_param_env stype.dtype}
+    )
+    msg.sig_types
+  in
+  {msg with sig_types}
