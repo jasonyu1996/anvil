@@ -17,7 +17,7 @@ let format_wirename (thread_id : int) (id : int) : string = Printf.sprintf "thre
 
 let format_dtype (typedefs : TypedefMap.t) (macro_defs : Lang.macro_def list) (dtype : data_type) =
   match dtype with
-  | `Logic -> "logic"
+  | `Logic -> "logic[0:0]"
   | `Opaque typename -> typename
   | _ -> (TypedefMap.data_type_size typedefs macro_defs dtype) - 1 |> Printf.sprintf "logic[%d:0]"
 
