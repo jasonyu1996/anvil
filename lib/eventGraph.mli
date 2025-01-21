@@ -103,7 +103,7 @@ and event = {
   mutable actions: action Lang.ast_node list; (** instant actions that take place when this event is reached *)
   mutable sustained_actions : sustained_action Lang.ast_node list;
   (** actions that may take multiple cycles and start when this event is reached*)
-  source: event_source; (** under what circumstances is this event reached.
+  mutable source: event_source; (** under what circumstances is this event reached.
                       {i Those are effectively the edges in the event graph} *)
   (* for lifetime checking *)
   mutable control_regs: (int * int) Utils.string_map;

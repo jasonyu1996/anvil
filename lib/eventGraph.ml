@@ -67,7 +67,7 @@ and event = {
   graph: event_graph;
   mutable actions: action ast_node list;
   mutable sustained_actions : sustained_action ast_node list;
-  source: event_source;
+  mutable source: event_source;
   (* for lifetime checking *)
   mutable control_regs: (int * int) Utils.string_map;
   mutable control_endps: (int * int) Utils.string_map;
