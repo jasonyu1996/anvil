@@ -23,9 +23,12 @@ module CombSimplPass = struct
     let event_n = List.length graph.events in
     let event_ufs = create_ufs event_n in
     (* scan all events in reverse order to find simplifable patterns *)
+    let event_arr_old = List.rev graph.events |> Array.of_list in
     let check_pattern ev =
       match ev.source with
       | `Either (ev1, ev2) -> (
+        let ev1 = event_arr_old.(find_ufs event_ufs ev1.id) in
+        let ev2 = event_arr_old.(find_ufs event_ufs ev2.id) in
         match ev1.source, ev2.source with
         | `Branch (_cond1, ev1'), `Branch (_cond2, ev2') ->
           if ev1'.id = ev2'.id && ev1.actions = [] && ev2.actions = [] then (
@@ -38,7 +41,7 @@ module CombSimplPass = struct
       )
       | _ -> ()
     in
-    List.iter check_pattern graph.events;
+    List.rev graph.events |> List.iter check_pattern;
     let to_keep = Array.init event_n (fun i -> find_ufs event_ufs i = i) in
     (* replace events *)
     let event_list_new = ref [] in
