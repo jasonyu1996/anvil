@@ -1,0 +1,21 @@
+chan ch = {
+    left req: (logic[8]@#1) @#1-@#1
+}
+
+proc slave(ep : left ch) =
+    loop {
+        let r = recv ep.req in
+        r =>
+        dprint "Value = %d" (r);
+        cycle 1
+    }
+
+proc static_sync() =
+    chan le -- ri : ch
+    spawn slave(le)
+
+    loop {
+        send ri.req(8'd0);
+        cycle 1
+    }
+
