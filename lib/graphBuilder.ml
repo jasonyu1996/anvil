@@ -532,13 +532,15 @@ let build_proc (config : Config.compile_config) sched module_name param_values
           let _ = visit_expr tmp_graph ci
             (BuildContext.create_empty tmp_graph shared_vars_info true)
             (dummy_ast_node_of_data (Wait (e, e))) in
-          LifetimeCheck.lifetime_check config ci tmp_graph
+          (* Optimisation *)
+          GraphOpt.optimize config true ci tmp_graph |>
+            LifetimeCheck.lifetime_check config ci
         );
         (* discard after type checking *)
         let ctx = (BuildContext.create_empty graph shared_vars_info false) in
         let td = visit_expr graph ci ctx e in
           graph.last_event_id <- td.lt.live.id;
-          graph
+        GraphOpt.optimize config false ci graph
       ) body.loops in
       {name = module_name; extern_module = None;
         threads = proc_threads; shared_vars_info; messages = msg_collection;

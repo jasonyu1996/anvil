@@ -23,6 +23,7 @@ TESTS=(
     param_type_typedef
     param_int_chan
     param_type_chan
+    if_comb
 )
 
 passed=0
