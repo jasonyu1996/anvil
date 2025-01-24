@@ -13,9 +13,10 @@ proc slave(ep : left ch) =
 proc static_sync() =
     chan le -- ri : ch
     spawn slave(le)
+    reg r : logic[8]
 
     loop {
-        send ri.req(8'd0);
-        cycle 1
+        send ri.req(*r) =>
+        set r := *r + 8'd1
     }
 

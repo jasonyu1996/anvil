@@ -208,11 +208,11 @@ let codegen_sustained_actions printer (graphs : EventGraph.event_graph_collectio
   let print_line = CodegenPrinter.print_line printer in
   let send_or_assigns = Hashtbl.create 8 in
   let recv_or_assigns = Hashtbl.create 8 in
-  let insert_to tbl w_name cond =
+  let insert_to tbl w_name has_sync_port cond =
     (
       match Hashtbl.find_opt tbl w_name with
-      | None -> Hashtbl.add tbl w_name (ref [cond])
-      | Some li -> li := cond::!li
+      | None -> Hashtbl.add tbl w_name (has_sync_port, ref [cond])
+      | Some (_has_sync_port', li) -> li := cond::!li
     )
   in
   let lookup_msg_def msg = MessageCollection.lookup_message pg.messages msg graphs.channel_classes in
@@ -226,38 +226,42 @@ let codegen_sustained_actions printer (graphs : EventGraph.event_graph_collectio
       | Send (msg, td) ->
         let w = Option.get td.w in
         let msg_def = lookup_msg_def msg |> Option.get in
-        if CodegenPort.message_has_valid_port msg_def then (
-          insert_to send_or_assigns
-            (CodegenFormat.format_msg_valid_signal_name (CodegenFormat.canonicalize_endpoint_name msg.endpoint g) msg.msg)
-            (
-              activated,
-              CodegenFormat.format_msg_data_signal_name (CodegenFormat.canonicalize_endpoint_name msg.endpoint g) msg.msg 0,
-              CodegenFormat.format_wirename w.thread_id w.id
-            )
-        )
+        let has_valid_port = CodegenPort.message_has_valid_port msg_def in
+        insert_to send_or_assigns
+          (CodegenFormat.format_msg_valid_signal_name (CodegenFormat.canonicalize_endpoint_name msg.endpoint g) msg.msg)
+          has_valid_port
+          (
+            activated,
+            CodegenFormat.format_msg_data_signal_name (CodegenFormat.canonicalize_endpoint_name msg.endpoint g) msg.msg 0,
+            CodegenFormat.format_wirename w.thread_id w.id
+          )
       | Recv msg ->
         let msg_def = lookup_msg_def msg |> Option.get in
-        if CodegenPort.message_has_ack_port msg_def then (
-          insert_to recv_or_assigns
-            (CodegenFormat.format_msg_ack_signal_name (CodegenFormat.canonicalize_endpoint_name msg.endpoint g) msg.msg)
-            activated
-        )
+        let has_ack_port = CodegenPort.message_has_ack_port msg_def in
+        insert_to recv_or_assigns
+          (CodegenFormat.format_msg_ack_signal_name (CodegenFormat.canonicalize_endpoint_name msg.endpoint g) msg.msg)
+          has_ack_port
+          activated
     ) e.sustained_actions
   in
   (* assuming reverse topo order, the assign lists will be in topo order *)
   List.iter print_sa_event g.events;
-  Hashtbl.iter (fun w_name conds ->
-    String.concat " || " !conds
-    |> Printf.sprintf "assign %s = %s;" w_name
-    |> print_line
+  Hashtbl.iter (fun w_name (has_sync_port, conds) ->
+    if has_sync_port then (
+      String.concat " || " !conds
+      |> Printf.sprintf "assign %s = %s;" w_name
+      |> print_line
+    )
   ) recv_or_assigns;
 
   let send_data_selectors = ref [] in
-  Hashtbl.iter (fun w_name conds_dw ->
-    List.map (fun (c, _, _) -> c) !conds_dw
-    |> String.concat " || "
-    |> Printf.sprintf "assign %s = %s;" w_name
-    |> print_line;
+  Hashtbl.iter (fun w_name (has_sync_port, conds_dw) ->
+    if has_sync_port then (
+      List.map (fun (c, _, _) -> c) !conds_dw
+      |> String.concat " || "
+      |> Printf.sprintf "assign %s = %s;" w_name
+      |> print_line;
+    );
     let n = List.length !conds_dw in
     if n <= 1 then (
       assert (n = 1);

@@ -34,6 +34,7 @@ TESTS=(
     arbiter
     arbiter2
     generate_test
+    static_sync
 )
 
 passed=0
