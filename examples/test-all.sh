@@ -35,6 +35,7 @@ TESTS=(
     arbiter2
     generate_test
     static_sync
+    bug_stuck
 )
 
 passed=0
