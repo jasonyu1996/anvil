@@ -1,0 +1,23 @@
+chan ch = {
+    left req: (logic@#1)
+}
+proc comm (ch : left ch) =
+    reg cyc : logic[6]
+    loop {
+        set cyc := *cyc+ 6'd1;
+        cycle 1
+    }
+    loop {
+        let x = recv ch.req in
+        x=>
+        dprint "[Cycle %d] X value is %d " (*cyc,x);
+        cycle 1
+    }
+
+proc bug_stuck () =
+    chan ch_le -- ch_ri : ch
+    spawn comm(ch_le)
+    loop{
+        send ch_ri.req(1'd1);
+        cycle 2
+    }
