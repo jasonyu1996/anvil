@@ -36,6 +36,8 @@ TESTS=(
     generate_test
     static_sync
     bug_stuck
+    static_dyn_sync
+    static_sync
 )
 
 passed=0

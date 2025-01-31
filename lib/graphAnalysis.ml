@@ -1,6 +1,8 @@
 open Lang
 open EventGraph
 
+(* TODO: to use arrays instead of hash tables *)
+
 let event_traverse (ev : event) visitor : event list =
   let visited = Seq.return ev.id |> Utils.IntSet.of_seq |> ref in
   let q = Seq.return ev |> Queue.of_seq in
@@ -126,6 +128,99 @@ let event_succ_distance non_succ_dist msg_dist_f either_dist_f events (ev : even
     set_dist ev' (min d event_distance_max)
   );
   dist
+
+
+(* Compute the slack: the max distance achievable to every event while keeping
+  the distance to ev unchanged. FIXME: branching might be problematic *)
+let event_slack_graph events ev =
+  let n = List.length events in
+  let root = List.nth events (n - 1) in
+  let dist = event_succ_distance event_distance_max (fun d -> d) max events root root in
+  (* IntHashtbl.iter (fun ev_id d -> Printf.eprintf "Dist %d = %d\n" ev_id d) dist; *)
+  (* Now compute max dist allowed *)
+  let max_dists = Array.make n event_distance_max in
+  max_dists.(ev.id) <- IntHashtbl.find dist ev.id;
+  List.iter (fun ev' ->
+    let d = max_dists.(ev'.id) in
+    if d < event_distance_max then (
+      let update_dist ev_pred d =
+        let d' = max_dists.(ev_pred.id) in
+        if d' > d then
+          max_dists.(ev_pred.id) <- d
+      in
+      match ev'.source with
+      | `Root -> ()
+      | `Later (e1, e2)
+      | `Either (e1, e2) ->
+        update_dist e1 d;
+        update_dist e2 d
+      | `Seq (e', `Cycles cyc) ->
+        update_dist e' (d - cyc)
+      | `Branch (_, e')
+      | `Seq (e', _) ->
+        update_dist e' d
+    )
+  ) events;
+  (* let slacks = Array.mapi (fun idx md -> md - (IntHashtbl.find dist idx)) max_dists in *)
+  (* Array.iteri (fun ev_id sl -> Printf.eprintf "Slack %d = %d\n" ev_id sl) slacks; *)
+  (* Get the slack graph. This slack is the max distance achievable through adjusting
+  message delays without affecting the distance to ev. *)
+  let slacks = Array.make n 0 in
+  List.rev events |> List.iter (fun ev' ->
+    let d = match ev'.source with
+    | `Root -> 0
+    | `Later (e1, e2)
+    | `Either (e1, e2) ->
+      Int.max slacks.(e1.id) slacks.(e2.id)
+    | `Seq (e', `Cycles cyc) ->
+      slacks.(e'.id) + cyc
+    | `Branch (_, e') ->
+      slacks.(e'.id)
+    | `Seq (_e', _) ->
+      max_dists.(ev'.id)
+    in
+    slacks.(ev'.id) <- d
+  );
+  (* Array.iteri (fun ev_id sl -> Printf.eprintf "Slack %d = %d\n" ev_id sl) slacks; *)
+  let d = IntHashtbl.find dist ev.id in
+  Array.map_inplace (fun sl -> sl - d) slacks;
+  slacks
+
+let event_min_among_succ events weights =
+  let n = List.length events in
+  assert (n = (Array.length weights));
+  let res = Array.copy weights in
+  List.iter (fun ev' ->
+    let update_res e' v =
+      let v' = res.(e'.id) in
+      if v < v' then
+        res.(e'.id) <- v
+    in
+    (* handle forward branches *)
+    let (branch_v, has_branch) = List.fold_left (fun (mx, has) ev_succ ->
+      match ev_succ.source with
+      | `Branch _ ->
+        (Int.max mx res.(ev_succ.id), true)
+      | _ ->
+        (mx, has)
+    ) (0, false) ev'.outs in
+    if has_branch then (
+      update_res ev' branch_v
+    );
+    let v = res.(ev'.id) in
+    match ev'.source with
+    | `Root -> ()
+    | `Later (e1, e2)
+    | `Either (e1, e2) ->
+      update_res e1 v;
+      update_res e2 v
+    | `Seq (e, _) ->
+      update_res e v
+    | `Branch (_, _e) -> ()
+      (* FIXME: this handling is rough; we handle this at
+      forward edges instead *)
+  ) events;
+  res
 
 let event_min_distance =
   event_succ_distance event_distance_max (fun d -> d) min

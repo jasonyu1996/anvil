@@ -28,6 +28,11 @@ let lookup_message (mc : t) (msg_spec : message_specifier) (channel_classes : ch
   let* msg = List.find_opt (fun (m : message_def) -> m.name = msg_spec.msg) cc.messages in
   Some (ParamConcretise.concretise_message cc.params endpoint.channel_params msg)
 
+let message_sync_mode_allowed = function
+  | Dynamic
+  | Dependent (`Cycles _) -> true
+  | _ -> false
+
 let create (channels : channel_def list)
            (args : endpoint_def list)
            (channel_classes : channel_class_def list) =
@@ -51,11 +56,16 @@ let create (channels : channel_def list)
     match lookup_channel_class channel_classes endpoint.channel_class with
     | Some cc ->
         let msg_map = fun (msg: message_def) ->
-          let msg_dir = get_message_direction msg.dir endpoint.dir in
-          (endpoint, ParamConcretise.concretise_message cc.params endpoint.channel_params msg, msg_dir)
+          if (message_sync_mode_allowed msg.send_sync) &&
+             (message_sync_mode_allowed msg.recv_sync) then (
+                let msg_dir = get_message_direction msg.dir endpoint.dir in
+                (endpoint, ParamConcretise.concretise_message cc.params endpoint.channel_params msg, msg_dir)
+          ) else (
+            raise (Except.UnimplementedError "Synchronization mode unimplemented!")
+          )
         in List.map msg_map cc.messages
     | None ->
-        failwith (Printf.sprintf "Channel class %s not found" endpoint.channel_class)
+        raise (Except.UnknownError (Printf.sprintf "Channel class %s not found" endpoint.channel_class))
   in
   let local_messages = List.filter (fun p -> not p.foreign) (args @ endpoints) |>
   List.concat_map gather_from_endpoint in
