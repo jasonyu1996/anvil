@@ -1,0 +1,17 @@
+chan ch = {
+    left req: (logic[8]@#1)
+}
+
+proc top(e : left ch) =
+    loop {
+        let res = (cycle 2 => recv e.req) in
+        cycle 2 => res => dprint "Value = %d" (res)
+    }
+
+    // the above should be the same as the one below
+    /* loop {
+        cycle 2 =>
+        let res = recv e.req in
+        res =>
+        dprint "Value = %d" (res)
+    } */

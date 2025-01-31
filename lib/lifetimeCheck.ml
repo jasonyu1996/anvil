@@ -182,8 +182,8 @@ let event_pat_rel events (ev_pat1 : event_pat) (ev_pat2 : event_pat) =
                 let d = get_dist ev2 in
                 n1 <= d + n2
               else (
-                let dist2 = event_max_distance events ev2 ev1 in
-                let d = IntHashtbl.find_opt dist2 ev1.id |> Option.value ~default:event_distance_max in
+                let slacks = event_slack_graph events ev2 in
+                let d = slacks.(ev1.id) in
                 n1 + d <= n2
               )
             | `Message msg ->
@@ -209,8 +209,8 @@ let event_pat_rel events (ev_pat1 : event_pat) (ev_pat2 : event_pat) =
               | `Cycles n2 -> (* earliest estimate *)
                 if event_is_predecessor ev2 ri1 then true
                 else (
-                  let dist = event_max_distance events ev2 ev1 in
-                  let d = IntHashtbl.find_opt dist ri1.id |> Option.value ~default:event_distance_max in
+                  let slacks = event_slack_graph events ev2 in
+                  let d = slacks.(ri1.id) in
                   d <= n2
                 )
               | `Message msg2 ->
