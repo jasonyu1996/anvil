@@ -59,10 +59,10 @@ let gen_control_set (g : event_graph) =
           (* TODO: linearity checks on sub-register granularity *)
           match a.d with
           | RegAssign (lval_info, _) -> (
-            reg_assign_cnt := Utils.StringMap.update lval_info.reg_name opt_incr !reg_assign_cnt;
-            let v = Utils.StringMap.find lval_info.reg_name !reg_assign_cnt in
-            ev.current_regs <- Utils.StringMap.update lval_info.reg_name (opt_update_forward v) ev.current_regs;
-            ev.current_regs <- Utils.StringMap.update lval_info.reg_name (opt_update_backward v) ev.current_regs
+            reg_assign_cnt := Utils.StringMap.update lval_info.lval_range.subreg_name opt_incr !reg_assign_cnt;
+            let v = Utils.StringMap.find lval_info.lval_range.subreg_name !reg_assign_cnt in
+            ev.current_regs <- Utils.StringMap.update lval_info.lval_range.subreg_name (opt_update_forward v) ev.current_regs;
+            ev.current_regs <- Utils.StringMap.update lval_info.lval_range.subreg_name (opt_update_backward v) ev.current_regs
           )
           | _ -> ()
         )
@@ -140,7 +140,7 @@ let gen_control_set (g : event_graph) =
       List.iter (fun (a : action ast_node) ->
         match a.d with
         | RegAssign (lval_info, _) -> (
-          if in_control_set_reg ev lval_info.reg_name |> not then
+          if in_control_set_reg ev lval_info.lval_range.subreg_name |> not then
             raise (EventGraphError ("Non-linearizable register assignment!", a.span))
           else ()
         )
@@ -308,7 +308,7 @@ let lifetime_check (config : Config.compile_config) (ci : cunit_info) (g : event
       | RegAssign (lval_info, td) ->
         (* `Cycles 0 rather than 1 because in the last cycle it is okay to update the register *)
         td_to_live_until := (td, (ev, `Cycles 0))::!td_to_live_until;
-        let (range_st, _) = lval_info.range in
+        let (range_st, _) = lval_info.lval_range.subreg_range_interval in
         (
           match range_st with
           | Const _ -> ()
@@ -333,8 +333,9 @@ let lifetime_check (config : Config.compile_config) (ci : cunit_info) (g : event
     )
     g.events;
   List.iter (fun (td, dead) ->
-    List.iter (fun (reg_ident, live) ->
-      borrow_add reg_borrows reg_ident {live; dead = [dead]}
+    List.iter (fun borrow ->
+      (* TODO: add subreg support *)
+      borrow_add reg_borrows borrow.borrow_range.subreg_name {live = borrow.borrow_start; dead = [dead]}
     ) td.reg_borrows
   ) !td_to_live_until;
   (* check register and message borrows *)
@@ -343,14 +344,14 @@ let lifetime_check (config : Config.compile_config) (ci : cunit_info) (g : event
       match a.d with
       | RegAssign (lval_info, td) ->
         let lt = EventGraph.lifetime_immediate ev in
-        if not_borrowed reg_borrows lval_info.reg_name lt |> not then
+        if not_borrowed reg_borrows lval_info.lval_range.subreg_name lt |> not then
           raise (EventGraphError ("Attempted assignment to a borrowed register!", a.span))
         else ();
         if lifetime_in_range g.events lt td.lt |> not then
           raise (EventGraphError ("Value does not live long enough in reg assignment!", a.span))
         else ();
         (
-          match fst lval_info.range with
+          match fst lval_info.lval_range.subreg_range_interval with
           | Const _ -> ()
           | NonConst range_st_td ->
             if lifetime_in_range g.events lt range_st_td.lt |> not then

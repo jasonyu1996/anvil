@@ -161,10 +161,10 @@ let codegen_actions printer (g : EventGraph.event_graph) =
         | DebugFinish ->
           print_line "$finish;"
         | RegAssign (lval_info, td) ->
-          let (le, len) = lval_info.range in
+          let (le, len) = lval_info.lval_range.subreg_range_interval in
           let w = Option.get td.w in
           Printf.sprintf "%s[%s +: %d] <= %s;"
-            (CodegenFormat.format_regname_current lval_info.reg_name)
+            (CodegenFormat.format_regname_current lval_info.lval_range.subreg_name)
             (MaybeConst.map (fun td -> Option.get td.w) le |> CodegenFormat.format_wire_maybe_const)
             len
             (CodegenFormat.format_wirename w.thread_id w.id)

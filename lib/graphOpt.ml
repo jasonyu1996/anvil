@@ -67,18 +67,20 @@ module CombSimplPass = struct
       and replace_timed_data td =
         {td with
           lt = replace_lifetime td.lt;
-          reg_borrows = List.map (fun (ident, ev') -> (ident, replace_event ev')) td.reg_borrows;
+          reg_borrows = List.map (fun borrow ->
+            {borrow with borrow_start = replace_event borrow.borrow_start}
+          ) td.reg_borrows;
         }
       and replace_event ev =
         let f = find_ufs event_ufs ev.id in
         event_arr_old.(f)
       in
       let replace_lvalue_info lval_info =
-        let range_fst = match fst lval_info.range with
+        let range_fst = match fst lval_info.lval_range.subreg_range_interval with
         | MaybeConst.NonConst td -> MaybeConst.NonConst (replace_timed_data td)
-        | _ -> fst lval_info.range in
-        let range = (range_fst, snd lval_info.range) in
-        {lval_info with range}
+        | _ -> fst lval_info.lval_range.subreg_range_interval in
+        let range = (range_fst, snd lval_info.lval_range.subreg_range_interval) in
+        {lval_info with lval_range = {lval_info.lval_range with subreg_range_interval = range}}
       in
       let replace_sa_type = function
         | Send (msg, td) -> Send (msg, replace_timed_data td)

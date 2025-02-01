@@ -32,10 +32,18 @@ type lifetime = {
   live : event;
   dead : event_pat;
 }
+and subreg_range = {
+  subreg_name : identifier;
+  subreg_range_interval : timed_data MaybeConst.maybe_int_const * int;
+}
+and reg_borrow = {
+  borrow_range : subreg_range;
+  borrow_start : event;
+}
 and timed_data = {
   w : wire option;
   lt : lifetime;
-  reg_borrows : (identifier * event) list;
+  reg_borrows : reg_borrow list;
   dtype: Lang.data_type;
 }
 and shared_var_info = {
@@ -44,9 +52,7 @@ and shared_var_info = {
   mutable assigned_at : event option;
 }
 and lvalue_info = {
-  reg_name : string;
-  range : timed_data MaybeConst.maybe_int_const * int;
-  (* left closed right open *)
+  lval_range : subreg_range;
   lval_dtype : data_type;
 }
 and action =
@@ -103,6 +109,12 @@ and event_graph = {
 }
 let lifetime_const current = {live = current; dead = [(current, `Eternal)]}
 let lifetime_immediate current = {live = current; dead = [(current, `Cycles 1)]}
+
+let full_reg_range regname size =
+  {
+    subreg_name = regname;
+    subreg_range_interval = (Const 0, size)
+  }
 
 let print_graph (g: event_graph) =
   List.iter (fun ev ->

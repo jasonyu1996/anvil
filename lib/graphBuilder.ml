@@ -178,10 +178,14 @@ let rec lvalue_info_of graph (ci:cunit_info) ctx span lval =
     let r = List.find_opt (fun (r : reg_def) -> r.name = ident) graph.regs
       |> unwrap_or_err ("Undefined register " ^ ident) span in
     let sz = TypedefMap.data_type_size ci.typedefs ci.macro_defs r.dtype in
-    {reg_name = ident; range = (Const 0, sz); lval_dtype = r.dtype}
+    {
+      lval_range = full_reg_range ident sz;
+      lval_dtype = r.dtype
+    }
   | Indexed (lval', idx) ->
+    (* TODO: better code reuse *)
     let lval_info' = lvalue_info_of graph ci ctx span lval' in
-    let (le', _len') = lval_info'.range in
+    let (le', _len') = lval_info'.lval_range.subreg_range_interval in
     let (le, len, dtype) =
       TypedefMap.data_type_index ci.typedefs ci.macro_defs
         (visit_expr graph ci ctx)
@@ -190,15 +194,21 @@ let rec lvalue_info_of graph (ci:cunit_info) ctx span lval =
       |> unwrap_or_err "Invalid lvalue indexing" span in
     let le_n = MaybeConst.add (binop_td_const Add) (binop_td_td Add) le' le
     in
-    {lval_info' with range = (le_n, len); lval_dtype = dtype}
+    {
+      lval_range = {lval_info'.lval_range with subreg_range_interval = (le_n, len)};
+      lval_dtype = dtype
+    }
   | Indirected (lval', fieldname) ->
     let lval_info' = lvalue_info_of graph ci ctx span lval' in
-    let (le', _len') = lval_info'.range in
+    let (le', _len') = lval_info'.lval_range.subreg_range_interval in
     let (le, len, dtype) = TypedefMap.data_type_indirect ci.typedefs ci.macro_defs lval_info'.lval_dtype fieldname
       |> unwrap_or_err ("Invalid lvalue indirection through field " ^ fieldname) span in
     let le_n = MaybeConst.add_const le (binop_td_const Add) le'
     in
-    {lval_info' with range = (le_n, len); lval_dtype = dtype}
+    {
+      lval_range = {lval_info'.lval_range with subreg_range_interval = (le_n, len)};
+      lval_dtype = dtype
+    }
 and visit_expr (graph : event_graph) (ci : cunit_info)
                     (ctx : build_context) (e : expr_node) : timed_data =
   let binop_td_const = binop_td_const graph ci ctx
@@ -320,7 +330,9 @@ and visit_expr (graph : event_graph) (ci : cunit_info)
       |> unwrap_or_err ("Undefined register " ^ reg_ident) e.span in
     let (wires', w) = WireCollection.add_reg_read graph.thread_id ci.typedefs ci.macro_defs r graph.wires in
     graph.wires <- wires';
-    {w = Some w; lt = EventGraph.lifetime_const ctx.current; reg_borrows = [(reg_ident, ctx.current)]; dtype = r.dtype}
+    let sz = TypedefMap.data_type_size ci.typedefs ci.macro_defs r.dtype in
+    let borrow = {borrow_range = full_reg_range reg_ident sz; borrow_start = ctx.current} in
+    {w = Some w; lt = EventGraph.lifetime_const ctx.current; reg_borrows = [borrow]; dtype = r.dtype}
   | Debug op ->
     (
       match op with
