@@ -1,0 +1,11 @@
+proc test_index()=
+    reg cyc : logic[2][3]
+    loop {
+        set cyc[0]:=*cyc[0] + 2'd1;
+        set cyc[0]:=*cyc[1] + 2'd2;
+        cycle 1
+    }
+    loop {
+        dprint "cycle value %d" (*cyc[0]);
+        cycle 1
+    }

@@ -59,7 +59,6 @@ let in_control_set (cur : (int * int) Utils.string_map) (cnt : (int * int) Utils
   else
     pre + 2 = post
 
-let in_control_set_reg (ev : event) = in_control_set ev.current_regs ev.control_regs
 let in_control_set_endps (ev : event) = in_control_set ev.current_endps ev.control_endps
 
 (** evs must be in topological order*)
@@ -227,3 +226,31 @@ let event_min_distance =
 
 let event_max_distance =
   event_succ_distance event_distance_max (fun _ -> event_distance_max) max
+
+let events_are_ordered events e1 e2 =
+  if e1.id = e2.id then
+    false
+  else (
+    let preds1 = event_predecessors e1 in
+    let preds2 = event_predecessors e2 in
+    let n = List.length events in
+    let is_e2_preds = Array.make n false in
+    List.iter (fun e -> is_e2_preds.(e.id) <- true) preds2;
+    let common_pred = List.rev preds1 |> List.find (fun e -> is_e2_preds.(e.id)) in
+    if common_pred.id = e1.id || common_pred.id = e2.id then
+      true
+    else (
+      let find_cond =
+        List.find_opt (fun e ->
+              match e.source with
+              | `Branch (_, pred) -> pred.id = common_pred.id
+              | _ -> false
+        )
+      in
+      let e1_cond_pred = find_cond preds1 in
+      let e2_cond_pred = find_cond preds2 in
+      match e1_cond_pred, e2_cond_pred with
+      | Some _, Some _ -> true
+      | _ -> false
+    )
+  )

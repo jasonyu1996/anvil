@@ -20,8 +20,8 @@ module Typing = struct
   let event_create g source =
     let event_create_inner () =
       let n = {actions = []; sustained_actions = []; source; id = List.length g.events;
-        control_regs = Utils.StringMap.empty; control_endps = Utils.StringMap.empty;
-        current_regs = Utils.StringMap.empty; current_endps = Utils.StringMap.empty;
+        control_endps = Utils.StringMap.empty;
+        current_endps = Utils.StringMap.empty;
         outs = []; graph = g} in
       g.events <- n::g.events;
       (

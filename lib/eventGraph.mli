@@ -118,9 +118,7 @@ and event = {
   mutable source: event_source; (** under what circumstances is this event reached.
                       {i Those are effectively the edges in the event graph} *)
   (* for lifetime checking *)
-  mutable control_regs: (int * int) Utils.string_map;
   mutable control_endps: (int * int) Utils.string_map;
-  mutable current_regs : (int * int) Utils.string_map;
   mutable current_endps : (int * int) Utils.string_map;
   (** used for lifetime checking *)
   mutable outs : event list; (** the outbound edges, i.e., the events that directly depend on this event *)
@@ -188,6 +186,9 @@ val lifetime_immediate : event -> lifetime
 
 (** A {!subreg_range} that covers a full register. *)
 val full_reg_range : Lang.identifier -> int -> subreg_range
+
+(** Return [true] if we don't know for sure that two subreg ranges don't intersect. *)
+val subreg_ranges_possibly_intersect : subreg_range -> subreg_range -> bool
 
 (** Exception that can be throw during event graph generation *)
 exception EventGraphError of string * Lang.code_span
