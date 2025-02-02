@@ -46,11 +46,24 @@ type lifetime = {
   dead : event_pat;
 }
 
+(** Describe a sub-register range. *)
+and subreg_range = {
+  subreg_name : Lang.identifier; (** name of the register *)
+  subreg_range_interval : timed_data MaybeConst.maybe_int_const * int;
+    (** interval of the range (start, size) *)
+}
+
+(** Describe a borrow from a (sub-)register. *)
+and reg_borrow = {
+  borrow_range : subreg_range; (** the sub-register borrowed *)
+  borrow_start : event; (** the event when the borrow starts *)
+}
+
 (** Data with a lifetime and potentially borrowing from a set of registers. *)
 and timed_data = {
   w : wire option; (** the {!type:wire} carrying the underlying raw data *)
   lt : lifetime; (** lifetime of the data *)
-  reg_borrows : (Lang.identifier * event) list; (** each is tuple of (name of register, starting event of the borrow) *)
+  reg_borrows : reg_borrow list; (** list of register borrows *)
   dtype : Lang.data_type;
 }
 and shared_var_info = {
@@ -61,8 +74,7 @@ and shared_var_info = {
 
 (** Lvalue information after resolving indirection and indexing. *)
 and lvalue_info = {
-  reg_name : string;
-  range : timed_data MaybeConst.maybe_int_const * int; (** range in the register, second component is size *)
+  lval_range : subreg_range; (** sub-register range of the lvalue *)
   lval_dtype : Lang.data_type;
 }
 
@@ -106,9 +118,7 @@ and event = {
   mutable source: event_source; (** under what circumstances is this event reached.
                       {i Those are effectively the edges in the event graph} *)
   (* for lifetime checking *)
-  mutable control_regs: (int * int) Utils.string_map;
   mutable control_endps: (int * int) Utils.string_map;
-  mutable current_regs : (int * int) Utils.string_map;
   mutable current_endps : (int * int) Utils.string_map;
   (** used for lifetime checking *)
   mutable outs : event list; (** the outbound edges, i.e., the events that directly depend on this event *)
@@ -173,6 +183,12 @@ val print_graph : event_graph -> unit
 
 val lifetime_const : event -> lifetime
 val lifetime_immediate : event -> lifetime
+
+(** A {!subreg_range} that covers a full register. *)
+val full_reg_range : Lang.identifier -> int -> subreg_range
+
+(** Return [true] if we don't know for sure that two subreg ranges don't intersect. *)
+val subreg_ranges_possibly_intersect : subreg_range -> subreg_range -> bool
 
 (** Exception that can be throw during event graph generation *)
 exception EventGraphError of string * Lang.code_span

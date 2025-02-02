@@ -6,69 +6,21 @@ type event_graph_collection = EventGraph.event_graph_collection
 
 module Format = CodegenFormat
 
-module Port = struct
-  type t = {
-    dir: message_direction;
-    dtype: data_type;
-    name: identifier;
-  }
-
-  let message_has_valid_port (msg : message_def) : bool = msg.send_sync = Dynamic
-  let message_has_ack_port (msg : message_def) : bool = msg.recv_sync = Dynamic
-
-  let gather_ports_from_endpoint (channel_classes : channel_class_def list) (endpoint : endpoint_def) : t list =
-    let cc = Option.get (MessageCollection.lookup_channel_class channel_classes endpoint.channel_class) in
-    let gen_endpoint_ports = fun (msg : message_def) ->
-      let msg = ParamConcretise.concretise_message cc.params endpoint.channel_params msg in
-      let folder_inner = fun fmt msg_dir (n, port_list) (stype : sig_type_chan_local) ->
-        let new_port : t = {
-          name = fmt endpoint.name msg.name n;
-          dir = msg_dir;
-          dtype = stype.dtype;
-        } in (n + 1, new_port::port_list)
-      in
-      let msg_data_dir = get_message_direction msg.dir endpoint.dir in
-      let (_, res) = List.fold_left (folder_inner Format.format_msg_data_signal_name msg_data_dir) (0, []) msg.sig_types in
-      let res =
-        if message_has_valid_port msg then
-          let valid_port = { name = Format.format_msg_valid_signal_name endpoint.name msg.name; dir = msg_data_dir; dtype = `Logic} in
-          valid_port::res
-        else res
-      in
-      if message_has_ack_port msg then
-        let ack_port = {name = Format.format_msg_ack_signal_name endpoint.name msg.name; dir = reverse msg_data_dir; dtype = `Logic} in
-        ack_port::res
-      else res
-    in List.concat_map gen_endpoint_ports cc.messages
-
-  let gather_ports (channel_classes : channel_class_def list) (endpoints : endpoint_def list) : t list =
-    List.concat_map (gather_ports_from_endpoint channel_classes) endpoints
-
-  let clk = {dir = In; dtype = `Logic; name = "clk_i"}
-  let rst = {dir = In; dtype = `Logic; name = "rst_ni"}
-
-  let format (typedefs : TypedefMap.t) (macro_defs: macro_def list) port =
-    let inout = match port.dir with
-      | In -> "input"
-      | Out -> "output"
-    in Printf.sprintf "%s %s %s" inout (Format.format_dtype typedefs macro_defs port.dtype) port.name
-end
-
-type port_def = Port.t
+type port_def = CodegenPort.t
 
 let codegen_ports printer (graphs : event_graph_collection)
                       (endpoints : endpoint_def list) =
-  let port_list = Port.gather_ports graphs.channel_classes endpoints in
+  let port_list = CodegenPort.gather_ports graphs.channel_classes endpoints in
   let rec print_port_list port_list =
   match port_list with
   | [] -> ()
   | port :: [] ->
-      Port.format graphs.typedefs graphs.macro_defs port |> CodegenPrinter.print_line printer
+      CodegenPort.format graphs.typedefs graphs.macro_defs port |> CodegenPrinter.print_line printer
   | port :: port_list' ->
-      Port.format graphs.typedefs graphs.macro_defs port |> Printf.sprintf "%s," |> CodegenPrinter.print_line printer;
+      CodegenPort.format graphs.typedefs graphs.macro_defs port |> Printf.sprintf "%s," |> CodegenPrinter.print_line printer;
       print_port_list port_list'
   in
-  print_port_list ([Port.clk; Port.rst] @ port_list);
+  print_port_list ([CodegenPort.clk; CodegenPort.rst] @ port_list);
   port_list
 
 let codegen_spawns printer (graphs : event_graph_collection) (g : proc_graph) =
@@ -87,11 +39,11 @@ let codegen_spawns printer (graphs : event_graph_collection) (g : proc_graph) =
       let cc = MessageCollection.lookup_channel_class graphs.channel_classes endpoint_local.channel_class |> Option.get in
       let print_msg_con = fun (msg : message_def) ->
         let msg = ParamConcretise.concretise_message cc.params endpoint_local.channel_params msg in
-        if Port.message_has_valid_port msg then
+        if CodegenPort.message_has_valid_port msg then
           gen_connect (Format.format_msg_valid_signal_name arg_endpoint.name msg.name)
             (Format.format_msg_valid_signal_name endpoint_name_local msg.name)
         else ();
-        if Port.message_has_ack_port msg then
+        if CodegenPort.message_has_ack_port msg then
           gen_connect (Format.format_msg_ack_signal_name arg_endpoint.name msg.name)
             (Format.format_msg_ack_signal_name endpoint_name_local msg.name)
         else ();
@@ -113,7 +65,7 @@ let codegen_endpoints printer (graphs : event_graph_collection) (g : event_graph
       CodegenPrinter.print_line printer
   in
   List.filter (fun (p : endpoint_def) -> p.dir = Left) g.messages.endpoints |>
-  Port.gather_ports graphs.channel_classes |>
+  CodegenPort.gather_ports graphs.channel_classes |>
   List.iter print_port_signal_decl
 
 let codegen_wire_assignment printer (g : event_graph) (w : WireCollection.wire) =
@@ -152,6 +104,7 @@ let codegen_wire_assignment printer (g : event_graph) (w : WireCollection.wire) 
         (Format.format_wire_maybe_const base_i)
         len
     | MessageValidPort msg ->
+      (* FIXME: sync pat *)
       CodegenFormat.format_msg_valid_signal_name (CodegenFormat.canonicalize_endpoint_name msg.endpoint g) msg.msg
   in
   Printf.sprintf "assign %s = %s;" (Format.format_wirename w.thread_id w.id) expr |>
@@ -242,9 +195,9 @@ let codegen_proc printer (graphs : EventGraph.event_graph_collection) (g : proc_
         print_msg_port_opt format_msg_ack_signal_name extern_ack_opt
       ) body.msg_ports;
       CodegenPrinter.print_line printer  ~lvl_delta_pre:(-1) ");";
-      let ports = Port.gather_ports graphs.channel_classes g.messages.args in
+      let ports = CodegenPort.gather_ports graphs.channel_classes g.messages.args in
       List.iter (fun p ->
-        let open Port in
+        let open CodegenPort in
         match p.dir with
         | In -> ()
         | Out -> (

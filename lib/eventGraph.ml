@@ -32,10 +32,18 @@ type lifetime = {
   live : event;
   dead : event_pat;
 }
+and subreg_range = {
+  subreg_name : identifier;
+  subreg_range_interval : timed_data MaybeConst.maybe_int_const * int;
+}
+and reg_borrow = {
+  borrow_range : subreg_range;
+  borrow_start : event;
+}
 and timed_data = {
   w : wire option;
   lt : lifetime;
-  reg_borrows : (identifier * event) list;
+  reg_borrows : reg_borrow list;
   dtype: Lang.data_type;
 }
 and shared_var_info = {
@@ -44,9 +52,7 @@ and shared_var_info = {
   mutable assigned_at : event option;
 }
 and lvalue_info = {
-  reg_name : string;
-  range : timed_data MaybeConst.maybe_int_const * int;
-  (* left closed right open *)
+  lval_range : subreg_range;
   lval_dtype : data_type;
 }
 and action =
@@ -69,9 +75,7 @@ and event = {
   mutable sustained_actions : sustained_action ast_node list;
   mutable source: event_source;
   (* for lifetime checking *)
-  mutable control_regs: (int * int) Utils.string_map;
   mutable control_endps: (int * int) Utils.string_map;
-  mutable current_regs : (int * int) Utils.string_map;
   mutable current_endps : (int * int) Utils.string_map;
   mutable outs : event list;
 }
@@ -103,6 +107,22 @@ and event_graph = {
 }
 let lifetime_const current = {live = current; dead = [(current, `Eternal)]}
 let lifetime_immediate current = {live = current; dead = [(current, `Cycles 1)]}
+
+let full_reg_range regname size =
+  {
+    subreg_name = regname;
+    subreg_range_interval = (Const 0, size)
+  }
+
+let subreg_ranges_possibly_intersect r1 r2 =
+  r1.subreg_name = r2.subreg_name &&
+    (match fst r1.subreg_range_interval, fst r2.subreg_range_interval with
+    | Const n1, Const n2 ->
+      let end1 = n1 + (snd r1.subreg_range_interval)
+      and end2 = n2 + (snd r2.subreg_range_interval) in
+      end2 > n1 && end1 > n2
+    | _ -> true
+    )
 
 let print_graph (g: event_graph) =
   List.iter (fun ev ->

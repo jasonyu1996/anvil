@@ -24,7 +24,20 @@ TESTS=(
     param_int_chan
     param_type_chan
     if_comb
+    match_test
+    enum_test
+    test_multicycle
+    branch_borrow
+    queue
+    test_ready
+    cache
+    arbiter
+    arbiter2
+    generate_test
+    static_sync
     bug_stuck
+    static_dyn_sync
+    static_sync
 )
 
 passed=0

@@ -48,9 +48,11 @@ let codegen_decl printer (g : EventGraph.event_graph) =
   )
 
 (* generate the next-cycle signals*)
-let codegen_next printer (pg : EventGraph.proc_graph) (g : EventGraph.event_graph) =
+let codegen_next printer (graphs : EventGraph.event_graph_collection)
+                         (pg : EventGraph.proc_graph) (g : EventGraph.event_graph) =
   let print_line = CodegenPrinter.print_line printer in
   let print_lines = CodegenPrinter.print_lines printer in
+  let lookup_msg_def msg = MessageCollection.lookup_message pg.messages msg graphs.channel_classes in
   let print_compute_next (e : EventGraph.event) =
     let cn = EventStateFormatter.format_current g.thread_id e.id in
     match e.source with
@@ -70,18 +72,34 @@ let codegen_next printer (pg : EventGraph.proc_graph) (g : EventGraph.event_grap
           failwith "Invalid number of cycles"
         | `Send msg ->
           let sn = EventStateFormatter.format_syncstate g.thread_id e.id in
-          let ack_n = CodegenFormat.format_msg_ack_signal_name (CodegenFormat.canonicalize_endpoint_name msg.endpoint g) msg.msg in
-          [
-            Printf.sprintf "assign %s = (%s || %s_q) && %s;" cn cn' sn ack_n;
-            Printf.sprintf "assign %s_n = (%s || %s_q) && !%s;" sn cn' sn ack_n
-          ] |> print_lines
+          let msg_def = lookup_msg_def msg |> Option.get in
+          if CodegenPort.message_has_ack_port msg_def then (
+            let ack_n = CodegenFormat.format_msg_ack_signal_name (CodegenFormat.canonicalize_endpoint_name msg.endpoint g) msg.msg in
+            [
+              Printf.sprintf "assign %s = (%s || %s_q) && %s;" cn cn' sn ack_n;
+              Printf.sprintf "assign %s_n = (%s || %s_q) && !%s;" sn cn' sn ack_n
+            ] |> print_lines
+          ) else (
+            [
+              Printf.sprintf "assign %s = %s || %s_q;" cn cn' sn;
+              Printf.sprintf "assign %s_n = 1'b0;" sn
+            ] |> print_lines
+          )
         | `Recv msg ->
           let sn = EventStateFormatter.format_syncstate g.thread_id e.id in
-          let vld_n = CodegenFormat.format_msg_valid_signal_name (CodegenFormat.canonicalize_endpoint_name msg.endpoint g) msg.msg in
-          [
-            Printf.sprintf "assign %s = (%s || %s_q) && %s;" cn cn' sn vld_n;
-            Printf.sprintf "assign %s_n = (%s || %s_q) && !%s;" sn cn' sn vld_n
-          ] |> print_lines
+          let msg_def = lookup_msg_def msg |> Option.get in
+          if CodegenPort.message_has_valid_port msg_def then (
+            let vld_n = CodegenFormat.format_msg_valid_signal_name (CodegenFormat.canonicalize_endpoint_name msg.endpoint g) msg.msg in
+            [
+              Printf.sprintf "assign %s = (%s || %s_q) && %s;" cn cn' sn vld_n;
+              Printf.sprintf "assign %s_n = (%s || %s_q) && !%s;" sn cn' sn vld_n
+            ] |> print_lines
+          ) else (
+            [
+              Printf.sprintf "assign %s = %s || %s_q;" cn cn' sn;
+              Printf.sprintf "assign %s_n = 1'b0;" sn
+            ] |> print_lines
+          )
         | `Sync s ->
           let si = Hashtbl.find pg.shared_vars_info s in
           let assigned_at = Option.get si.assigned_at in
@@ -143,10 +161,10 @@ let codegen_actions printer (g : EventGraph.event_graph) =
         | DebugFinish ->
           print_line "$finish;"
         | RegAssign (lval_info, td) ->
-          let (le, len) = lval_info.range in
+          let (le, len) = lval_info.lval_range.subreg_range_interval in
           let w = Option.get td.w in
           Printf.sprintf "%s[%s +: %d] <= %s;"
-            (CodegenFormat.format_regname_current lval_info.reg_name)
+            (CodegenFormat.format_regname_current lval_info.lval_range.subreg_name)
             (MaybeConst.map (fun td -> Option.get td.w) le |> CodegenFormat.format_wire_maybe_const)
             len
             (CodegenFormat.format_wirename w.thread_id w.id)
@@ -187,17 +205,19 @@ let codegen_transition printer (_graphs : EventGraph.event_graph_collection) (g 
   print_line ~lvl_delta_pre:(-1) "end";
   print_line ~lvl_delta_pre:(-1) "end"
 
-let codegen_sustained_actions printer (g : EventGraph.event_graph) =
+let codegen_sustained_actions printer (graphs : EventGraph.event_graph_collection)
+                                      (pg : EventGraph.proc_graph) (g : EventGraph.event_graph) =
   let print_line = CodegenPrinter.print_line printer in
   let send_or_assigns = Hashtbl.create 8 in
   let recv_or_assigns = Hashtbl.create 8 in
-  let insert_to tbl w_name cond =
+  let insert_to tbl w_name has_sync_port cond =
     (
       match Hashtbl.find_opt tbl w_name with
-      | None -> Hashtbl.add tbl w_name (ref [cond])
-      | Some li -> li := cond::!li
+      | None -> Hashtbl.add tbl w_name (has_sync_port, ref [cond])
+      | Some (_has_sync_port', li) -> li := cond::!li
     )
   in
+  let lookup_msg_def msg = MessageCollection.lookup_message pg.messages msg graphs.channel_classes in
   let open Lang in
   let print_sa_event (e : EventGraph.event) =
     List.iter (fun (sa : EventGraph.sustained_action Lang.ast_node) ->
@@ -207,33 +227,43 @@ let codegen_sustained_actions printer (g : EventGraph.event_graph) =
       match sa.d.ty with
       | Send (msg, td) ->
         let w = Option.get td.w in
+        let msg_def = lookup_msg_def msg |> Option.get in
+        let has_valid_port = CodegenPort.message_has_valid_port msg_def in
         insert_to send_or_assigns
           (CodegenFormat.format_msg_valid_signal_name (CodegenFormat.canonicalize_endpoint_name msg.endpoint g) msg.msg)
+          has_valid_port
           (
             activated,
             CodegenFormat.format_msg_data_signal_name (CodegenFormat.canonicalize_endpoint_name msg.endpoint g) msg.msg 0,
             CodegenFormat.format_wirename w.thread_id w.id
           )
       | Recv msg ->
+        let msg_def = lookup_msg_def msg |> Option.get in
+        let has_ack_port = CodegenPort.message_has_ack_port msg_def in
         insert_to recv_or_assigns
           (CodegenFormat.format_msg_ack_signal_name (CodegenFormat.canonicalize_endpoint_name msg.endpoint g) msg.msg)
+          has_ack_port
           activated
     ) e.sustained_actions
   in
   (* assuming reverse topo order, the assign lists will be in topo order *)
   List.iter print_sa_event g.events;
-  Hashtbl.iter (fun w_name conds ->
-    String.concat " || " !conds
-    |> Printf.sprintf "assign %s = %s;" w_name
-    |> print_line
+  Hashtbl.iter (fun w_name (has_sync_port, conds) ->
+    if has_sync_port then (
+      String.concat " || " !conds
+      |> Printf.sprintf "assign %s = %s;" w_name
+      |> print_line
+    )
   ) recv_or_assigns;
 
   let send_data_selectors = ref [] in
-  Hashtbl.iter (fun w_name conds_dw ->
-    List.map (fun (c, _, _) -> c) !conds_dw
-    |> String.concat " || "
-    |> Printf.sprintf "assign %s = %s;" w_name
-    |> print_line;
+  Hashtbl.iter (fun w_name (has_sync_port, conds_dw) ->
+    if has_sync_port then (
+      List.map (fun (c, _, _) -> c) !conds_dw
+      |> String.concat " || "
+      |> Printf.sprintf "assign %s = %s;" w_name
+      |> print_line;
+    );
     let n = List.length !conds_dw in
     if n <= 1 then (
       assert (n = 1);
@@ -295,7 +325,7 @@ let codegen_states printer
   (pg : EventGraph.proc_graph)
   (g : EventGraph.event_graph) =
   codegen_decl printer g;
-  codegen_next printer pg g;
-  codegen_sustained_actions printer g;
+  codegen_next printer graphs pg g;
+  codegen_sustained_actions printer graphs pg g;
   codegen_transition printer graphs g
 

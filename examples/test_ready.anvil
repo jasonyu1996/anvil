@@ -2,7 +2,7 @@ chan ch = {
     left req: (logic[8]@#1)
 }
 
-proc reciver(ch : left ch) =
+proc receiver(ch : left ch) =
     loop {
         let in1 = recv ch.req in
         (
@@ -10,13 +10,14 @@ proc reciver(ch : left ch) =
                ( in1 =>
                 dprint "Received: %d" (in1))
             else
-                dprint "Not ready" ()
+                dprint "Not ready" ();
+            cycle 1
         )
     }
 
 proc test_ready () =
     chan ch_input -- ch_output : ch
-    spawn reciver(ch_input)
+    spawn receiver(ch_input)
     loop {
         send ch_input.req(8'b00000111)=>
         cycle 1=>
