@@ -9,10 +9,12 @@ Software simulation tested with Verilator 5.024.
 ### Usage
 
 ```
-dune exec anvil -- [-verbose] [-disable-lt-checks] <anvil-source-file>
+dune exec anvil -- [-verbose] [-disable-lt-checks] [-two-round] <anvil-source-file>
 ```
 
-NOTE: To disable lifetime-related checks, pass `-disable-lt-checks`.
+NOTE: To disable lifetime-related checks, pass `-disable-lt-checks`. The `-two-round` flag
+generates code for two rounds of each thread to work around some combinational loop issues
+codegen currently has (see https://github.com/jasonyu1996/anvil/issues/33).
 
 ### Examples
 
