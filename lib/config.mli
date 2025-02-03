@@ -4,6 +4,7 @@
 type compile_config = {
   verbose : bool; (** output verbose details related to compilation to stderr *)
   disable_lt_checks : bool; (** disable all lifetime and borrow related checks *)
+  two_round_graph: bool; (** enable codegen of two rounds for each thread *)
   input_filenames : string list; (** list of file names to be compiled *)
 }
 

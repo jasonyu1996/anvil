@@ -277,6 +277,10 @@ let lifetime_check (config : Config.compile_config) (ci : cunit_info) (g : event
   (* for debugging purposes*)
   if config.verbose then (
     EventGraph.print_graph g;
+    Printf.eprintf "// BEGIN GRAPH IN DOT FORMAT\n";
+    Printf.eprintf "// can render to PDF with 'dot -Tpdf -O <filename>'\n";
+    EventGraph.print_dot_graph g Out_channel.stderr;
+    Printf.eprintf "// END GRAPH IN DOT FORMAT\n";
     print_control_set g
   );
   let reg_borrows = StringHashtbl.create 8 in (* regname -> (lifetime, range)*)
