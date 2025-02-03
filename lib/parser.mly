@@ -272,7 +272,8 @@ proc_def_arg:
       channel_class = fst chan_class;
       channel_params = snd chan_class;
       dir = chan_dir;
-      foreign = foreign;
+      foreign = foreign; (* These are ignored for now.
+                        Instead we just look at which endpoints are used in spawn *)
       opp = None;
     } : Lang.endpoint_def
   }

@@ -75,35 +75,40 @@ let compile out config =
     | Some task -> (
       if Utils.StringSet.mem task.module_name !modules_visited |> not then (
         modules_visited := Utils.StringSet.add task.module_name !modules_visited;
-        let proc, file_name = Utils.StringMap.find
+        let proc_file_opt = Utils.StringMap.find_opt
           (let open BuildScheduler in task.proc_name)
           proc_map in
-        let cunit = let open Lang in
-          (* hacky *)
-          {channel_classes = all_channel_classes; type_defs = all_type_defs;
-           procs = [proc]; imports = []; _extern_procs = []; 
-           func_defs = all_func_defs; enum_defs = all_enum_defs; 
-           macro_defs = all_macro_defs} in
-        let graph_collection =
-          try GraphBuilder.build config sched task.module_name task.param_values cunit
-          with
-          | EventGraph.LifetimeCheckError msg ->
-            Printf.sprintf "Borrow checking failed: %s" msg
-              |> raise_compile_error_brief
-          | Except.TypeError msg ->
-            Printf.sprintf "Type error: %s\n" msg
-              |> raise_compile_error_brief
-          | Except.UnimplementedError msg ->
-            Printf.sprintf "Unimplemented error: %s\n" msg
-              |> raise_compile_error_brief
-          | EventGraph.EventGraphError (msg, span) ->
-            Printf.sprintf "Event graph error (%s)" msg
-              |> raise_compile_error file_name span
-          | Except.UnknownError msg ->
-            Printf.sprintf "Unknown error (%s)" msg
-              |> raise_compile_error_brief
-        in
-        Queue.add graph_collection graph_collection_queue
+        match proc_file_opt with
+        | None ->
+          Printf.sprintf "Process '%s' not found!" task.proc_name
+            |> raise_compile_error_brief
+        | Some (proc, file_name) ->
+          let cunit = let open Lang in
+            (* hacky *)
+            {channel_classes = all_channel_classes; type_defs = all_type_defs;
+            procs = [proc]; imports = []; _extern_procs = [];
+            func_defs = all_func_defs; enum_defs = all_enum_defs;
+            macro_defs = all_macro_defs} in
+          let graph_collection =
+            try GraphBuilder.build config sched task.module_name task.param_values cunit
+            with
+            | EventGraph.LifetimeCheckError msg ->
+              Printf.sprintf "Borrow checking failed: %s" msg
+                |> raise_compile_error_brief
+            | Except.TypeError msg ->
+              Printf.sprintf "Type error: %s\n" msg
+                |> raise_compile_error_brief
+            | Except.UnimplementedError msg ->
+              Printf.sprintf "Unimplemented error: %s\n" msg
+                |> raise_compile_error_brief
+            | EventGraph.EventGraphError (msg, span) ->
+              Printf.sprintf "Event graph error (%s)" msg
+                |> raise_compile_error file_name span
+            | Except.UnknownError msg ->
+              Printf.sprintf "Unknown error (%s)" msg
+                |> raise_compile_error_brief
+          in
+          Queue.add graph_collection graph_collection_queue
       )
     )
   done;

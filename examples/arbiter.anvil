@@ -27,7 +27,7 @@ loop {
     let in4 = recv ch4.req in
     (
         (
-        if (ready ch1.req) then 
+        if (ready ch1.req) then
             (in1=>
             set result := in1;
             set InReady := 1'b1;
@@ -36,7 +36,7 @@ loop {
             set c3_ack := 1'b0;
             set c4_ack := 1'b0
             )
-        else if (ready ch2.req) then 
+        else if (ready ch2.req) then
             (in2=>
             set result := in2;
             set InReady := 1'b1;
@@ -44,7 +44,7 @@ loop {
             set c2_ack := 1'b1;
             set c3_ack := 1'b0;
             set c4_ack := 1'b0)
-        else if (ready ch3.req) then 
+        else if (ready ch3.req) then
             (in3=>
             set result := in3;
             set InReady := 1'b1;
@@ -52,7 +52,7 @@ loop {
             set c2_ack := 1'b0;
             set c3_ack := 1'b1;
             set c4_ack := 1'b0)
-        else if (ready ch4.req) then 
+        else if (ready ch4.req) then
             (in4=>
             set result := in4;
             set InReady := 1'b1;
@@ -60,7 +60,7 @@ loop {
             set c2_ack := 1'b0;
             set c3_ack := 1'b0;
             set c4_ack := 1'b1)
-        else 
+        else
             (set InReady := 1'b0;
             set c1_ack := 1'b0;
             set c2_ack := 1'b0;
@@ -68,7 +68,7 @@ loop {
             set c4_ack := 1'b0)
     );cycle 1)=>
     (
-        if (*InReady == 1'b1) then 
+        if (*InReady == 1'b1) then
             send ch.gnt(*result)
         else dprint "No Producer is ready in cycle %d" (*cycle_count);
 
@@ -80,7 +80,7 @@ loop {
     cycle 1
 }
 
-proc arbiter() = 
+proc arbiter() =
 
 chan  ch1_in -- ch1_out : producer_ch
 chan  ch2_in -- ch2_out : producer_ch
@@ -162,25 +162,25 @@ loop {
 loop {
 
     if(*p1_acc == 1'b0) then (
-        send ch1_in.req(8'b00000001)
+        send ch1_out.req(8'b00000001)
     )
     else (
        dprint "Producer 1 is blocked %d" (*cycle_count)
     )=>
     if(*p2_acc == 1'b0) then (
-        send ch2_in.req(8'b00000010)
+        send ch2_out.req(8'b00000010)
     )
     else (
         dprint "Producer 2 is blocked %d" (*cycle_count)
     )=>
     if(*p3_acc == 1'b0) then (
-        send ch3_in.req(8'b00000100)
+        send ch3_out.req(8'b00000100)
     )
     else (
         dprint "Producer 3 is blocked %d" (*cycle_count )
     )=>
     if(*p4_acc == 1'b0) then (
-        send ch4_in.req(8'b00001000)
+        send ch4_out.req(8'b00001000)
     )
     else (
         dprint "Producer 4 is blocked %d" (*cycle_count)
@@ -189,7 +189,7 @@ loop {
 }
 
 loop {
-    let result = recv ch_out.gnt in
+    let result = recv ch_in.gnt in
     result =>
     dprint "Consumer got %d in cycle %d" (result,*cycle_count);
     cycle 1
