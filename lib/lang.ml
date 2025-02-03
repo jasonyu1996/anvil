@@ -670,7 +670,8 @@ let generate_expr (id, start, end_v, offset, body) =
             hd.d
             tl
     else
-      let substituted = substitute_expr_identifier id (dummy_ast_node_of_data(Literal(NoLength(curr)))) body in
+      let bit_length = Utils.int_log2 (end_v + 1) in
+      let substituted = substitute_expr_identifier id (dummy_ast_node_of_data(Literal(WithLength(bit_length, curr)))) body in
       generate_exprs (curr + offset) (substituted :: acc);
 
   in
