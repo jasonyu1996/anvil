@@ -181,6 +181,9 @@ type event_graph_collection = {
 (** Print the structure of the graph to standard error stream. *)
 val print_graph : event_graph -> unit
 
+(** Print the graph in dot format to output. *)
+val print_dot_graph : event_graph -> out_channel -> unit
+
 val lifetime_const : event -> lifetime
 val lifetime_immediate : event -> lifetime
 

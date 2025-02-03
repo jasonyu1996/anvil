@@ -141,6 +141,38 @@ let print_graph (g: event_graph) =
     | `Root -> Printf.eprintf "> %d: root\n" ev.id
   ) g.events
 
+let print_dot_graph g out =
+  Printf.fprintf out "digraph {\n";
+  let ev_node_name ev = Printf.sprintf "event%d" ev.id in
+  let print_edge e1 e2 label =
+    Printf.fprintf out "  %s -> %s [label = \"%s\"];\n"
+      (ev_node_name e1)
+      (ev_node_name e2)
+      label
+  in
+  List.iter (fun ev ->
+    match ev.source with
+    | `Later (e1, e2) ->
+      print_edge e1 ev "L";
+      print_edge e2 ev "L"
+    | `Either (e1, e2) ->
+      print_edge e1 ev "E";
+      print_edge e2 ev "E"
+    | `Seq (ev', a) ->
+      let label = match a with
+      | `Cycles n -> Printf.sprintf "#%d" n
+      | `Send _ -> "S"
+      | `Recv _ -> "R"
+      | `Sync _ -> "G"
+      in
+      print_edge ev' ev label
+    | `Branch (c, ev') ->
+      let label = if c.neg then "F" else "T" in
+      print_edge ev' ev label
+    | `Root -> ()
+  ) g.events;
+  Printf.fprintf out "}\n"
+
 type proc_graph = {
     name: Lang.identifier;
     extern_module: string option;
