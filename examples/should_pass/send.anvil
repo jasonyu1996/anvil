@@ -22,7 +22,7 @@ proc test_send() =
     chan ch2_in -- ch2_out : ch
     spawn foo(ch1_in, ch2_out)
     loop{
-        send ch1_in.req(1'b1)=>
+        send ch1_out.req(1'b1)=>
         let x = recv ch1_out.res in
         x=>
         dprint "Received on ch1_out: %d" (x)
@@ -32,7 +32,7 @@ proc test_send() =
         let x = recv ch2_in.req in
         x=>
         dprint "Received on ch2_in: %d" (x);
-        send ch2_out.res(1'b1)=>
+        send ch2_in.res(1'b1)=>
         dprint "done" ()
         => cycle 1
     }

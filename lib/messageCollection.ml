@@ -24,9 +24,15 @@ let lookup_endpoint (mc : t) =
 let lookup_message (mc : t) (msg_spec : message_specifier) (channel_classes : channel_class_def list) =
   let ( let* ) = Option.bind in
   let* endpoint = lookup_endpoint mc msg_spec.endpoint in
-  let* cc = lookup_channel_class channel_classes endpoint.channel_class in
-  let* msg = List.find_opt (fun (m : message_def) -> m.name = msg_spec.msg) cc.messages in
-  Some (ParamConcretise.concretise_message cc.params endpoint.channel_params msg)
+  if endpoint.foreign then
+    None
+  else (
+    let* cc = lookup_channel_class channel_classes endpoint.channel_class in
+    let* msg = List.find_opt (fun (m : message_def) -> m.name = msg_spec.msg) cc.messages in
+    (* adjust the direction of the message to account for the direction of the endpoint *)
+    let* msg = Some {msg with dir = get_message_direction msg.dir endpoint.dir} in
+    Some (ParamConcretise.concretise_message cc.params endpoint.channel_params msg)
+  )
 
 let message_sync_mode_allowed = function
   | Dynamic
@@ -35,20 +41,25 @@ let message_sync_mode_allowed = function
 
 let create (channels : channel_def list)
            (args : endpoint_def list)
+           (spawns : spawn_def list)
            (channel_classes : channel_class_def list) =
+  let endpoint_in_spawns = List.concat_map (fun (spawn : spawn_def) -> spawn.params) spawns
+                                              |> Utils.StringSet.of_list in
+  let get_foreign name = Utils.StringSet.mem name endpoint_in_spawns in
   let codegen_chan = fun (chan : channel_def) ->
-    let (left_foreign, right_foreign) =
+    (* let (left_foreign, right_foreign) =
       match chan.visibility with
       | BothForeign -> (true, true)
       | LeftForeign -> (true, false)
       | RightForeign -> (false, true)
-    in
+    in *)
+    (* We ignore the annotated foreign *)
     let left_endpoint = { name = chan.endpoint_left; channel_class = chan.channel_class;
                           channel_params = chan.channel_params;
-                          dir = Left; foreign = left_foreign; opp = Some chan.endpoint_right } in
+                          dir = Left; foreign = get_foreign chan.endpoint_left; opp = Some chan.endpoint_right } in
     let right_endpoint = { name = chan.endpoint_right; channel_class = chan.channel_class;
                           channel_params = chan.channel_params;
-                          dir = Right; foreign = right_foreign; opp = Some chan.endpoint_left } in
+                          dir = Right; foreign = get_foreign chan.endpoint_right; opp = Some chan.endpoint_left } in
     [left_endpoint; right_endpoint]
   in
   let endpoints = List.concat_map codegen_chan channels in
@@ -67,6 +78,8 @@ let create (channels : channel_def list)
     | None ->
         raise (Except.UnknownError (Printf.sprintf "Channel class %s not found" endpoint.channel_class))
   in
+  (* override the user-specified foreign in args *)
+  let args = List.map (fun (ep : endpoint_def)-> {ep with foreign = get_foreign ep.name}) args in
   let local_messages = List.filter (fun p -> not p.foreign) (args @ endpoints) |>
   List.concat_map gather_from_endpoint in
   {endpoints; args; local_messages}

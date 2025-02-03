@@ -19,7 +19,7 @@ proc test_ready () =
     chan ch_input -- ch_output : ch
     spawn receiver(ch_input)
     loop {
-        send ch_input.req(8'b00000111)=>
+        send ch_output.req(8'b00000111)=>
         cycle 1=>
         cycle 1=>
         dprint "sent " (8'b00000111)

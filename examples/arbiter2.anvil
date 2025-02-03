@@ -81,7 +81,7 @@ loop {
 }
 loop
 {
-    send ch1_in.req(8'b00000001)=>
+    send ch1_out.req(8'b00000001)=>
     let c1_ack = recv ch1_out.res in
     c1_ack=>
     if(c1_ack==1'b1) then (
@@ -96,7 +96,7 @@ loop
 
 loop
 {
-    send ch2_in.req(8'b00000010)=>
+    send ch2_out.req(8'b00000010)=>
     let c2_ack = recv ch2_out.res in
     c2_ack=>
     if(c2_ack==1'b1) then (
@@ -111,7 +111,7 @@ loop
 
 loop
 {
-    send ch3_in.req(8'b00000100)=>
+    send ch3_out.req(8'b00000100)=>
     let c3_ack = recv ch3_out.res in
     c3_ack=>
     if(c3_ack==1'b1) then (
@@ -125,7 +125,7 @@ loop
 }
 loop
 {
-    send ch4_in.req(8'b00001000)=>
+    send ch4_out.req(8'b00001000)=>
     let c4_ack = recv ch4_out.res in
     c4_ack=>
     if(c4_ack==1'b1) then (
@@ -138,7 +138,7 @@ loop
     cycle 1
 }
 loop {
-    let result = recv ch_out.gnt in
+    let result = recv ch_in.gnt in
     result =>
     dprint "Consumer got %d in cycle %d" (result,*cycle_count);
     cycle 1

@@ -292,6 +292,12 @@ and visit_expr (graph : event_graph) (ci : cunit_info)
     let ctx' = BuildContext.wait graph ctx td1.lt.live in
     visit_expr graph ci ctx' e2
   | Ready msg_spec ->
+    let msg = MessageCollection.lookup_message graph.messages msg_spec ci.channel_classes
+      |> unwrap_or_err "Invalid message specifier in ready" e.span in
+    if msg.dir <> In then (
+      (* mismatching direction *)
+      raise (EventGraphError ("Mismatching message direction!", e.span))
+    );
     let wires, msg_valid_port = WireCollection.add_msg_valid_port graph.thread_id ci.typedefs msg_spec graph.wires in
     graph.wires <- wires;
     Typing.const_data graph (Some msg_valid_port) `Logic ctx.current
@@ -346,8 +352,12 @@ and visit_expr (graph : event_graph) (ci : cunit_info)
     )
   | Send send_pack ->
     (* just check that the endpoint and the message type is defined *)
-    let _ = MessageCollection.lookup_message graph.messages send_pack.send_msg_spec ci.channel_classes
+    let msg = MessageCollection.lookup_message graph.messages send_pack.send_msg_spec ci.channel_classes
       |> unwrap_or_err "Invalid message specifier in send" e.span in
+    if msg.dir <> Out then (
+      (* mismatching direction *)
+      raise (EventGraphError ("Mismatching message direction!", e.span))
+    );
     let td = visit_expr graph ci ctx send_pack.send_data in
     let ntd = Typing.send_msg_data graph send_pack.send_msg_spec ctx.current in
     ctx.current.sustained_actions <-
@@ -359,6 +369,10 @@ and visit_expr (graph : event_graph) (ci : cunit_info)
   | Recv recv_pack ->
     let msg = MessageCollection.lookup_message graph.messages recv_pack.recv_msg_spec ci.channel_classes
       |> unwrap_or_err "Invalid message specifier in receive" e.span in
+    if msg.dir <> In then (
+      (* mismatching direction *)
+      raise (EventGraphError ("Mismatching message direction!", e.span))
+    );
     let (wires', w) = WireCollection.add_msg_port graph.thread_id ci.typedefs ci.macro_defs recv_pack.recv_msg_spec 0 msg graph.wires in
     graph.wires <- wires';
     let ntd = Typing.recv_msg_data graph (Some w) recv_pack.recv_msg_spec msg ctx.current in
@@ -507,7 +521,7 @@ let build_proc (config : Config.compile_config) sched module_name param_values
   in
   match proc.body with
   | Native body ->
-    let msg_collection = MessageCollection.create body.channels proc.args ci.channel_classes in
+    let msg_collection = MessageCollection.create body.channels proc.args body.spawns ci.channel_classes in
     let spawns =
     List.map (fun s ->
       let module_name = BuildScheduler.add_proc_task sched s.proc s.compile_params in
@@ -547,7 +561,9 @@ let build_proc (config : Config.compile_config) sched module_name param_values
           tmp_graph.last_event_id <- td.lt.live.id;
           (* Optimisation *)
           let tmp_graph = GraphOpt.optimize config true ci tmp_graph in
-          LifetimeCheck.lifetime_check config ci tmp_graph;
+          if not config.disable_lt_checks then (
+            LifetimeCheck.lifetime_check config ci tmp_graph
+          );
           if config.two_round_graph then
             Some tmp_graph
           else
@@ -567,7 +583,7 @@ let build_proc (config : Config.compile_config) sched module_name param_values
         threads = proc_threads; shared_vars_info; messages = msg_collection;
         proc_body = proc.body; spawns}
     | Extern (extern_mod, _extern_body) ->
-      let msg_collection = MessageCollection.create [] proc.args ci.channel_classes in
+      let msg_collection = MessageCollection.create [] proc.args [] ci.channel_classes in
       {name = module_name; extern_module = Some extern_mod; threads = [];
         shared_vars_info = Hashtbl.create 0; messages = msg_collection;
         proc_body = proc.body; spawns = []}

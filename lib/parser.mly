@@ -272,7 +272,8 @@ proc_def_arg:
       channel_class = fst chan_class;
       channel_params = snd chan_class;
       dir = chan_dir;
-      foreign = foreign;
+      foreign = foreign; (* These are ignored for now.
+                        Instead we just look at which endpoints are used in spawn *)
       opp = None;
     } : Lang.endpoint_def
   }
@@ -628,13 +629,11 @@ int_maybe_param:
   { ParamEnv.Param ident }
 ;
 
-data_type:
+data_type_no_array:
 // | dtype = data_type; LEFT_BRACKET; n = IDENT; RIGHT_BRACKET
 //   { `Parametrized (dtype, n) }
 | KEYWORD_LOGIC
   { `Logic }
-| dtype = data_type; LEFT_BRACKET; n = int_maybe_param; RIGHT_BRACKET
-  { `Array (dtype, n) }
 | typename = IDENT
   { `Named (typename, []) }
 | typename = IDENT; LEFT_ABRACK; compile_params = separated_list(COMMA, param_value); RIGHT_ABRACK;
@@ -645,6 +644,17 @@ data_type:
   { `Record fields }
 | LEFT_PAREN; comps = separated_list(COMMA, data_type); RIGHT_PAREN
   { `Tuple comps }
+;
+
+data_type_array_range:
+| LEFT_BRACKET; n = int_maybe_param; RIGHT_BRACKET
+  { n }
+;
+
+data_type:
+| dtype = data_type_no_array; ranges = data_type_array_range*
+  { List.fold_right (fun n dtype_c -> `Array (dtype_c, n)) ranges dtype }
+  (* We need to reverse the array ranges so logic[3][2] is 3 arrays of length 2 *)
 ;
 
 variant_def:
