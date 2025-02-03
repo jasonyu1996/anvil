@@ -547,7 +547,9 @@ let build_proc (config : Config.compile_config) sched module_name param_values
           tmp_graph.last_event_id <- td.lt.live.id;
           (* Optimisation *)
           let tmp_graph = GraphOpt.optimize config true ci tmp_graph in
-          LifetimeCheck.lifetime_check config ci tmp_graph;
+          if not config.disable_lt_checks then (
+            LifetimeCheck.lifetime_check config ci tmp_graph
+          );
           if config.two_round_graph then
             Some tmp_graph
           else
