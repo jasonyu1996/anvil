@@ -21,7 +21,17 @@ let rec concretise_params int_env type_env params =
 and concretise_dtype_params int_env type_env (dtype : data_type) : data_type =
   match dtype with
   | `Array (v, n) ->
-    `Array (concretise_dtype_params int_env type_env v, concretise int_env n |> Option.get)
+    let base_type = concretise_dtype_params int_env type_env v in
+    let size = match concretise int_env n with
+      | Some s -> s
+      | None -> 
+          Printf.eprintf "[ERROR] Failed to concretise array size parameter: %s\n" 
+            (match n with
+             | ParamEnv.Concrete i -> Printf.sprintf "Concrete(%d)" i
+             | ParamEnv.Param p -> Printf.sprintf "Param(%s)" p);
+          failwith "Array size concretisation failed"
+    in
+    `Array (base_type, size)
   | `Named (ident, params) ->
     if params = [] then
       let t = Param ident in
