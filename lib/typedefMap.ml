@@ -64,7 +64,7 @@ let data_type_indirect (type_defs : t) (macro_defs: macro_def list) (dtype : dat
             offset := !offset + (data_type_size type_defs macro_defs field_type)
         end else ()
       in
-      List.iter lookup flist;
+      List.iter lookup (List.rev flist);
       let* found_d = !found in
       Some (!offset, data_type_size type_defs macro_defs found_d, found_d)
   | _ -> None
