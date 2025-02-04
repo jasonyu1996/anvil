@@ -641,7 +641,7 @@ data_type_no_array:
 | LEFT_BRACKET; variants = variant_def+; RIGHT_BRACKET
   { `Variant variants }
 | LEFT_BRACE; fields = separated_nonempty_list(SEMICOLON, field_def); RIGHT_BRACE
-  { `Record fields }
+  { `Record (List.rev fields) }
 | LEFT_PAREN; comps = separated_list(COMMA, data_type); RIGHT_PAREN
   { `Tuple comps }
 ;
