@@ -8,7 +8,16 @@ let unwrap_or_err err_msg err_span opt =
 
 
 module Typing = struct
-  type context = timed_data Utils.string_map
+  type binding = {
+    binding_val : timed_data;
+    mutable binding_used : bool; (** if the binding has been used (to enforce relevance) *)
+  }
+
+  let use_binding binding =
+    binding.binding_used <- true;
+    binding.binding_val
+
+  type context = binding Utils.string_map
 
   type build_context = {
     typing_ctx : context;
@@ -95,7 +104,7 @@ module Typing = struct
     {w; lt = {live = event_received; dead = [(event_received, e)]}; reg_borrows = []; dtype = stype.dtype}
 
   let context_add (ctx : context) (v : identifier) (d : timed_data) : context =
-    Utils.StringMap.add v d ctx
+    Utils.StringMap.add v {binding_val = d; binding_used = false} ctx
   let context_empty : context = Utils.StringMap.empty
   let context_lookup (ctx : context) (v : identifier) = Utils.StringMap.find_opt v ctx
   (* checks if lt lives at least as long as required *)
@@ -225,12 +234,12 @@ and visit_expr (graph : event_graph) (ci : cunit_info)
       Typing.sync_event_data graph ident shared_info.value ctx.current
     )
   | Identifier ident ->
-      let ctx_val = Typing.context_lookup ctx.typing_ctx ident  in
+      let ctx_val = Typing.context_lookup ctx.typing_ctx ident in
       let macro_val = List.assoc_opt ident (List.map (fun (macro : macro_def) ->(macro.id, macro.value)) ci.macro_defs) in
       (match ctx_val, macro_val with
         | Some _, Some _ ->
           raise (EventGraphError (" Conflicting Identifier " ^ ident ^ " declarations found", e.span))
-        | Some td, None -> Typing.sync_data graph ctx.current td
+        | Some binding, None -> Typing.use_binding binding |> Typing.sync_data graph ctx.current
         | None, Some value ->
           let sz = Utils.int_log2 (value + 1) in
           let (wires', w) = WireCollection.add_literal graph.thread_id
@@ -241,7 +250,7 @@ and visit_expr (graph : event_graph) (ci : cunit_info)
         | None, None ->
           Typing.context_lookup ctx.typing_ctx ident
           |> unwrap_or_err ("Undefined identifier: " ^ ident) e.span
-          |> Typing.sync_data graph ctx.current
+          |> Typing.use_binding |> Typing.sync_data graph ctx.current
       )
 
   | Assign (lval, e') ->
@@ -284,7 +293,13 @@ and visit_expr (graph : event_graph) (ci : cunit_info)
         {td with lt} (* forcing the bound value to be awaited *)
       | [ident], _ ->
         let ctx' = BuildContext.add_binding ctx ident td1 in
-        visit_expr graph ci ctx' e2
+        let td = visit_expr graph ci ctx' e2 in
+        (* check if the binding is used *)
+        let binding = Typing.context_lookup ctx'.typing_ctx ident |> Option.get in
+        if not binding.binding_used then (
+          raise (EventGraphError ("Unused value!", e1.span))
+        );
+        td
       | _ -> raise (EventGraphError ("Discarding expression results!", e.span))
     )
   | Wait (e1, e2) ->
