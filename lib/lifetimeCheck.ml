@@ -405,9 +405,14 @@ let lifetime_check (config : Config.compile_config) (ci : cunit_info) (g : event
   let msg_to_check = ref Utils.StringMap.empty in
   let get_msg_gap is_send msg =
     let msg_def = MessageCollection.lookup_message g.messages msg ci.channel_classes |> Option.get in
-    let sync_mode = if is_send then msg_def.send_sync else msg_def.recv_sync in
-    match sync_mode with
-    | Dependent (`Cycles n) -> Some n
+    let (sync_mode, other_sync_mode) = if is_send then
+      (msg_def.send_sync, msg_def.recv_sync)
+    else
+      (msg_def.recv_sync, msg_def.send_sync) in
+    match sync_mode, other_sync_mode with
+    | Dependent (`Cycles n), Dependent (`Cycles _) -> Some (n, true, true)
+    | Dependent (`Cycles n), Dynamic -> Some (n, true, false)
+    | Dynamic, Dependent (`Cycles n) -> Some (n, false, true)
     | _ -> None
   in
   visit_actions
@@ -428,11 +433,12 @@ let lifetime_check (config : Config.compile_config) (ci : cunit_info) (g : event
   if config.verbose then (
     Config.debug_println config "Messages requiring sync mode checks below:";
     Utils.StringMap.iter
-      (fun m n -> Printf.sprintf "Message %s with gap %d\n" m n |> Config.debug_println config)
+      (fun m (n, self_check, other_check) -> Printf.sprintf "Message %s with gap %d (<=: %b, >=: %b)\n" m n self_check other_check
+        |> Config.debug_println config)
     !msg_to_check
   );
   (* Check per message *)
-  let check_msg_sync_mode msg gap =
+  let check_msg_sync_mode msg (gap, self_check, other_check) =
     (* if msg is an action at this event, obtain until *)
     let has_msg ev = List.find_map
       (fun sa ->
@@ -446,35 +452,72 @@ let lifetime_check (config : Config.compile_config) (ci : cunit_info) (g : event
             None
         )
       ) ev.sustained_actions in
-    let is_first = ref true in
-    List.iter
-      (fun ev ->
-        match has_msg ev with
-        | Some sa ->
+    if self_check then (
+      let is_first = ref true in
+      List.iter
+        (fun ev ->
+          match has_msg ev with
+          | Some sa ->
+              if !is_first then
+                is_first := false (* skip the first msg (comes last) *)
+              else (
+                let slacks = GraphAnalysis.event_slack_graph g.events sa.d.until in
+                (* mask out events that do not have the message *)
+                List.iter (fun ev' ->
+                  if has_msg ev' |> Option.is_none then
+                    slacks.(ev'.id) <- GraphAnalysis.event_distance_max
+                ) g.events;
+                if config.verbose then (
+                  Array.iteri (fun idx sl -> Printf.eprintf "Sl %d = %d\n" idx sl) slacks
+                );
+                let min_weights = GraphAnalysis.event_min_among_succ g.events slacks in
+                if config.verbose then (
+                  Array.iteri (fun idx sl -> Printf.eprintf "Mw %d = %d\n" idx sl) min_weights
+                );
+                if min_weights.(sa.d.until.id) > gap then
+                  let error_msg = Printf.sprintf "Static sync mode mismatch (actual gap = %d > expected gap %d)!"
+                    min_weights.(sa.d.until.id) gap
+                  in
+                  raise (EventGraphError (error_msg, sa.span))
+              )
+          | None -> ()
+        ) g.events
+    );
+    if other_check then (
+      let has_msg_end ev =
+        match ev.source with
+        | `Seq (ev', `Send msg')
+        | `Seq (ev', `Recv msg') ->
+          if (msg_ident msg') = msg then
+            Some ev'
+          else
+            None
+        | _ -> None
+      in
+      let is_first = ref true in
+      List.iter
+        (fun ev ->
+          match has_msg ev with
+          | Some sa ->
             if !is_first then
-              is_first := false (* skip the first msg (comes last) *)
+              is_first := false
             else (
-              let slacks = GraphAnalysis.event_slack_graph g.events sa.d.until in
-              (* mask out events that do not have the message *)
+              let slacks = GraphAnalysis.event_slack_graph g.events ev in
               List.iter (fun ev' ->
-                if has_msg ev' |> Option.is_none then
-                  slacks.(ev'.id) <- GraphAnalysis.event_distance_max
+                if has_msg_end ev' |> Option.is_none then
+                  slacks.(ev'.id) <- -event_distance_max
               ) g.events;
-              if config.verbose then (
-                Array.iteri (fun idx sl -> Printf.eprintf "Sl %d = %d\n" idx sl) slacks
-              );
-              let min_weights = GraphAnalysis.event_min_among_succ g.events slacks in
-              if config.verbose then (
-                Array.iteri (fun idx sl -> Printf.eprintf "Mw %d = %d\n" idx sl) min_weights
-              );
-              if min_weights.(sa.d.until.id) > gap then
-                let error_msg = Printf.sprintf "Static sync mode mismatch (actual gap = %d > expected gap %d)!"
-                  min_weights.(sa.d.until.id) gap
+              let maxv = GraphAnalysis.event_predecessors ev |> List.map (fun ev' -> slacks.(ev'.id))
+                |> List.fold_left Int.max (-event_distance_max) in
+              if maxv > -gap then
+                let error_msg = Printf.sprintf "Static sync mode mismatch (actual gap = %d < expected gap %d)!"
+                  (-maxv) gap
                 in
                 raise (EventGraphError (error_msg, sa.span))
             )
-        | None -> ()
-      ) g.events
+          | None -> ()
+        ) (List.rev g.events)
+    )
   in
   Utils.StringMap.iter check_msg_sync_mode !msg_to_check;
 
