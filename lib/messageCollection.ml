@@ -67,13 +67,10 @@ let create (channels : channel_def list)
     match lookup_channel_class channel_classes endpoint.channel_class with
     | Some cc ->
         let msg_map = fun (msg: message_def) ->
-          if (message_sync_mode_allowed msg.send_sync) &&
-             (message_sync_mode_allowed msg.recv_sync) then (
-                let msg_dir = get_message_direction msg.dir endpoint.dir in
-                (endpoint, ParamConcretise.concretise_message cc.params endpoint.channel_params msg, msg_dir)
-          ) else (
-            raise (Except.UnimplementedError "Synchronization mode unimplemented!")
-          )
+          (* these should have been checked earlier *)
+          assert ((message_sync_mode_allowed msg.send_sync) && (message_sync_mode_allowed msg.recv_sync));
+          let msg_dir = get_message_direction msg.dir endpoint.dir in
+          (endpoint, ParamConcretise.concretise_message cc.params endpoint.channel_params msg, msg_dir)
         in List.map msg_map cc.messages
     | None ->
         raise (Except.UnknownError (Printf.sprintf "Channel class %s not found" endpoint.channel_class))

@@ -630,3 +630,18 @@ let build (config : Config.compile_config) sched module_name param_values (cunit
     external_event_graphs = [];
     enum_mappings;
   }
+
+let syntax_tree_precheck (_config : Config.compile_config) cunit =
+  (* just check if the channel definitions have well-formed sync modes *)
+  List.iter (fun cc ->
+    List.iter (fun msg ->
+      match msg.send_sync, msg.recv_sync with
+      | Dependent (`Cycles n), Dependent (`Cycles m) ->
+        if n <> m then (* the cycle counts on both sides must be equal *)
+          raise (Except.TypeError "Static sync mode must be symmetric!")
+      | Dependent (`Cycles _), Dynamic
+      | Dynamic, Dependent (`Cycles _)
+      | Dynamic, Dynamic -> ()
+      | _ -> raise (Except.TypeError "Unsupported sync mode!")
+    ) cc.messages
+  ) cunit.channel_classes

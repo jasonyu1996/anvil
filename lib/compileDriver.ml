@@ -12,7 +12,7 @@ let canonicalise_file_name file_origin file_name =
   else
     file_name
 
-let rec parse_recursive cunits parsed_files _config filename =
+let rec parse_recursive cunits parsed_files config filename =
   if Utils.StringSet.mem filename !parsed_files |> not then (
     parsed_files := Utils.StringSet.add filename !parsed_files;
     let cunit =
@@ -36,12 +36,13 @@ let rec parse_recursive cunits parsed_files _config filename =
         | Sys_error msg ->
           raise_compile_error_brief msg
     in
+    GraphBuilder.syntax_tree_precheck config cunit;
     cunits := (filename, cunit)::!cunits;
     List.iter (fun imp ->
       let open Lang in
       if not imp.is_extern then
         canonicalise_file_name filename imp.file_name
-          |> parse_recursive cunits parsed_files _config
+          |> parse_recursive cunits parsed_files config
     ) cunit.imports
   )
 
@@ -49,7 +50,13 @@ let compile out config =
   let open Config in
   let toplevel_filename = List.hd config.input_filenames in
   let cunits = ref [] in
-  parse_recursive cunits (ref Utils.StringSet.empty) config toplevel_filename;
+  (
+    try parse_recursive cunits (ref Utils.StringSet.empty) config toplevel_filename
+    with
+      | Except.TypeError msg ->
+        Printf.sprintf "Type error: %s\n" msg
+          |> raise_compile_error_brief
+  );
   (* collect all channel class and type definitions *)
   let all_channel_classes = List.concat_map (fun (_, cunit) -> let open Lang in cunit.channel_classes) !cunits in
   let all_type_defs = List.concat_map (fun (_, cunit) -> let open Lang in cunit.type_defs) !cunits in
