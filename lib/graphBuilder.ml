@@ -1,4 +1,5 @@
 open EventGraph
+open EventGraphOps
 open Lang
 
 let unwrap_or_err err_msg err_span opt =
@@ -353,17 +354,17 @@ and visit_expr (graph : event_graph) (ci : cunit_info)
     graph.wires <- wires';
     let sz = TypedefMap.data_type_size ci.typedefs ci.macro_defs r.dtype in
     let borrow = {borrow_range = full_reg_range reg_ident sz; borrow_start = ctx.current} in
-    {w = Some w; lt = EventGraph.lifetime_const ctx.current; reg_borrows = [borrow]; dtype = r.dtype}
+    {w = Some w; lt = EventGraphOps.lifetime_const ctx.current; reg_borrows = [borrow]; dtype = r.dtype}
   | Debug op ->
     (
       match op with
       | DebugPrint (s, e_list) ->
         let timed_ws = List.map (visit_expr graph ci ctx) e_list in
         ctx.current.actions <- (let open EventGraph in DebugPrint (s, timed_ws) |> tag_with_span e.span)::ctx.current.actions;
-        {w = None; lt = EventGraph.lifetime_const ctx.current; reg_borrows = []; dtype = unit_dtype}
+        {w = None; lt = EventGraphOps.lifetime_const ctx.current; reg_borrows = []; dtype = unit_dtype}
       | DebugFinish ->
         ctx.current.actions <- (let open EventGraph in tag_with_span e.span DebugFinish)::ctx.current.actions;
-        {w = None; lt = EventGraph.lifetime_const ctx.current; reg_borrows = []; dtype = unit_dtype}
+        {w = None; lt = EventGraphOps.lifetime_const ctx.current; reg_borrows = []; dtype = unit_dtype}
     )
   | Send send_pack ->
     (* just check that the endpoint and the message type is defined *)

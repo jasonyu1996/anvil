@@ -155,7 +155,7 @@ let gen_control_set (config : Config.compile_config) (g : event_graph) =
   let rec check_reg_violation = function
     | (ev, range, span)::remaining ->
       List.iter (fun (ev', range', _span') ->
-        if (subreg_ranges_possibly_intersect range range') &&
+        if (EventGraphOps.subreg_ranges_possibly_intersect range range') &&
            (GraphAnalysis.events_are_ordered g.events ev ev' |> not) then
             raise (EventGraphError ("Non-linearizable register assignment!", span))
       ) remaining;
@@ -276,10 +276,10 @@ let lifetime_check (config : Config.compile_config) (ci : cunit_info) (g : event
   gen_control_set config g;
   (* for debugging purposes*)
   if config.verbose then (
-    EventGraph.print_graph g;
+    EventGraphOps.print_graph g;
     Printf.eprintf "// BEGIN GRAPH IN DOT FORMAT\n";
     Printf.eprintf "// can render to PDF with 'dot -Tpdf -O <filename>'\n";
-    EventGraph.print_dot_graph g Out_channel.stderr;
+    EventGraphOps.print_dot_graph g Out_channel.stderr;
     Printf.eprintf "// END GRAPH IN DOT FORMAT\n";
     print_control_set g
   );
@@ -289,7 +289,7 @@ let lifetime_check (config : Config.compile_config) (ci : cunit_info) (g : event
   let not_borrowed_reg s lt range =
     let borrows = StringHashtbl.find_opt reg_borrows s |> Option.value ~default:[] in
     List.for_all (fun (lt', range') ->
-      (subreg_ranges_possibly_intersect range range' |> not) || (lifetime_disjoint g.events lt lt'))
+      (EventGraphOps.subreg_ranges_possibly_intersect range range' |> not) || (lifetime_disjoint g.events lt lt'))
       borrows
   in
   let not_borrowed_msg_and_add s lt =
@@ -356,7 +356,7 @@ let lifetime_check (config : Config.compile_config) (ci : cunit_info) (g : event
     (fun ev a ->
       match a.d with
       | RegAssign (lval_info, td) ->
-        let lt = EventGraph.lifetime_immediate ev in
+        let lt = EventGraphOps.lifetime_immediate ev in
         if not_borrowed_reg lval_info.lval_range.subreg_name lt lval_info.lval_range |> not then
           raise (EventGraphError ("Attempted assignment to a borrowed register!", a.span))
         else ();
@@ -372,7 +372,7 @@ let lifetime_check (config : Config.compile_config) (ci : cunit_info) (g : event
         )
       | DebugPrint (_, tds) ->
         List.iter (fun td ->
-          if lifetime_in_range g.events (EventGraph.lifetime_immediate ev) td.lt |> not then
+          if lifetime_in_range g.events (EventGraphOps.lifetime_immediate ev) td.lt |> not then
             raise (EventGraphError ("Value does not live long enough in debug print!", a.span))
           else ()
         ) tds
