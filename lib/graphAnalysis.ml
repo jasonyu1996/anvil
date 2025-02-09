@@ -137,7 +137,7 @@ let event_succ_distance non_succ_dist msg_dist_f either_dist_f events (ev : even
 let event_slack_graph events ev =
   let n = List.length events in
   let root = List.nth events (n - 1) in
-  let dist = event_succ_distance event_distance_max (fun d -> d) max events root root in
+  let dist = event_succ_distance event_distance_max (fun d -> d) min events root root in
   (* IntHashtbl.iter (fun ev_id d -> Printf.eprintf "Dist %d = %d\n" ev_id d) dist; *)
   (* Now compute max dist allowed *)
   let max_dists = Array.make n event_distance_max in
@@ -153,18 +153,24 @@ let event_slack_graph events ev =
       match ev'.source with
       | `Root None -> ()
       | `Later (e1, e2)
-    | `Branch (_, {branch_val_true = Some e1; branch_val_false = Some e2; _}) ->
-        update_dist e1 d;
-        update_dist e2 d
+      | `Branch (_, {branch_val_true = Some e1; branch_val_false = Some e2; _}) ->
+          update_dist e1 d;
+          update_dist e2 d
       | `Seq (e', `Cycles cyc) ->
         update_dist e' (d - cyc)
-    | `Root (Some (e', _))
+      | `Root (Some (e', br_side_info)) ->
+        if br_side_info.branch_side_sel then (
+          let e_false = Option.get br_side_info.owner_branch.branch_to_false in
+          let d = Int.max d max_dists.(e_false.id) in
+          update_dist e' d
+        )
       | `Seq (e', _) ->
         update_dist e' d
       | _ ->
         raise (Except.UnknownError "Unexpected event source!")
     )
   ) events;
+  (* Array.iteri (fun ev_id d -> Printf.eprintf "Max dist %d = %d\n" ev_id d) max_dists; *)
   (* let slacks = Array.mapi (fun idx md -> md - (IntHashtbl.find dist idx)) max_dists in *)
   (* Array.iteri (fun ev_id sl -> Printf.eprintf "Slack %d = %d\n" ev_id sl) slacks; *)
   (* Get the slack graph. This slack is the max distance achievable through adjusting

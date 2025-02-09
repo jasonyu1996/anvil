@@ -512,6 +512,9 @@ let lifetime_check (config : Config.compile_config) (ci : cunit_info) (g : event
               is_first := false
             else (
               let slacks = GraphAnalysis.event_slack_graph g.events ev in
+              if config.verbose then (
+                Array.iteri (fun idx sl -> Printf.eprintf "Sl %d = %d\n" idx sl) slacks
+              );
               List.iter (fun ev' ->
                 if has_msg_end ev' |> Option.is_none then
                   slacks.(ev'.id) <- -event_distance_max
