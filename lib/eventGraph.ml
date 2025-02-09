@@ -123,13 +123,31 @@ and event = {
   mutable outs : event list; (** the outbound edges, i.e., the events that directly depend on this event *)
 }
 
+(** Describes branching information. *)
+and branch_info = {
+  branch_cond : timed_data;
+  mutable branch_to_true : event option;
+  mutable branch_to_false : event option;
+  mutable branch_val_true : event option;
+  mutable branch_val_false : event option;
+}
+
+(** Information about the branch condition of one side of a branch. *)
+and branch_side_info = {
+  mutable branch_event : event option;
+  owner_branch : branch_info;
+  branch_side_sel : bool;
+}
+
+
 (** Describes when an event is reached. *)
 and event_source = [
-  | `Root (** at the beginning of the thread (initially already reached) *)
+  | `Root of (event * branch_side_info) option (** at the beginning of the thread (initially already reached),
+                            or the beginning of a branch, in which case it encodes the parent event and
+                            whether it is the true/false branch *)
   | `Later of event * event (** reached when both events have been reached *)
   | `Seq of event * atomic_delay (** reached when a {{!atomic_delay}delay} takes place after another event is reached *)
-  | `Branch of condition * event (** reached when a {{!condition}condition} is satisfied after another event is reached *)
-  | `Either of event * event (** reached when either of the two events is reached *)
+  | `Branch of event * branch_info (** branching out into two branches. This event is reached when the end of either side is reached *)
 ]
 
 (** An action that starts at an event but may last multiple cycles.

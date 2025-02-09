@@ -28,12 +28,13 @@ let event_predecessors (ev : event) : event list =
   let visitor add_to_queue cur =
     match cur.source with
     | `Later (e1, e2)
-    | `Either (e1, e2) ->
+    | `Branch (_, {branch_val_true = Some e1; branch_val_false = Some e2; _}) ->
       add_to_queue e1;
       add_to_queue e2
-    | `Branch (_, ev')
-    | `Seq (ev', _) ->
+    | `Seq (ev', _)
+    | `Root (Some (ev', _)) ->
       add_to_queue ev'
+    | `Root None -> ()
     | _ -> ()
   in
   event_traverse ev visitor
@@ -105,7 +106,7 @@ let event_succ_distance non_succ_dist msg_dist_f either_dist_f events (ev : even
   List.rev events |> List.iter (fun ev' ->
     if IntHashtbl.find_opt dist ev'.id |> Option.is_none then
     let d = match ev'.source with
-    | `Root -> raise (Except.UnknownError "Unexpected root!")
+    | `Root None -> raise (Except.UnknownError "Unexpected root!")
     | `Later (ev1, ev2) -> max (get_dist ev1) (get_dist ev2)
     | `Seq (ev1, ad) ->
       let d1 = get_dist ev1 in
@@ -114,15 +115,17 @@ let event_succ_distance non_succ_dist msg_dist_f either_dist_f events (ev : even
         | `Cycles n' -> d1 + n'
         | `Send _ | `Recv _ | `Sync _ -> msg_dist_f d1
       )
-    | `Branch (_, ev1) ->
+    | `Root (Some (ev1, _)) ->
       (* We need to check carefully to decide if we are sure
         the branch has/hasn't been taken. *)
       if (List.mem ev' succs) || (List.mem ev' preds_cur) then
         get_dist ev1
       else
         non_succ_dist
-    | `Either (ev1, ev2) ->
+    | `Branch (_, {branch_val_true = Some ev1; branch_val_false = Some ev2; _}) ->
       either_dist_f (get_dist ev1) (get_dist ev2)
+    | _ ->
+      raise (Except.UnknownError "Unexpected event source!")
     in
     set_dist ev' (min d event_distance_max)
   );
@@ -148,16 +151,18 @@ let event_slack_graph events ev =
           max_dists.(ev_pred.id) <- d
       in
       match ev'.source with
-      | `Root -> ()
+      | `Root None -> ()
       | `Later (e1, e2)
-      | `Either (e1, e2) ->
+    | `Branch (_, {branch_val_true = Some e1; branch_val_false = Some e2; _}) ->
         update_dist e1 d;
         update_dist e2 d
       | `Seq (e', `Cycles cyc) ->
         update_dist e' (d - cyc)
-      | `Branch (_, e')
+    | `Root (Some (e', _))
       | `Seq (e', _) ->
         update_dist e' d
+      | _ ->
+        raise (Except.UnknownError "Unexpected event source!")
     )
   ) events;
   (* let slacks = Array.mapi (fun idx md -> md - (IntHashtbl.find dist idx)) max_dists in *)
@@ -167,16 +172,18 @@ let event_slack_graph events ev =
   let slacks = Array.make n 0 in
   List.rev events |> List.iter (fun ev' ->
     let d = match ev'.source with
-    | `Root -> 0
-    | `Later (e1, e2)
-    | `Either (e1, e2) ->
-      Int.max slacks.(e1.id) slacks.(e2.id)
-    | `Seq (e', `Cycles cyc) ->
-      slacks.(e'.id) + cyc
-    | `Branch (_, e') ->
-      slacks.(e'.id)
-    | `Seq (_e', _) ->
-      max_dists.(ev'.id)
+      | `Root None -> 0
+      | `Later (e1, e2)
+      | `Branch (_, {branch_val_true = Some e1; branch_val_false = Some e2; _}) ->
+        Int.max slacks.(e1.id) slacks.(e2.id)
+      | `Seq (e', `Cycles cyc) ->
+        slacks.(e'.id) + cyc
+      | `Root (Some (e', _)) ->
+        slacks.(e'.id)
+      | `Seq (_e', _) ->
+        max_dists.(ev'.id)
+      | _ ->
+        raise (Except.UnknownError "Unexpected event source!")
     in
     slacks.(ev'.id) <- d
   );
@@ -198,7 +205,7 @@ let event_min_among_succ events weights =
     (* handle forward branches *)
     let (branch_v, has_branch) = List.fold_left (fun (mx, has) ev_succ ->
       match ev_succ.source with
-      | `Branch _ ->
+      | `Root (Some _) ->
         (Int.max mx res.(ev_succ.id), true)
       | _ ->
         (mx, has)
@@ -208,14 +215,15 @@ let event_min_among_succ events weights =
     );
     let v = res.(ev'.id) in
     match ev'.source with
-    | `Root -> ()
+    | `Root None -> ()
     | `Later (e1, e2)
-    | `Either (e1, e2) ->
+    | `Branch (_, {branch_val_true = Some e1; branch_val_false = Some e2; _}) ->
       update_res e1 v;
       update_res e2 v
-    | `Seq (e, _) ->
+    | `Seq (e, _)
+    | `Root (Some (e, _)) ->
       update_res e v
-    | `Branch (_, _e) -> ()
+    | `Branch (_e, _) -> ()
       (* FIXME: this handling is rough; we handle this at
       forward edges instead *)
   ) events;
@@ -243,7 +251,7 @@ let events_are_ordered events e1 e2 =
       let find_cond =
         List.find_opt (fun e ->
               match e.source with
-              | `Branch (_, pred) -> pred.id = common_pred.id
+              | `Root (Some (pred, _)) -> pred.id = common_pred.id
               | _ -> false
         )
       in
@@ -254,3 +262,24 @@ let events_are_ordered events e1 e2 =
       | _ -> false
     )
   )
+
+let events_visit_backward visitor = List.iter visitor
+let events_visit_forward visitor events = List.rev events |> List.iter visitor
+
+let events_prepare_outs events =
+  List.iter (fun ev -> ev.outs <- []) events;
+  List.iter (fun ev ->
+    match ev.source with
+    | `Later (e1, e2) ->
+      e1.outs <- ev::e1.outs;
+      e2.outs <- ev::e2.outs
+    | `Branch (_ev', br_info) ->
+      let e1 = Option.get br_info.branch_val_true
+      and e2 = Option.get br_info.branch_val_false in
+      e1.outs <- ev::e1.outs;
+      e2.outs <- ev::e2.outs
+    | `Seq (ev', _)
+    | `Root (Some (ev', _)) ->
+      ev'.outs <- ev::ev'.outs
+    | `Root None -> ()
+  ) events

@@ -73,7 +73,6 @@ let gen_control_set (config : Config.compile_config) (g : event_graph) =
     let (a, b) = Option.get a_opt in
     Some (a, min v b)
   in
-  let last_ev : (event option) ref = ref None in
   List.iter
     (fun (ev : event) ->
       List.iter
@@ -94,26 +93,29 @@ let gen_control_set (config : Config.compile_config) (g : event_graph) =
       in
       (
         match ev.source with
-        | `Root -> ()
-        | `Later (e1, e2) | `Either (e1, e2) ->
+        | `Root None -> ()
+        | `Later (e1, e2)
+        | `Branch (_, {branch_val_true = Some e1; branch_val_false = Some e2; _}) ->
           (* Printf.eprintf "FR %d, %d -> %d\n" e1.id e2.id ev.id; *)
           forward_from e1;
           forward_from e2
         | `Seq (ev', _)  ->
           (* Printf.eprintf "FR %d -> %d\n" ev'.id ev.id; *)
           forward_from ev'
-        | `Branch (c, ev') ->
-          if c.neg then
-            forward_from (Option.get !last_ev)
-          else
+        | `Root (Some (ev', br_side_info)) ->
+          (* to true side first *)
+          if br_side_info.branch_side_sel then
             forward_from ev'
+          else
+            Option.get br_side_info.owner_branch.branch_val_true |> forward_from
+        | _ ->
+          raise (Except.UnknownError "Unexpected event source!")
       );
-      last_ev := Some ev
     )
     events_rev;
   (* backward pass *)
-  List.iteri
-    (fun idx (ev : event) ->
+  List.iter
+    (fun (ev : event) ->
       let backward_to (ev' : event) =
         ev'.control_endps <- Utils.StringMap.merge (fun _ a b -> opt_update_backward (Option.get a |> snd) b) ev.control_endps ev'.control_endps;
         ev'.control_endps <- Utils.StringMap.merge (fun _ a b -> opt_update_backward (Option.get a |> snd) b) ev.current_endps ev'.control_endps
@@ -121,19 +123,21 @@ let gen_control_set (config : Config.compile_config) (g : event_graph) =
       (
         ev.control_endps <- Utils.StringMap.merge (fun _ a b -> opt_update_backward (let v = Option.get a in v + 1) b) !endp_use_cnt ev.control_endps;
         match ev.source with
-        | `Root -> ()
-      | `Later (e1, e2) ->
-        backward_to e1;
-        backward_to e2
-      | `Seq (ev', _) ->
-        backward_to ev'
-      | `Either (_e1, e2) ->
-        backward_to e2
-      | `Branch (c, ev') ->
-        if c.neg then
-          backward_to (List.nth g.events (idx + 1))
-        else
+        | `Root None -> ()
+        | `Later (e1, e2) ->
+          backward_to e1;
+          backward_to e2
+        | `Seq (ev', _) ->
           backward_to ev'
+        | `Branch (_, {branch_val_true = Some _e1; branch_val_false = Some e2; _}) ->
+          backward_to e2 (* to false side first *)
+        | `Root (Some (ev', br_side_info)) ->
+          if br_side_info.branch_side_sel then
+            backward_to ev'
+          else
+            Option.get br_side_info.owner_branch.branch_val_true |> backward_to
+        | _ ->
+          raise (Except.UnknownError "Unexpected event source!")
       )
     ) g.events;
   (* print_control_set g;
@@ -266,8 +270,18 @@ let msg_ident msg = Printf.sprintf "%s@%s" msg.endpoint msg.msg
 module StringHashtbl = Hashtbl.Make(String)
 
 let lifetime_check (config : Config.compile_config) (ci : cunit_info) (g : event_graph) =
+  if config.verbose then (
+    EventGraphOps.print_graph g;
+    Printf.eprintf "// BEGIN GRAPH IN DOT FORMAT\n";
+    Printf.eprintf "// can render to PDF with 'dot -Tpdf -O <filename>'\n";
+    EventGraphOps.print_dot_graph g Out_channel.stderr;
+    Printf.eprintf "// END GRAPH IN DOT FORMAT\n"
+  );
+
+  GraphAnalysis.events_prepare_outs g.events;
+
   (* check that it takes at least one cycle to execute *)
-  let root_ev = List.find (fun e -> e.source = `Root) g.events in
+  let root_ev = List.find (fun e -> e.source = `Root None) g.events in
   let last_ev = List.hd g.events in (* assuming reverse topo order *)
   let dist = event_min_distance g.events root_ev root_ev in
   if IntHashtbl.find dist last_ev.id = 0 then
@@ -276,11 +290,6 @@ let lifetime_check (config : Config.compile_config) (ci : cunit_info) (g : event
   gen_control_set config g;
   (* for debugging purposes*)
   if config.verbose then (
-    EventGraphOps.print_graph g;
-    Printf.eprintf "// BEGIN GRAPH IN DOT FORMAT\n";
-    Printf.eprintf "// can render to PDF with 'dot -Tpdf -O <filename>'\n";
-    EventGraphOps.print_dot_graph g Out_channel.stderr;
-    Printf.eprintf "// END GRAPH IN DOT FORMAT\n";
     print_control_set g
   );
   let reg_borrows = StringHashtbl.create 8 in (* regname -> (lifetime, range)*)

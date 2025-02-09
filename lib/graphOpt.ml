@@ -26,16 +26,23 @@ module CombSimplPass = struct
     let event_arr_old = List.rev graph.events |> Array.of_list in
     let check_pattern ev =
       match ev.source with
-      | `Either (ev1, ev2) -> (
+      | `Branch (ev', br_info) -> (
+        let ev1 = Option.get br_info.branch_val_true
+        and ev2 = Option.get br_info.branch_val_false in
         let ev1 = event_arr_old.(find_ufs event_ufs ev1.id) in
         let ev2 = event_arr_old.(find_ufs event_ufs ev2.id) in
         match ev1.source, ev2.source with
-        | `Branch (_cond1, ev1'), `Branch (_cond2, ev2') ->
-          if ev1'.id = ev2'.id && ev1.actions = [] && ev2.actions = [] then (
+        | `Root (Some (ev_1', br_side_1)), `Root (Some (ev_2', br_side_2)) ->
+          let br_ev1 = Option.get br_side_1.branch_event
+          and br_ev2 = Option.get br_side_2.branch_event in
+          if br_ev1.id = br_ev2.id &&
+             ev_1'.id = ev'.id &&
+             ev_2'.id = ev'.id &&
+            ev1.actions = [] && ev2.actions = [] then (
             (* we can merge the nodes ev, ev1, ev2 with ev1' *)
-            union_ufs event_ufs ev.id ev1'.id;
-            union_ufs event_ufs ev1.id ev1'.id;
-            union_ufs event_ufs ev2.id ev1'.id
+            union_ufs event_ufs ev.id ev'.id;
+            union_ufs event_ufs ev1.id ev'.id;
+            union_ufs event_ufs ev2.id ev'.id
           )
         | _ -> ()
       )
@@ -43,6 +50,7 @@ module CombSimplPass = struct
     in
     List.rev graph.events |> List.iter check_pattern;
     let to_keep = Array.init event_n (fun i -> find_ufs event_ufs i = i) in
+    (* Array.iteri (fun idx k -> Printf.eprintf "Keep %d = %b\n" idx k) to_keep; *)
     (* replace events *)
     let event_list_new = ref [] in
     let event_arr_old = List.rev graph.events |> List.mapi
@@ -102,16 +110,33 @@ module CombSimplPass = struct
         } in
         {sa with d}
       ) ev.sustained_actions in
+      let replace_branch_info br_info =
+        {
+          branch_cond = replace_timed_data br_info.branch_cond;
+          branch_to_true = Option.map replace_event br_info.branch_to_true;
+          branch_to_false = Option.map replace_event br_info.branch_to_false;
+          branch_val_true = Option.map replace_event br_info.branch_val_true;
+          branch_val_false = Option.map replace_event br_info.branch_val_false;
+        }
+      in
       if to_keep.(old_id) then (
         (* we just need to replace things *)
         ev.actions <- actions;
         ev.sustained_actions <- sustained_actions;
         let source' = match ev.source with
-        | `Root -> `Root
+        | `Root None -> `Root None
+        | `Root (Some (ev', br_side_info)) ->
+          `Root (Some (
+            replace_event ev',
+            {br_side_info with
+              branch_event = Option.map replace_event br_side_info.branch_event;
+              owner_branch = replace_branch_info br_side_info.owner_branch;
+            }
+          ))
         | `Later (ev1, ev2) -> `Later (replace_event ev1, replace_event ev2)
         | `Seq (ev', d) -> `Seq (replace_event ev', d)
-        | `Branch (cond, ev') -> `Branch ({cond with data = replace_timed_data cond.data}, replace_event ev')
-        | `Either (ev1, ev2) -> `Either (replace_event ev1, replace_event ev2)
+        | `Branch (ev', br_info) ->
+          `Branch (replace_event ev', replace_branch_info br_info)
         in
         ev.source <- source'
       ) else (
@@ -123,21 +148,8 @@ module CombSimplPass = struct
       )
     in
     Array.iteri merge_event event_arr_old;
-    let event_list_new = !event_list_new in
-    List.iter (fun ev -> ev.outs <- []) event_list_new;
-    List.iter (fun ev ->
-      match ev.source with
-      | `Later (e1, e2)
-      | `Either (e1, e2) ->
-        e1.outs <- ev::e1.outs;
-        e2.outs <- ev::e2.outs
-      | `Branch (_, ev')
-      | `Seq (ev', _) ->
-        ev'.outs <- ev::ev'.outs
-      | _ -> ()
-    ) event_list_new;
     {graph with
-      events = event_list_new;
+      events = !event_list_new;
       last_event_id = event_arr_old.(find_ufs event_ufs graph.last_event_id).id
     }
 end

@@ -34,23 +34,12 @@ module Typing = struct
         current_endps = Utils.StringMap.empty;
         outs = []; graph = g} in
       g.events <- n::g.events;
-      (
-        match source with
-        | `Later (e1, e2)
-        | `Either (e1, e2) ->
-          e1.outs <- n::e1.outs;
-          e2.outs <- n::e2.outs
-        | `Branch (_, ev')
-        | `Seq (ev', _) ->
-          ev'.outs <- n::ev'.outs
-        | _ -> ()
-      );
       n
     in
     (
       match source with
       | `Later (e1, e2) -> (
-        if GraphAnalysis.event_is_successor e1 e2 then
+        if GraphAnalysis.event_is_predecessor e2 e1 then
           e2
         else if GraphAnalysis.event_is_predecessor e1 e2 then
           e1
@@ -114,7 +103,7 @@ module Typing = struct
     type t = build_context
     let create_empty g si lt_check_phase: t = {
       typing_ctx = context_empty;
-      current = event_create g `Root;
+      current = event_create g (`Root None);
       shared_vars_info = si;
       lt_check_phase;
     }
@@ -125,8 +114,15 @@ module Typing = struct
       {ctx with typing_ctx = context_add ctx.typing_ctx v d}
     let wait g (ctx : t) (other : event) : t =
       {ctx with current = event_create g (`Later (ctx.current, other))}
-    let branch g (ctx : t) (td : timed_data) neg: t  =
-      {ctx with current = event_create g (`Branch ({data = td; neg}, ctx.current))}
+
+    (* returns a pair of contexts for *)
+    let branch_side g (ctx : t) (bi : branch_info) (sel : bool) : branch_side_info * t  =
+      let br_side_info = {branch_event = None; owner_branch = bi; branch_side_sel = sel} in
+      let event_side_root = event_create g (`Root (Some (ctx.current, br_side_info))) in
+      (br_side_info, {ctx with current = event_side_root})
+
+    let branch g (ctx : t) (br_info : branch_info) : t =
+      {ctx with current = event_create g (`Branch (ctx.current, br_info))}
   end
 
 
@@ -323,11 +319,21 @@ and visit_expr (graph : event_graph) (ci : cunit_info)
     (* TODO: type checking *)
     let w1 = unwrap_or_err "Invalid condition" e1.span td1.w in
     let ctx' = BuildContext.wait graph ctx td1.lt.live in
-    let ctx_true = BuildContext.branch graph ctx' td1 false in
+    let branch_info = {branch_cond = td1; branch_to_true = None; branch_to_false = None; branch_val_true = None; branch_val_false = None} in
+    let (br_side_true, ctx_true) = BuildContext.branch_side graph ctx' branch_info true in
+
+    branch_info.branch_to_true <- Some ctx_true.current;
     let td2 = visit_expr graph ci ctx_true e2 in
-    let ctx_false = BuildContext.branch graph ctx' td1 true in
+    branch_info.branch_val_true <- Some td2.lt.live;
+    let (br_side_false, ctx_false) = BuildContext.branch_side graph ctx' branch_info false in
+    branch_info.branch_to_false <- Some ctx_false.current;
     let td3 = visit_expr graph ci ctx_false e3 in
-    let lt = {live = Typing.event_create graph (`Either (td2.lt.live, td3.lt.live));
+    branch_info.branch_val_false <- Some td3.lt.live;
+
+    let ctx_br = BuildContext.branch graph ctx' branch_info in
+    br_side_true.branch_event <- Some ctx_br.current;
+    br_side_false.branch_event <- Some ctx_br.current;
+    let lt = {live = ctx_br.current; (* branch event is reached when either split event is reached *)
       dead = td1.lt.dead @ td2.lt.dead @td3.lt.dead} in
     let reg_borrows' = td1.reg_borrows @ td2.reg_borrows @ td3.reg_borrows in
     (

@@ -24,7 +24,6 @@ let print_graph (g: event_graph) =
   List.iter (fun ev ->
     match ev.source with
     | `Later (e1, e2) -> Printf.eprintf "> %d: later %d %d\n" ev.id e1.id e2.id
-    | `Either (e1, e2) -> Printf.eprintf "> %d: either %d %d\n" ev.id e1.id e2.id
     | `Seq (ev', a) ->
       let c = match a with
       | `Cycles n -> Printf.sprintf "C %d" n
@@ -33,8 +32,10 @@ let print_graph (g: event_graph) =
       | `Sync s -> Printf.sprintf "S %s" s
       in
       Printf.eprintf "> %d: seq %d %s\n" ev.id ev'.id c
-    | `Branch (c, ev') -> Printf.eprintf "> %d: branch %b %d\n" ev.id c.neg ev'.id
-    | `Root -> Printf.eprintf "> %d: root\n" ev.id
+    | `Branch (ev', _) -> Printf.eprintf "> %d: branch %d\n" ev.id ev'.id
+    | `Root None -> Printf.eprintf "> %d: root\n" ev.id
+    | `Root (Some (ev', br_side_info)) ->
+        Printf.eprintf "> %d: branch-root %b %d\n" ev.id br_side_info.branch_side_sel ev'.id
   ) g.events
 
 let print_dot_graph g out =
@@ -51,9 +52,6 @@ let print_dot_graph g out =
     | `Later (e1, e2) ->
       print_edge e1 ev "L";
       print_edge e2 ev "L"
-    | `Either (e1, e2) ->
-      print_edge e1 ev "E";
-      print_edge e2 ev "E"
     | `Seq (ev', a) ->
       let label = match a with
       | `Cycles n -> Printf.sprintf "#%d" n
@@ -62,9 +60,14 @@ let print_dot_graph g out =
       | `Sync _ -> "G"
       in
       print_edge ev' ev label
-    | `Branch (c, ev') ->
-      let label = if c.neg then "F" else "T" in
-      print_edge ev' ev label
-    | `Root -> ()
+    | `Branch (_, br_info) ->
+      let e1 = Option.get br_info.branch_val_true in
+      let e2 = Option.get br_info.branch_val_false in
+      print_edge e1 ev "B";
+      print_edge e2 ev "B"
+    | `Root None -> ()
+    | `Root (Some (ev', br_side_info)) ->
+      (if br_side_info.branch_side_sel then "T" else "F")
+        |> print_edge ev' ev
   ) g.events;
   Printf.fprintf out "}\n"

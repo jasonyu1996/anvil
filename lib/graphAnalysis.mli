@@ -4,7 +4,10 @@ val event_traverse : EventGraph.event -> ((EventGraph.event -> unit) -> EventGra
 val event_predecessors : EventGraph.event -> EventGraph.event list
 val event_successors : EventGraph.event -> EventGraph.event list
 val event_is_successor : EventGraph.event -> EventGraph.event -> bool
+
+(** {!events_prepare_outs} must be called first. *)
 val event_is_predecessor : EventGraph.event -> EventGraph.event -> bool
+
 val in_control_set_endps : EventGraph.event -> string -> bool
 val find_controller : string list -> EventGraph.event list -> EventGraph.event option
 val find_first_msg_after : EventGraph.event -> Lang.message_specifier -> bool -> EventGraph.event option
@@ -26,3 +29,15 @@ val event_max_distance : EventGraph.event list -> EventGraph.event -> EventGraph
 (** Check if two events are ordered in all possible traces in which both of them appear (also returns true if
     they never appear in the same trace as in two branches). *)
 val events_are_ordered : EventGraph.event list -> EventGraph.event -> EventGraph.event -> bool
+
+
+(** Visit events in topologically backward order *)
+val events_visit_backward : (EventGraph.event -> unit) -> EventGraph.event list -> unit
+
+(** Visit events in topologically forward order *)
+val events_visit_forward : (EventGraph.event -> unit) -> EventGraph.event list -> unit
+
+(** Compute the minimum distances to the nearest root among predecessors *)
+(* val events_min_dist_to_root : EventGraph.event list -> int Array.t *)
+
+val events_prepare_outs : EventGraph.event list -> unit
