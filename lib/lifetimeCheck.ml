@@ -462,6 +462,7 @@ let lifetime_check (config : Config.compile_config) (ci : cunit_info) (g : event
         )
       ) ev.sustained_actions in
     if self_check then (
+      (* on the self side, check that adjacent events are no more than gap cycles apart *)
       let is_first = ref true in
       List.iter
         (fun ev ->
@@ -493,6 +494,9 @@ let lifetime_check (config : Config.compile_config) (ci : cunit_info) (g : event
         ) g.events
     );
     if other_check then (
+      (* if the other side is static, this side needs checking that the adjacent
+      events are at least gap cycles apart; here we need to take into consideration
+      the root event to ensure that the reference point is the beginning of a loop *)
       let has_msg_end ev =
         match ev.source with
         | `Seq (ev', `Send msg')
@@ -508,25 +512,24 @@ let lifetime_check (config : Config.compile_config) (ci : cunit_info) (g : event
         (fun ev ->
           match has_msg ev with
           | Some sa ->
-            if !is_first then
-              is_first := false
-            else (
-              let slacks = GraphAnalysis.event_slack_graph g.events ev in
-              if config.verbose then (
-                Array.iteri (fun idx sl -> Printf.eprintf "Sl %d = %d\n" idx sl) slacks
-              );
-              List.iter (fun ev' ->
-                if has_msg_end ev' |> Option.is_none then
-                  slacks.(ev'.id) <- -event_distance_max
-              ) g.events;
-              let maxv = GraphAnalysis.event_predecessors ev |> List.map (fun ev' -> slacks.(ev'.id))
-                |> List.fold_left Int.max (-event_distance_max) in
-              if maxv > -gap then
-                let error_msg = Printf.sprintf "Static sync mode mismatch (actual gap = %d < expected gap %d)!"
-                  (-maxv) gap
-                in
-                raise (EventGraphError (error_msg, sa.span))
-            )
+            let slacks = GraphAnalysis.event_slack_graph g.events ev in
+            if config.verbose then (
+              Array.iteri (fun idx sl -> Printf.eprintf "Sl %d = %d\n" idx sl) slacks
+            );
+            List.iter (fun ev' ->
+              if !is_first && (ev'.source = `Root None) then
+                slacks.(ev'.id) <- slacks.(ev'.id) - 1
+              else if has_msg_end ev' |> Option.is_none then
+                slacks.(ev'.id) <- -event_distance_max
+            ) g.events;
+            is_first := false;
+            let maxv = GraphAnalysis.event_predecessors ev |> List.map (fun ev' -> slacks.(ev'.id))
+              |> List.fold_left Int.max (-event_distance_max) in
+            if maxv > -gap then
+              let error_msg = Printf.sprintf "Static sync mode mismatch (actual gap = %d < expected gap %d)!"
+                (-maxv) gap
+              in
+              raise (EventGraphError (error_msg, sa.span))
           | None -> ()
         ) (List.rev g.events)
     )
