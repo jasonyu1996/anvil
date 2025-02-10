@@ -99,6 +99,9 @@ module Typing = struct
   let context_lookup (ctx : context) (v : identifier) = Utils.StringMap.find_opt v ctx
   (* checks if lt lives at least as long as required *)
 
+  let context_clear_used =
+    Utils.StringMap.map (fun r -> {r with binding_used = false})
+
   module BuildContext = struct
     type t = build_context
     let create_empty g si lt_check_phase: t = {
@@ -119,10 +122,18 @@ module Typing = struct
     let branch_side g (ctx : t) (bi : branch_info) (sel : bool) : branch_side_info * t  =
       let br_side_info = {branch_event = None; owner_branch = bi; branch_side_sel = sel} in
       let event_side_root = event_create g (`Root (Some (ctx.current, br_side_info))) in
-      (br_side_info, {ctx with current = event_side_root})
+      (br_side_info, {ctx with current = event_side_root; typing_ctx = context_clear_used ctx.typing_ctx})
 
     let branch g (ctx : t) (br_info : branch_info) : t =
       {ctx with current = event_create g (`Branch (ctx.current, br_info))}
+
+    (* merge the used state in context *)
+    let branch_merge ctx ctx1 ctx2 =
+      Utils.StringMap.iter (fun ident r ->
+        if r.binding_used && (Utils.StringMap.find ident ctx2.typing_ctx).binding_used then (
+          (Utils.StringMap.find ident ctx.typing_ctx).binding_used <- true
+        )
+      ) ctx1.typing_ctx
   end
 
 
@@ -329,6 +340,8 @@ and visit_expr (graph : event_graph) (ci : cunit_info)
     branch_info.branch_to_false <- Some ctx_false.current;
     let td3 = visit_expr graph ci ctx_false e3 in
     branch_info.branch_val_false <- Some td3.lt.live;
+
+    BuildContext.branch_merge ctx' ctx_true ctx_false;
 
     let ctx_br = BuildContext.branch graph ctx' branch_info in
     br_side_true.branch_event <- Some ctx_br.current;
