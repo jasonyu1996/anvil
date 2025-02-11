@@ -4,10 +4,11 @@ chan ch = {
 
 proc receiver(ch : left ch) =
     loop {
-        let in1 = recv ch.req in
         (
             if (ready ch.req) then
-               ( in1 =>
+               (
+                let in1 = recv ch.req in
+                in1 =>
                 dprint "Received: %d" (in1))
             else
                 dprint "Not ready" ();
