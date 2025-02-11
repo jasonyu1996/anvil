@@ -63,6 +63,7 @@ module Typing = struct
     let ev = event_create g (`Later (current, td.lt.live)) in
     {td with lt = {td.lt with live = ev}}
 
+  let immediate_data _g (w : wire option) dtype (current : event) = {w; lt = lifetime_immediate current; reg_borrows = []; dtype}
   let const_data _g (w : wire option) dtype (current : event) = {w; lt = lifetime_const current; reg_borrows = []; dtype}
   let merged_data g (w : wire option) dtype (current : event) (tds : timed_data list) =
     let lts = List.map (fun x -> x.lt) tds in
@@ -323,7 +324,7 @@ and visit_expr (graph : event_graph) (ci : cunit_info)
     );
     let wires, msg_valid_port = WireCollection.add_msg_valid_port graph.thread_id ci.typedefs msg_spec graph.wires in
     graph.wires <- wires;
-    Typing.const_data graph (Some msg_valid_port) `Logic ctx.current
+    Typing.immediate_data graph (Some msg_valid_port) `Logic ctx.current
   | Cycle n -> Typing.cycles_data graph n ctx.current
   | IfExpr (e1, e2, e3) ->
     let td1 = visit_expr graph ci ctx e1 in
