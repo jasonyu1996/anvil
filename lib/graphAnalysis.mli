@@ -1,11 +1,22 @@
 (** This module provides a set of helper functions for performing analyses on the event graph. *)
 
 val event_traverse : EventGraph.event -> ((EventGraph.event -> unit) -> EventGraph.event -> unit) -> EventGraph.event list
+
+
+(** Compute predecessors of an event in the event graph.
+    Does not include the event itself.
+    Result in topological order.
+*)
 val event_predecessors : EventGraph.event -> EventGraph.event list
+
+(** {!events_prepare_outs} must be called first.
+    Does not include the event itself.
+    Result in topological order. *)
 val event_successors : EventGraph.event -> EventGraph.event list
-val event_is_successor : EventGraph.event -> EventGraph.event -> bool
 
 (** {!events_prepare_outs} must be called first. *)
+val event_is_successor : EventGraph.event -> EventGraph.event -> bool
+
 val event_is_predecessor : EventGraph.event -> EventGraph.event -> bool
 
 val in_control_set_endps : EventGraph.event -> string -> bool
@@ -41,3 +52,12 @@ val events_visit_forward : (EventGraph.event -> unit) -> EventGraph.event list -
 (* val events_min_dist_to_root : EventGraph.event list -> int Array.t *)
 
 val events_prepare_outs : EventGraph.event list -> unit
+
+(** [event_is_dominant e e'] checks if event [e'] is dominant over [e]: [e']
+- appears in all traces with [e], and
+- is reached {i no later than} [e].
+
+Note that this is different from {!event_is_predecessor}. [e'] can be a predecessor
+of [e] without being dominant.
+*)
+val event_is_dominant : EventGraph.event -> EventGraph.event -> bool

@@ -39,9 +39,9 @@ module Typing = struct
     (
       match source with
       | `Later (e1, e2) -> (
-        if GraphAnalysis.event_is_predecessor e2 e1 then
+        if GraphAnalysis.event_is_dominant e2 e1 then
           e2
-        else if GraphAnalysis.event_is_predecessor e1 e2 then
+        else if GraphAnalysis.event_is_dominant e1 e2 then
           e1
         else
           event_create_inner ()

@@ -21,9 +21,6 @@ let event_traverse (ev : event) visitor : event list =
   done;
   !res
 
-(** Compute predecessors of an event in the event graph.
-  Result in topological order
-*)
 let event_predecessors (ev : event) : event list =
   let visitor add_to_queue cur =
     match cur.source with
@@ -39,7 +36,6 @@ let event_predecessors (ev : event) : event list =
   in
   event_traverse ev visitor
 
-(* Result in topological order *)
 let event_successors (ev : event) : event list =
   let visitor add_to_queue cur =
     List.iter add_to_queue cur.outs
@@ -289,3 +285,30 @@ let events_prepare_outs events =
       ev'.outs <- ev::ev'.outs
     | `Root None -> ()
   ) events
+
+let event_is_dominant e1 e2 =
+  let preds = (event_predecessors e1) @ [e1] in
+  (* max id + 1 *)
+  let n = (List.fold_left (fun i e -> Int.max i e.id) 0 preds) + 1 in
+  let is_dominated = Array.make n false in
+  List.iter (fun e ->
+    let d =
+      if e.id = e2.id then
+        true
+      else (
+        match e.source with
+        | `Root None -> false
+        | `Later (e1, e2) ->
+          is_dominated.(e1.id) || is_dominated.(e2.id)
+        | `Seq (e', _) ->
+          is_dominated.(e'.id)
+        | `Branch (_, {branch_val_true = Some e1; branch_val_false = Some e2; _}) ->
+          is_dominated.(e1.id) && is_dominated.(e2.id)
+        | `Root (Some (e', _)) ->
+          is_dominated.(e'.id)
+        | _ -> raise (Except.UnknownError "Unexpected event source!")
+      )
+    in
+    is_dominated.(e.id) <- d
+  ) preds;
+  is_dominated.(e1.id)
