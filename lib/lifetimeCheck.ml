@@ -194,7 +194,7 @@ let event_pat_rel events (ev_pat1 : event_pat) (ev_pat2 : event_pat) =
                 let d = get_dist ev2 in
                 n1 <= d + n2
               else (
-                let slacks = event_slack_graph events ev2 in
+                let slacks = events_max_dist events ev2 in
                 let d = slacks.(ev1.id) in
                 n1 + d <= n2
               )
@@ -221,7 +221,7 @@ let event_pat_rel events (ev_pat1 : event_pat) (ev_pat2 : event_pat) =
               | `Cycles n2 -> (* earliest estimate *)
                 if event_is_predecessor ev2 ri1 then true
                 else (
-                  let slacks = event_slack_graph events ev2 in
+                  let slacks = events_max_dist events ev2 in
                   let d = slacks.(ri1.id) in
                   d <= n2
                 )
@@ -471,7 +471,7 @@ let lifetime_check (config : Config.compile_config) (ci : cunit_info) (g : event
               if !is_first then
                 is_first := false (* skip the first msg (comes last) *)
               else (
-                let slacks = GraphAnalysis.event_slack_graph g.events sa.d.until in
+                let slacks = GraphAnalysis.events_max_dist g.events sa.d.until in
                 (* mask out events that do not have the message *)
                 List.iter (fun ev' ->
                   if has_msg ev' |> Option.is_none then
@@ -512,7 +512,7 @@ let lifetime_check (config : Config.compile_config) (ci : cunit_info) (g : event
         (fun ev ->
           match has_msg ev with
           | Some sa ->
-            let slacks = GraphAnalysis.event_slack_graph g.events ev in
+            let slacks = GraphAnalysis.events_max_dist g.events ev in
             if config.verbose then (
               Array.iteri (fun idx sl -> Printf.eprintf "Sl %d = %d\n" idx sl) slacks
             );

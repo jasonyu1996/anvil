@@ -61,3 +61,18 @@ Note that this is different from {!event_is_predecessor}. [e'] can be a predeces
 of [e] without being dominant.
 *)
 val event_is_dominant : EventGraph.event -> EventGraph.event -> bool
+
+(** Compute an approximate min distance for each predecessor of an event.
+    The approximation can be smaller than the actual possible distance.
+    The return results use [-1] to indicate that an event is not a predecessor. *)
+val events_pred_min_dist : EventGraph.event -> int Array.t
+
+(** Compute approximate max distance from a given event to {i any} event in the graph.
+    This does not require the two events to be on a shared path. The approximation
+    can be larger than the actual possible distance.
+
+    This is essentially a newer version of {!event_slack_graph} that
+    handles branches correctly but is more relaxed for graphs
+    without branches.
+*)
+val events_max_dist : EventGraph.event list -> EventGraph.event -> int Array.t

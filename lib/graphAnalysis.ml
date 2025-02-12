@@ -312,3 +312,97 @@ let event_is_dominant e1 e2 =
     is_dominated.(e.id) <- d
   ) preds;
   is_dominated.(e1.id)
+
+let events_pred_min_dist ev =
+  let preds = (event_predecessors ev) @ [ev] in
+  let n = (List.fold_left (fun i e -> Int.max i e.id) 0 preds) + 1 in
+  let is_preds = Array.make n false in
+  let check_is_pred e = e.id < n && is_preds.(e.id) in
+  List.iter (fun e -> is_preds.(e.id) <- true) preds;
+  let res = Array.make n (-1) in
+  let seen_branches = ref Utils.IntSet.empty in
+  res.(ev.id) <- 0;
+  let update_dist e v =
+    if res.(e.id) < v then
+      res.(e.id) <- v
+  in
+  List.rev preds
+    |> List.iter (fun e ->
+      let v = res.(e.id) in
+      match e.source with
+      | `Seq (e', d) -> (
+        let gap =
+          match d with
+          | `Cycles n -> n
+          | `Send _ | `Recv _
+          | `Sync _ -> 0
+        in
+        update_dist e' (v + gap)
+      )
+      | `Later (e1, e2)
+      | `Branch (_, {branch_val_true = Some e1; branch_val_false = Some e2; _}) -> (
+        update_dist e1 v;
+        update_dist e2 v
+      )
+      | `Root None -> ()
+      | `Root (Some (e', {branch_event = Some br_ev; owner_branch; branch_side_sel})) -> (
+        if Utils.IntSet.mem br_ev.id !seen_branches then (
+          (* only pass when the both sides have been reached *)
+          let e1 = Option.get owner_branch.branch_to_true
+          and e2 = Option.get owner_branch.branch_to_false in
+          let v1 = res.(e1.id) in
+          let v2 = res.(e2.id) in
+          update_dist e' (Int.min v1 v2)
+        ) else (
+          (* the other side of the branch may not be a predecessor, in which
+          case we just pass through the result as there is no real branching *)
+          let other =
+            (if branch_side_sel then owner_branch.branch_to_false else owner_branch.branch_to_true)
+            |> Option.get in
+          if check_is_pred other then
+            seen_branches := Utils.IntSet.add br_ev.id !seen_branches
+          else
+            update_dist e' v
+        )
+      )
+      | _ -> raise (Except.UnknownError "Unexpected event source!")
+    );
+  res
+
+let events_max_dist events ev =
+  let n = List.length events in
+  let res = Array.make n (-event_distance_max) in
+  let pred_min_dist = events_pred_min_dist ev in
+  let pred_min_dist_mxn = Array.length pred_min_dist in
+  let is_pred e' = e'.id < pred_min_dist_mxn && pred_min_dist.(e'.id) >= 0 in
+  let update_dist e v =
+    if res.(e.id) < v then
+      res.(e.id) <- v
+  in
+  List.rev events
+    |> List.iter (fun e ->
+      let v =
+        if is_pred e then -pred_min_dist.(e.id)
+        else (
+          (* propagate *)
+          match e.source with
+          | `Root None -> -event_distance_max
+          | `Seq (e', d) -> (
+            let gap =
+              match d with
+              | `Cycles n -> n
+              | `Send _ | `Recv _ | `Sync _ -> event_distance_max (* oo *)
+            in
+            res.(e'.id) + gap
+          )
+          | `Later (e1, e2)
+          | `Branch (_, {branch_val_true = Some e1; branch_val_false = Some e2; _}) ->
+            Int.max (res.(e1.id)) (res.(e2.id))
+          | `Root (Some (e', _)) ->
+            res.(e'.id)
+          | _ -> raise (Except.UnknownError "Unexpected event source!")
+        )
+      in
+      update_dist e v
+    );
+  res
