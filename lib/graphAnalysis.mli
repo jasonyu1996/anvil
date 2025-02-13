@@ -10,7 +10,7 @@ val event_traverse : EventGraph.event -> ((EventGraph.event -> unit) -> EventGra
 val event_predecessors : EventGraph.event -> EventGraph.event list
 
 (** {!events_prepare_outs} must be called first.
-    Does not include the event itself.
+    Includes the event itself.
     Result in topological order. *)
 val event_successors : EventGraph.event -> EventGraph.event list
 
@@ -76,3 +76,15 @@ val events_pred_min_dist : EventGraph.event -> int Array.t
     without branches.
 *)
 val events_max_dist : EventGraph.event list -> EventGraph.event -> int Array.t
+
+(** Returns all events with a specific message. Those are the {i until} events of messages (when
+    send/recv completes). *)
+val events_with_msg : EventGraph.event list -> Lang.message_specifier -> EventGraph.event list
+
+
+(** Returns an array indicating whether each event is reachable when a given event is reached. *)
+val events_reachable : EventGraph.event list -> EventGraph.event -> bool Array.t
+
+(** Over-approximation of first events with send/recv of a given message
+    {i after} (with greater timestamp than) a given event. *)
+val events_first_msg : EventGraph.event list -> EventGraph.event -> Lang.message_specifier -> EventGraph.event list

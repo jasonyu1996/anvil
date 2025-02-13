@@ -20,6 +20,13 @@ let subreg_ranges_possibly_intersect r1 r2 =
     | _ -> true
     )
 
+let branch_other_side br_side_info =
+  (if br_side_info.branch_side_sel then
+    br_side_info.owner_branch.branch_to_false
+  else
+    br_side_info.owner_branch.branch_to_true)
+  |> Option.get
+
 let print_graph (g: event_graph) =
   List.iter (fun ev ->
     match ev.source with

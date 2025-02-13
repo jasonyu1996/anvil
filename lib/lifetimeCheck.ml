@@ -174,7 +174,7 @@ module IntHashtbl = Hashtbl.Make(Int)
 (** Is ev_pat1 matched always no later than ev_pat2 is matched?
 Produce a conservative result.
 Only length 1 ev_pat1 supported. *)
-let event_pat_rel events (ev_pat1 : event_pat) (ev_pat2 : event_pat) =
+let _event_pat_rel events (ev_pat1 : event_pat) (ev_pat2 : event_pat) =
   if (List.length ev_pat1) <> 1 then
     false
   else (
@@ -238,6 +238,59 @@ let event_pat_rel events (ev_pat1 : event_pat) (ev_pat2 : event_pat) =
     List.for_all (fun (ev2, d_pat2) -> check_f ev2 d_pat2) ev_pat2
   )
 
+(* Newer and more rigorous algorithm. *)
+let event_pat_rel2 events ev_pat1 ev_pat2 =
+  let get_points_dist (ev, d_pat) =
+    match d_pat with
+    | `Cycles n -> ([ev], n)
+    | `Eternal -> ([ev], -1)
+    | `Message m ->
+      let g = GraphAnalysis.events_first_msg events ev m in
+      (* Printf.eprintf "FM %d %d\n" ev.id (List.length g); *)
+      (g, 0)
+  in
+  match ev_pat1 with
+  | [spat1] -> (
+    (* source_points is the set of source points to consider *)
+    (* dist1 is the distance required, -1 to indicate eternal *)
+    let (source_points, dist1) = get_points_dist spat1 in
+    (* Printf.eprintf "Sources %d (%d) = " (fst spat1).id dist1;
+    List.iter (fun source -> Printf.eprintf "%d " source.id) source_points;
+    Printf.eprintf "\n"; *)
+    let targets_list = List.map get_points_dist ev_pat2 in
+    if dist1 = -1 then
+      List.for_all (fun (_, dist2) -> dist2 = -1) targets_list
+    else (
+      (* dist1 != -1 *)
+      List.for_all (fun (target_points, dist2) ->
+        if dist2 = -1 then
+          true
+        else (
+          (* Printf.eprintf "Targets (%d) = " dist2;
+          List.iter (fun target -> Printf.eprintf "%d " target.id) target_points;
+          Printf.eprintf "\n"; *)
+          (* neither dist2 nor dist1 is -1 *)
+          List.for_all (fun target ->
+            let slacks = GraphAnalysis.events_max_dist events target in
+            List.for_all (fun source -> slacks.(source.id) <= dist2 - dist1) source_points
+          ) target_points
+        )
+      ) targets_list
+      (* List.for_all (fun source ->
+        let slacks = GraphAnalysis.events_max_dist events source in
+        List.for_all (fun (target_points, dist2) ->
+          if dist2 = -1 then
+            true
+          else (
+            (* neither dist2 nor dist1 is -1 *)
+            List.for_all (fun target -> slacks.(target.id) <= dist2 - dist1) target_points
+          )
+        ) targets_list
+      ) source_points *)
+    )
+  )
+  | _ -> false (* not to be supported *)
+
 (** Check that lt1 is always fully covered by lt2 *)
 let lifetime_in_range events (lt1 : lifetime) (lt2 : lifetime) =
   (* 1. check if lt2's start is a predecessor of lt1's start *)
@@ -247,8 +300,8 @@ let lifetime_in_range events (lt1 : lifetime) (lt2 : lifetime) =
     let r = event_pat_matches lt1.live lt2.dead in
     (not r.at) && (not r.aft)
   ) *)
-  (event_pat_rel events [(lt2.live, `Cycles 0)] [(lt1.live, `Cycles 0)])
-    && (event_pat_rel events lt1.dead lt2.dead)
+  (event_pat_rel2 events [(lt2.live, `Cycles 0)] [(lt1.live, `Cycles 0)])
+    && (event_pat_rel2 events lt1.dead lt2.dead)
 
 (** Definitely disjoint? *)
 let lifetime_disjoint events lt1 lt2 =
@@ -258,8 +311,8 @@ let lifetime_disjoint events lt1 lt2 =
   in
   assert (List.length lt1.dead = 1);
   (* to be disjoint, either r1 <= l2 or r2 <= l1 *)
-  (event_pat_rel events lt1.dead [(lt2.live, `Cycles 0)])
-  || (List.for_all (fun de -> event_pat_rel events [de] [(lt1.live, `Cycles 0)]) lt2.dead)
+  (event_pat_rel2 events lt1.dead [(lt2.live, `Cycles 0)])
+  || (List.for_all (fun de -> event_pat_rel2 events [de] [(lt1.live, `Cycles 0)]) lt2.dead)
   || ((separated_branches lt1.live (List.hd lt2.dead |> fst))
       && (separated_branches lt2.live (List.hd lt1.dead |> fst)))
 

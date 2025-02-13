@@ -42,6 +42,14 @@ let event_successors (ev : event) : event list =
   in
   event_traverse ev visitor |> List.rev
 
+let events_pred events ev =
+  let n = List.length events in
+  let preds = event_predecessors ev in
+  let event_is_pred = Array.make n false in
+  List.iter (fun e -> event_is_pred.(e.id) <- true) preds;
+  (preds, event_is_pred)
+
+
 let event_is_successor (ev : event) (ev' : event) =
   event_successors ev |> List.exists (fun x -> x.id = ev'.id)
 
@@ -406,3 +414,83 @@ let events_max_dist events ev =
       update_dist e v
     );
   res
+
+let events_reachable events ev =
+  let n = List.length events in
+  let event_is_reachable = Array.make n true in
+  let (preds, is_pred) = events_pred events ev in
+  let preds = preds @ [ev] in
+  List.iter (fun e ->
+      match e.source with
+      | `Root (Some (_, br_side_info)) ->
+        (* invalidate the other side of the branch if it's not a predecessor *)
+        let other_side = EventGraphOps.branch_other_side br_side_info in
+        if not is_pred.(other_side.id) then
+          event_is_reachable.(other_side.id) <- false
+      | _ -> ()
+    ) preds;
+  (* now propagate *)
+  List.rev events
+  |> List.iter (fun e ->
+      if event_is_reachable.(e.id) then (
+        let reachable =
+          match e.source with
+          | `Root _ -> true
+          | `Later (e1, e2) -> event_is_reachable.(e1.id) && event_is_reachable.(e2.id)
+          | `Seq (e', _) -> event_is_reachable.(e'.id)
+          | `Branch (_, {branch_val_true = Some e1; branch_val_false = Some e2; _}) ->
+            event_is_reachable.(e1.id) || event_is_reachable.(e2.id)
+          | _ -> raise (Except.UnknownError "Unexpected event source!")
+        in
+        event_is_reachable.(e.id) <- reachable
+      )
+    );
+  event_is_reachable
+
+let events_with_msg events msg =
+  List.filter (fun e ->
+      match e.source with
+      | `Seq (_, `Send msg') | `Seq (_, `Recv msg') ->
+        msg' = msg
+      | _ -> false
+    ) events
+
+let events_first_msg events ev msg =
+  let n = List.length events in
+  let path_has_msg = Array.make n false in
+  let event_has_msg = Array.make n false in
+  events_with_msg events msg
+    |> List.iter (fun e -> event_has_msg.(e.id) <- true);
+  let succs = event_successors ev in
+  let event_is_succ = Array.make n false in
+  List.iter (fun e -> event_is_succ.(e.id) <- true) succs;
+  let preds = event_predecessors ev in
+  let event_is_pred = Array.make n false in
+  List.iter (fun e -> event_is_pred.(e.id) <- true) preds;
+  let event_succ_masked_has_msg e = ev.id <> e.id && event_is_succ.(e.id) && event_has_msg.(e.id) in
+  assert (event_succ_masked_has_msg ev |> not);
+  List.iter (fun e ->
+      let v =
+        match e.source with
+        | `Root None -> false
+        | `Later (e1, e2) ->
+            path_has_msg.(e1.id) || path_has_msg.(e2.id)
+              || (event_succ_masked_has_msg e1) || (event_succ_masked_has_msg e2)
+        | `Root (Some (e', _))
+        | `Seq (e', _) -> path_has_msg.(e'.id) || (event_succ_masked_has_msg e')
+        | `Branch (_, {branch_val_true = Some e1; branch_val_false = Some e2; _}) ->
+          (path_has_msg.(e1.id) || event_succ_masked_has_msg e1)
+            && (path_has_msg.(e2.id) || event_succ_masked_has_msg e2)
+        | _ -> raise (Except.UnknownError "Unexpected event source!")
+      in
+      path_has_msg.(e.id) <- v
+    ) succs;
+  (* now handle those that are neither predecessor nor successor but remove those in other sides of branches *)
+  let reachable = events_reachable events ev in
+  (* reachable non-predecessor or first successor *)
+  List.filter (fun e ->
+      event_has_msg.(e.id) && e.id <> ev.id && (
+        (not event_is_pred.(e.id) && not event_is_succ.(e.id) && reachable.(e.id)) ||
+        (event_is_succ.(e.id) && not path_has_msg.(e.id))
+      )
+    ) events
