@@ -469,6 +469,7 @@ let events_first_msg events ev msg =
   List.iter (fun e -> event_is_pred.(e.id) <- true) preds;
   let event_succ_masked_has_msg e = ev.id <> e.id && event_is_succ.(e.id) && event_has_msg.(e.id) in
   assert (event_succ_masked_has_msg ev |> not);
+  let reachable = events_reachable events ev in
   List.iter (fun e ->
       let v =
         match e.source with
@@ -479,14 +480,18 @@ let events_first_msg events ev msg =
         | `Root (Some (e', _))
         | `Seq (e', _) -> path_has_msg.(e'.id) || (event_succ_masked_has_msg e')
         | `Branch (_, {branch_val_true = Some e1; branch_val_false = Some e2; _}) ->
-          (path_has_msg.(e1.id) || event_succ_masked_has_msg e1)
-            && (path_has_msg.(e2.id) || event_succ_masked_has_msg e2)
+          if not reachable.(e1.id) then
+            path_has_msg.(e2.id) || event_succ_masked_has_msg e2
+          else if not reachable.(e2.id) then
+            path_has_msg.(e1.id) || event_succ_masked_has_msg e1
+          else
+            (path_has_msg.(e1.id) || event_succ_masked_has_msg e1)
+              && (path_has_msg.(e2.id) || event_succ_masked_has_msg e2)
         | _ -> raise (Except.UnknownError "Unexpected event source!")
       in
       path_has_msg.(e.id) <- v
     ) succs;
   (* now handle those that are neither predecessor nor successor but remove those in other sides of branches *)
-  let reachable = events_reachable events ev in
   (* reachable non-predecessor or first successor *)
   List.filter (fun e ->
       event_has_msg.(e.id) && e.id <> ev.id && (

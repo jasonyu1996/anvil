@@ -18,6 +18,6 @@ proc bug_stuck () =
     chan ch_le -- ch_ri : ch
     spawn comm(ch_le)
     loop{
-        send ch_ri.req(1'd1);
+        send ch_ri.req(1'd1) =>
         cycle 2
     }

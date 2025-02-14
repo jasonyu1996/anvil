@@ -32,6 +32,7 @@ proc test_send() =
         let x = recv ch2_in.req in
         x=>
         dprint "Received on ch2_in: %d" (x);
+        cycle 1 =>
         send ch2_in.res(1'b1)=>
         dprint "done" ()
         => cycle 1

@@ -44,6 +44,7 @@ proc FIFO_Cache(ch : left cache_read, ch_mem : right memory_read) =
             let address = recv ch.req in
             address =>
             (
+                cycle 1;
                 dprint "(FIFO_Cache) Cache Request recieved for address %d in cycle %d" (address, *cycle_counter);
                 let tag_bits = address[4+:4] in
                 (
@@ -114,13 +115,13 @@ proc FIFO_Cache(ch : left cache_read, ch_mem : right memory_read) =
                         )
                     )
                 )
-            
+
         )=>
         send ch.res(*senddata)=>
         dprint "(FIFO_Cache) Cache Response sent in cycle %d" (*cycle_counter);
         cycle 1
     }
-    
+
 
 
 proc Main_Memory(ch : left memory_read, write_ch : left memory_write) =
@@ -147,10 +148,10 @@ proc Main_Memory(ch : left memory_read, write_ch : left memory_write) =
         x=>
         (
             (set memory[x.address] := x.data;
-            cycle 1)=>   
+            cycle 1)=>
             send write_ch.res(1'b1);
             cycle 1
-            
+
         )
     }
 
@@ -170,69 +171,69 @@ proc cache ()=
         cycle 1
     }
     loop {
-    (  
+    (
         if *count == 4'b0000 then
         (
             set address := 8'b00000000;
             set data := 8'b01010101
-            
+
         )
         else (
             if *count == 4'b0001 then
             (
                 set address := 8'b00010000;
                 set data := 8'b10101110
-                
+
             )
             else (
                 if *count == 4'b0010 then
                 (
                     set address := 8'b00100000;
                     set data := 8'b11011001
-                    
+
                 )
-                else 
+                else
                 (
                     if *count == 4'b0011 then
                     (
                         set address := 8'b00110000;
                         set data := 8'b11111111
-                        
+
                     )
 
-                    else 
+                    else
                     (
                         if *count == 4'b0100 then
                         (
                             set address := 8'b00000000
-                            
+
                         )
-    
-                        else 
+
+                        else
                         (
                             if *count == 4'b0101 then
                             (
                                 set address := 8'b00010000
-                            
+
                             )
-                            else 
+                            else
                             (
                                 if *count == 4'b0110 then
-                                (   
+                                (
                                     set address := 8'b00100000
                                 )
-                                else 
+                                else
                                 (
                                     if *count == 4'b0111 then
                                     (
-                                        
+
                                         set address := 8'b00110000
                                     )
                                     else
                                     (
-                                        
+
                                         set address := 8'b00000000
-                                        
+
                                     )
                                 )
                             )
@@ -251,7 +252,7 @@ proc cache ()=
             y =>
             dprint "(Top) Memory Write (%d) Complete in address %d: %d in cycle %d\n" (*count, *address, *data, *cycle_counter);
             set count := *count + 4'b0001
-            
+
         )
         else
         (

@@ -27,7 +27,7 @@ loop {
             let in1 = recv ch1.req in
             in1=>
             set result := in1;
-            set InReady := 1'b1;
+            set InReady := 1'b1 =>
             send ch1.res(1'b1)
             )
         else if (ready ch2.req) then
@@ -35,7 +35,7 @@ loop {
             let in2 = recv ch2.req in
             in2=>
             set result := in2;
-            set InReady := 1'b1;
+            set InReady := 1'b1 =>
             send ch2.res(1'b1)
             )
         else if (ready ch3.req) then
@@ -43,7 +43,7 @@ loop {
             let in3 = recv ch3.req in
             in3=>
             set result := in3;
-            set InReady := 1'b1;
+            set InReady := 1'b1 =>
             send ch3.res(1'b1)
             )
         else if (ready ch4.req) then
@@ -51,7 +51,7 @@ loop {
             let in4 = recv ch4.req in
             in4=>
             set result := in4;
-            set InReady := 1'b1;
+            set InReady := 1'b1 =>
             send ch4.res(1'b1)
             )
         else (
