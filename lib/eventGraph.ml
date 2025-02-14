@@ -56,6 +56,7 @@ and subreg_range = {
 and reg_borrow = {
   borrow_range : subreg_range; (** the sub-register borrowed *)
   borrow_start : event; (** the event when the borrow starts *)
+  borrow_source_span : Lang.code_span (** code span of the site of the borrow *)
 }
 
 (** Data with a lifetime and potentially borrowing from a set of registers. *)

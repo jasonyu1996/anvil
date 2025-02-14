@@ -372,7 +372,7 @@ and visit_expr (graph : event_graph) (ci : cunit_info)
     let (wires', w) = WireCollection.add_reg_read graph.thread_id ci.typedefs ci.macro_defs r graph.wires in
     graph.wires <- wires';
     let sz = TypedefMap.data_type_size ci.typedefs ci.macro_defs r.dtype in
-    let borrow = {borrow_range = full_reg_range reg_ident sz; borrow_start = ctx.current} in
+    let borrow = {borrow_range = full_reg_range reg_ident sz; borrow_start = ctx.current; borrow_source_span = e.span} in
     {w = Some w; lt = EventGraphOps.lifetime_const ctx.current; reg_borrows = [borrow]; dtype = r.dtype}
   | Debug op ->
     (

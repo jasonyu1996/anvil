@@ -342,21 +342,22 @@ let lifetime_check (config : Config.compile_config) (ci : cunit_info) (g : event
   let reg_borrows = StringHashtbl.create 8 in (* regname -> (lifetime, range)*)
   let msg_borrows = StringHashtbl.create 8 in
   (* check lifetime for each use of a wire *)
-  let not_borrowed_reg s lt range =
+  let intersects_borrowed_reg s lt range =
     let borrows = StringHashtbl.find_opt reg_borrows s |> Option.value ~default:[] in
-    List.for_all (fun (lt', range') ->
-      (EventGraphOps.subreg_ranges_possibly_intersect range range' |> not) || (lifetime_disjoint g.events lt lt'))
+    List.filter (fun (lt_tagged', range') ->
+      (EventGraphOps.subreg_ranges_possibly_intersect range range') && (lifetime_disjoint g.events lt lt_tagged'.d |> not))
       borrows
   in
-  let not_borrowed_msg_and_add s lt =
+  let intersects_borrowed_msg_and_add s lt_tagged =
+    let lt = lt_tagged.d in
     let borrows = StringHashtbl.find_opt msg_borrows s |> Option.value ~default:[] in
-    let not_borrowed = List.for_all (lifetime_disjoint g.events lt) borrows in
-    if not_borrowed then StringHashtbl.replace msg_borrows s (lt::borrows);
-    not_borrowed
+    let intersects = List.filter (fun lt_tagged' -> lifetime_disjoint g.events lt lt_tagged'.d |> not) borrows in
+    if intersects = [] then StringHashtbl.replace msg_borrows s (lt_tagged::borrows);
+    intersects
   in
-  let borrow_add_reg s lt range =
+  let borrow_add_reg s lt_tagged range =
     let borrows = StringHashtbl.find_opt reg_borrows s |> Option.value ~default:[] in
-    StringHashtbl.replace reg_borrows s ((lt, range)::borrows)
+    StringHashtbl.replace reg_borrows s ((lt_tagged, range)::borrows)
   in
   let visit_actions a_visitor sa_visitor =
     List.iter (fun ev ->
@@ -404,7 +405,8 @@ let lifetime_check (config : Config.compile_config) (ci : cunit_info) (g : event
     g.events;
   List.iter (fun (td, dead) ->
     List.iter (fun borrow ->
-      borrow_add_reg borrow.borrow_range.subreg_name {live = borrow.borrow_start; dead = [dead]} borrow.borrow_range
+      let lt_tagged = tag_with_span borrow.borrow_source_span {live = borrow.borrow_start; dead = [dead]} in
+      borrow_add_reg borrow.borrow_range.subreg_name lt_tagged borrow.borrow_range
     ) td.reg_borrows
   ) !td_to_live_until;
   (* check register and message borrows *)
@@ -413,9 +415,18 @@ let lifetime_check (config : Config.compile_config) (ci : cunit_info) (g : event
       match a.d with
       | RegAssign (lval_info, td) ->
         let lt = EventGraphOps.lifetime_immediate ev in
-        if not_borrowed_reg lval_info.lval_range.subreg_name lt lval_info.lval_range |> not then
-          raise (event_graph_error_default "Attempted assignment to a borrowed register!" a.span)
-        else ();
+        (
+          match intersects_borrowed_reg lval_info.lval_range.subreg_name lt lval_info.lval_range with
+          | [] -> ()
+          | (lt_tagged, _)::_ ->
+              let open Except in
+              raise (LifetimeCheckError [
+                Text "Attempted assignment to a borrowed register!";
+                codespan_local a.span;
+                Text "Borrowed at:";
+                codespan_local lt_tagged.span
+              ] )
+        );
         if lifetime_in_range g.events lt td.lt |> not then
           raise (event_graph_error_default "Value does not live long enough in reg assignment!" a.span)
         else ();
@@ -445,9 +456,19 @@ let lifetime_check (config : Config.compile_config) (ci : cunit_info) (g : event
         let stype = List.hd msg_d.sig_types in
         let e_dpat = delay_pat_globalise msg.endpoint stype.lifetime.e in
         let lt = {live = ev; dead = [(sa.d.until, e_dpat)]} in
-        if not_borrowed_msg_and_add (string_of_msg_spec msg) lt |> not then
-          raise (event_graph_error_default "Potentially conflicting message sending!" sa.span)
-        else ();
+        (
+          match intersects_borrowed_msg_and_add (string_of_msg_spec msg) (tag_with_span sa.span lt) with
+          | lt_intersect_tagged::_ ->
+            raise (LifetimeCheckError
+              [
+                Text "Potentially conflicting message sending!";
+                Except.codespan_local sa.span;
+                Text "Conflicting with:";
+                Except.codespan_local lt_intersect_tagged.span
+              ]
+            )
+          | [] -> ()
+        );
         if lifetime_in_range g.events lt td.lt |> not then
           raise (event_graph_error_default "Value not live long enough in message send!" sa.span)
       | Recv _ -> ()
