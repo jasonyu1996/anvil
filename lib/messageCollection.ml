@@ -73,7 +73,7 @@ let create (channels : channel_def list)
           (endpoint, ParamConcretise.concretise_message cc.params endpoint.channel_params msg, msg_dir)
         in List.map msg_map cc.messages
     | None ->
-        raise (Except.UnknownError (Printf.sprintf "Channel class %s not found" endpoint.channel_class))
+        raise (Except.unknown_error_default (Printf.sprintf "Channel class %s not found" endpoint.channel_class))
   in
   (* override the user-specified foreign in args *)
   let args = List.map (fun (ep : endpoint_def)-> {ep with foreign = get_foreign ep.name}) args in

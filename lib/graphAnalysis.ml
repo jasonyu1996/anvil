@@ -110,7 +110,7 @@ let event_succ_distance non_succ_dist msg_dist_f either_dist_f events (ev : even
   List.rev events |> List.iter (fun ev' ->
     if IntHashtbl.find_opt dist ev'.id |> Option.is_none then
     let d = match ev'.source with
-    | `Root None -> raise (Except.UnknownError "Unexpected root!")
+    | `Root None -> raise (Except.unknown_error_default "Unexpected root!")
     | `Later (ev1, ev2) -> max (get_dist ev1) (get_dist ev2)
     | `Seq (ev1, ad) ->
       let d1 = get_dist ev1 in
@@ -129,7 +129,7 @@ let event_succ_distance non_succ_dist msg_dist_f either_dist_f events (ev : even
     | `Branch (_, {branch_val_true = Some ev1; branch_val_false = Some ev2; _}) ->
       either_dist_f (get_dist ev1) (get_dist ev2)
     | _ ->
-      raise (Except.UnknownError "Unexpected event source!")
+      raise (Except.unknown_error_default "Unexpected event source!")
     in
     set_dist ev' (min d event_distance_max)
   );
@@ -171,7 +171,7 @@ let event_slack_graph events ev =
       | `Seq (e', _) ->
         update_dist e' d
       | _ ->
-        raise (Except.UnknownError "Unexpected event source!")
+        raise (Except.unknown_error_default "Unexpected event source!")
     )
   ) events;
   (* Array.iteri (fun ev_id d -> Printf.eprintf "Max dist %d = %d\n" ev_id d) max_dists; *)
@@ -193,7 +193,7 @@ let event_slack_graph events ev =
       | `Seq (_e', _) ->
         max_dists.(ev'.id)
       | _ ->
-        raise (Except.UnknownError "Unexpected event source!")
+        raise (Except.unknown_error_default "Unexpected event source!")
     in
     slacks.(ev'.id) <- d
   );
@@ -314,7 +314,7 @@ let event_is_dominant e1 e2 =
           is_dominated.(e1.id) && is_dominated.(e2.id)
         | `Root (Some (e', _)) ->
           is_dominated.(e'.id)
-        | _ -> raise (Except.UnknownError "Unexpected event source!")
+        | _ -> raise (Except.unknown_error_default "Unexpected event source!")
       )
     in
     is_dominated.(e.id) <- d
@@ -373,7 +373,7 @@ let events_pred_min_dist ev =
             update_dist e' v
         )
       )
-      | _ -> raise (Except.UnknownError "Unexpected event source!")
+      | _ -> raise (Except.unknown_error_default "Unexpected event source!")
     );
   res
 
@@ -402,7 +402,7 @@ let events_reachable events ev =
           | `Seq (e', _) -> event_is_reachable.(e'.id)
           | `Branch (_, {branch_val_true = Some e1; branch_val_false = Some e2; _}) ->
             event_is_reachable.(e1.id) || event_is_reachable.(e2.id)
-          | _ -> raise (Except.UnknownError "Unexpected event source!")
+          | _ -> raise (Except.unknown_error_default "Unexpected event source!")
         in
         event_is_reachable.(e.id) <- reachable
       )
@@ -442,7 +442,7 @@ let events_max_dist events ev =
             Int.max (res.(e1.id)) (res.(e2.id))
           | `Root (Some (e', _)) ->
             res.(e'.id)
-          | _ -> raise (Except.UnknownError "Unexpected event source!")
+          | _ -> raise (Except.unknown_error_default "Unexpected event source!")
         )
       in
       update_dist e v
@@ -489,7 +489,7 @@ let events_first_msg events ev msg =
           else
             (path_has_msg.(e1.id) || event_succ_masked_has_msg e1)
               && (path_has_msg.(e2.id) || event_succ_masked_has_msg e2)
-        | _ -> raise (Except.UnknownError "Unexpected event source!")
+        | _ -> raise (Except.unknown_error_default "Unexpected event source!")
       in
       path_has_msg.(e.id) <- v
     ) succs;

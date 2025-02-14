@@ -109,7 +109,7 @@ let gen_control_set (config : Config.compile_config) (g : event_graph) =
           else
             Option.get br_side_info.owner_branch.branch_val_true |> forward_from
         | _ ->
-          raise (Except.UnknownError "Unexpected event source!")
+          raise (Except.unknown_error_default "Unexpected event source!")
       );
     )
     events_rev;
@@ -137,7 +137,7 @@ let gen_control_set (config : Config.compile_config) (g : event_graph) =
           else
             Option.get br_side_info.owner_branch.branch_val_true |> backward_to
         | _ ->
-          raise (Except.UnknownError "Unexpected event source!")
+          raise (Except.unknown_error_default "Unexpected event source!")
       )
     ) g.events;
   (* print_control_set g;
@@ -149,7 +149,7 @@ let gen_control_set (config : Config.compile_config) (g : event_graph) =
         match sa.d.ty with
         | Send (ms, _) | Recv ms -> (
           if in_control_set_endps ev ms.endpoint |> not then
-            raise (EventGraphError ("Non-linearizable endpoint use!", sa.span))
+            raise (event_graph_error_default "Non-linearizable endpoint use!" sa.span)
           else ()
         )
       ) ev.sustained_actions
@@ -161,7 +161,7 @@ let gen_control_set (config : Config.compile_config) (g : event_graph) =
       List.iter (fun (ev', range', _span') ->
         if (EventGraphOps.subreg_ranges_possibly_intersect range range') &&
            (GraphAnalysis.events_are_ordered g.events ev ev' |> not) then
-            raise (EventGraphError ("Non-linearizable register assignment!", span))
+            raise (event_graph_error_default "Non-linearizable register assignment!" span)
       ) remaining;
       check_reg_violation remaining
     | [] -> ()
@@ -332,7 +332,7 @@ let lifetime_check (config : Config.compile_config) (ci : cunit_info) (g : event
   let last_ev = List.hd g.events in (* assuming reverse topo order *)
   let dist = event_min_distance g.events root_ev root_ev in
   if IntHashtbl.find dist last_ev.id = 0 then
-    raise (LifetimeCheckError "Thread must take at least one cycle to complete a loop!");
+    raise (LifetimeCheckError [Text "Thread must take at least one cycle to complete a loop!"]);
 
   gen_control_set config g;
   (* for debugging purposes*)
@@ -414,28 +414,28 @@ let lifetime_check (config : Config.compile_config) (ci : cunit_info) (g : event
       | RegAssign (lval_info, td) ->
         let lt = EventGraphOps.lifetime_immediate ev in
         if not_borrowed_reg lval_info.lval_range.subreg_name lt lval_info.lval_range |> not then
-          raise (EventGraphError ("Attempted assignment to a borrowed register!", a.span))
+          raise (event_graph_error_default "Attempted assignment to a borrowed register!" a.span)
         else ();
         if lifetime_in_range g.events lt td.lt |> not then
-          raise (EventGraphError ("Value does not live long enough in reg assignment!", a.span))
+          raise (event_graph_error_default "Value does not live long enough in reg assignment!" a.span)
         else ();
         (
           match fst lval_info.lval_range.subreg_range_interval with
           | Const _ -> ()
           | NonConst range_st_td ->
             if lifetime_in_range g.events lt range_st_td.lt |> not then
-              raise (EventGraphError ("Lvalue index does not live long enough!", a.span))
+              raise (event_graph_error_default "Lvalue index does not live long enough!" a.span)
         )
       | DebugPrint (_, tds) ->
         List.iter (fun td ->
           if lifetime_in_range g.events (EventGraphOps.lifetime_immediate ev) td.lt |> not then
-            raise (EventGraphError ("Value does not live long enough in debug print!", a.span))
+            raise (event_graph_error_default "Value does not live long enough in debug print!" a.span)
           else ()
         ) tds
       | DebugFinish -> ()
       | PutShared (_, si, td) ->
         if lifetime_in_range g.events {live = ev; dead = [(ev, si.value.glt.e)]} td.lt |> not then
-          raise (EventGraphError ("Value does not live long enough in put!", a.span))
+          raise (event_graph_error_default "Value does not live long enough in put!" a.span)
         else ()
     )
     (fun ev sa ->
@@ -446,10 +446,10 @@ let lifetime_check (config : Config.compile_config) (ci : cunit_info) (g : event
         let e_dpat = delay_pat_globalise msg.endpoint stype.lifetime.e in
         let lt = {live = ev; dead = [(sa.d.until, e_dpat)]} in
         if not_borrowed_msg_and_add (string_of_msg_spec msg) lt |> not then
-          raise (EventGraphError ("Potentially conflicting message sending!", sa.span))
+          raise (event_graph_error_default "Potentially conflicting message sending!" sa.span)
         else ();
         if lifetime_in_range g.events lt td.lt |> not then
-          raise (EventGraphError ("Value not live long enough in message send!", sa.span))
+          raise (event_graph_error_default "Value not live long enough in message send!" sa.span)
       | Recv _ -> ()
     )
     g.events;
@@ -535,7 +535,7 @@ let lifetime_check (config : Config.compile_config) (ci : cunit_info) (g : event
                   let error_msg = Printf.sprintf "Static sync mode mismatch (actual gap = %d > expected gap %d)!"
                     min_weights.(sa.d.until.id) gap
                   in
-                  raise (EventGraphError (error_msg, sa.span))
+                  raise (event_graph_error_default error_msg sa.span)
               )
           | None -> ()
         ) g.events
@@ -576,7 +576,7 @@ let lifetime_check (config : Config.compile_config) (ci : cunit_info) (g : event
               let error_msg = Printf.sprintf "Static sync mode mismatch (actual gap = %d < expected gap %d)!"
                 (-maxv) gap
               in
-              raise (EventGraphError (error_msg, sa.span))
+              raise (event_graph_error_default error_msg sa.span)
           | None -> ()
         ) (List.rev g.events)
     )

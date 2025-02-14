@@ -24,8 +24,8 @@ and concretise_dtype_params int_env type_env (dtype : data_type) : data_type =
     let base_type = concretise_dtype_params int_env type_env v in
     let size = match concretise int_env n with
       | Some s -> s
-      | None -> 
-          Printf.eprintf "[ERROR] Failed to concretise array size parameter: %s\n" 
+      | None ->
+          Printf.eprintf "[ERROR] Failed to concretise array size parameter: %s\n"
             (match n with
              | ParamEnv.Concrete i -> Printf.sprintf "Concrete(%d)" i
              | ParamEnv.Param p -> Printf.sprintf "Param(%s)" p);
@@ -77,7 +77,7 @@ let build_param_envs param_values params =
           add_value p.param_name n int_env
         | TypeParamValue t, TypeParam ->
           add_value p.param_name t type_env
-        | _ -> raise (Except.TypeError "Invalid parameter!")
+        | _ -> raise (Except.TypeError [Text "Invalid parameter!"])
       );
   (int_env, type_env)
 

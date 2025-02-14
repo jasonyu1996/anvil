@@ -196,6 +196,9 @@ type event_graph_collection = {
 }
 
 (** Exception that can be throw during event graph generation *)
-exception EventGraphError of string * Lang.code_span
+exception EventGraphError of Except.error_message
 
-exception LifetimeCheckError of string
+exception LifetimeCheckError of Except.error_message
+
+let event_graph_error_default text span = let open Except in EventGraphError [Text text; codespan_local span]
+

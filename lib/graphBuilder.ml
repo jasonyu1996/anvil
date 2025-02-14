@@ -5,8 +5,7 @@ open Lang
 let unwrap_or_err err_msg err_span opt =
   match opt with
   | Some d -> d
-  | None -> raise (EventGraphError (err_msg, err_span))
-
+  | None -> raise (event_graph_error_default err_msg err_span)
 
 module Typing = struct
   type binding = {
@@ -84,7 +83,7 @@ module Typing = struct
     (
       match dpat with
       | `Cycles _ -> ()
-      | _ -> raise (Except.UnimplementedError "Non-static lifetime for shared data is unsupported!")
+      | _ -> raise (Except.UnimplementedError [Text "Non-static lifetime for shared data is unsupported!"])
     );
     {w = gtd.w; lt = {live = event_synced; dead = [(event_synced, dpat)]}; reg_borrows = []; dtype = gtd.gdtype}
 
@@ -247,7 +246,7 @@ and visit_expr (graph : event_graph) (ci : cunit_info)
       let macro_val = List.assoc_opt ident (List.map (fun (macro : macro_def) ->(macro.id, macro.value)) ci.macro_defs) in
       (match ctx_val, macro_val with
         | Some _, Some _ ->
-          raise (EventGraphError (" Conflicting Identifier " ^ ident ^ " declarations found", e.span))
+          raise (event_graph_error_default (" Conflicting Identifier " ^ ident ^ " declarations found") e.span)
         | Some binding, None -> Typing.use_binding binding |> Typing.sync_data graph ctx.current
         | None, Some value ->
           let sz = Utils.int_log2 (value + 1) in
@@ -306,10 +305,10 @@ and visit_expr (graph : event_graph) (ci : cunit_info)
         (* check if the binding is used *)
         let binding = Typing.context_lookup ctx'.typing_ctx ident |> Option.get in
         if not binding.binding_used then (
-          raise (EventGraphError ("Unused value!", e1.span))
+          raise (event_graph_error_default "Unused value!" e1.span)
         );
         td
-      | _ -> raise (EventGraphError ("Discarding expression results!", e.span))
+      | _ -> raise (event_graph_error_default "Discarding expression results!" e.span)
     )
   | Wait (e1, e2) ->
     let td1 = visit_expr graph ci ctx e1 in
@@ -320,7 +319,7 @@ and visit_expr (graph : event_graph) (ci : cunit_info)
       |> unwrap_or_err "Invalid message specifier in ready" e.span in
     if msg.dir <> In then (
       (* mismatching direction *)
-      raise (EventGraphError ("Mismatching message direction!", e.span))
+      raise (event_graph_error_default "Mismatching message direction!" e.span)
     );
     let wires, msg_valid_port = WireCollection.add_msg_valid_port graph.thread_id ci.typedefs msg_spec graph.wires in
     graph.wires <- wires;
@@ -358,7 +357,7 @@ and visit_expr (graph : event_graph) (ci : cunit_info)
         let (wires', w) = WireCollection.add_switch graph.thread_id ci.typedefs [(w1, w2)] w3 graph.wires in
         graph.wires <- wires';
         {w = Some w; lt; reg_borrows = reg_borrows'; dtype = td2.dtype}
-      | _ -> raise (EventGraphError ("Invalid if expression!", e.span))
+      | _ -> raise (event_graph_error_default "Invalid if expression!" e.span)
     )
   | Concat es ->
     let tds = List.map (fun e' -> (e', visit_expr graph ci ctx e')) es in
@@ -392,7 +391,7 @@ and visit_expr (graph : event_graph) (ci : cunit_info)
       |> unwrap_or_err "Invalid message specifier in send" e.span in
     if msg.dir <> Out then (
       (* mismatching direction *)
-      raise (EventGraphError ("Mismatching message direction!", e.span))
+      raise (event_graph_error_default "Mismatching message direction!" e.span)
     );
     let td = visit_expr graph ci ctx send_pack.send_data in
     let ntd = Typing.send_msg_data graph send_pack.send_msg_spec ctx.current in
@@ -407,7 +406,7 @@ and visit_expr (graph : event_graph) (ci : cunit_info)
       |> unwrap_or_err "Invalid message specifier in receive" e.span in
     if msg.dir <> In then (
       (* mismatching direction *)
-      raise (EventGraphError ("Mismatching message direction!", e.span))
+      raise (event_graph_error_default "Mismatching message direction!" e.span)
     );
     let (wires', w) = WireCollection.add_msg_port graph.thread_id ci.typedefs ci.macro_defs recv_pack.recv_msg_spec 0 msg graph.wires in
     graph.wires <- wires';
@@ -469,9 +468,9 @@ and visit_expr (graph : event_graph) (ci : cunit_info)
             let (wires', w) = WireCollection.add_concat graph.thread_id ci.typedefs ci.macro_defs ws graph.wires in
             graph.wires <- wires';
             List.map snd tds |> Typing.merged_data graph (Some w) (`Named (record_ty_name, [])) ctx.current
-          | _ -> raise (EventGraphError ("Invalid record type value!", e.span))
+          | _ -> raise (event_graph_error_default "Invalid record type value!" e.span)
         )
-      | _ -> raise (EventGraphError ("Invalid record type name!", e.span))
+      | _ -> raise (event_graph_error_default "Invalid record type name!" e.span)
     )
   | Construct (cstr_spec, cstr_expr_opt) ->
     (
@@ -517,9 +516,9 @@ and visit_expr (graph : event_graph) (ci : cunit_info)
             end in
             graph.wires <- wires';
             Typing.const_data graph (Some new_w)  (`Named (cstr_spec.variant_ty_name, [])) ctx.current
-          | _ -> raise (EventGraphError ("Invalid variant construct expression!", e.span))
+          | _ -> raise (event_graph_error_default "Invalid variant construct expression!" e.span)
         )
-      | _ -> raise (EventGraphError ("Invalid variant type name!", e.span))
+      | _ -> raise (event_graph_error_default "Invalid variant type name!" e.span)
     )
   | SharedAssign (id, value_expr) ->
     let shared_info = Hashtbl.find_opt ctx.shared_vars_info id
@@ -528,14 +527,14 @@ and visit_expr (graph : event_graph) (ci : cunit_info)
       let value_td = visit_expr graph ci ctx value_expr in
       if not ctx.lt_check_phase then (
         if (Option.is_some shared_info.value.w) || (Option.is_some shared_info.assigned_at) then
-          raise (EventGraphError ("Shared value can only be assigned in one place!", e.span));
+          raise (event_graph_error_default "Shared value can only be assigned in one place!" e.span);
         shared_info.value.w <- value_td.w;
         shared_info.assigned_at <- Some ctx.current;
       );
       ctx.current.actions <- (PutShared (id, shared_info, value_td) |> tag_with_span e.span)::ctx.current.actions;
       Typing.const_data graph None (unit_dtype) ctx.current
     else
-      raise (EventGraphError ("Shared variable assigned in wrong thread", e.span))
+      raise (event_graph_error_default "Shared variable assigned in wrong thread" e.span)
   | List li ->
     let tds = List.map (visit_expr graph ci ctx) li in
     let ws = List.map (fun td -> unwrap_or_err "Invalid wires!" e.span td.w) tds in
@@ -544,7 +543,7 @@ and visit_expr (graph : event_graph) (ci : cunit_info)
     graph.wires <- wires';
     let td = List.hd tds in
     Typing.merged_data graph (Some new_w) (`Array (td.dtype, ParamEnv.Concrete (List.length tds))) ctx.current tds
-  | _ -> raise (EventGraphError ("Unimplemented expression!", e.span))
+  | _ -> raise (event_graph_error_default "Unimplemented expression!" e.span)
 
 (* Builds the graph representation for each process To Do: Add support for commands outside loop (be executed once or continuosly)*)
 let build_proc (config : Config.compile_config) sched module_name param_values
@@ -659,10 +658,10 @@ let syntax_tree_precheck (_config : Config.compile_config) cunit =
       match msg.send_sync, msg.recv_sync with
       | Dependent (`Cycles n), Dependent (`Cycles m) ->
         if n <> m then (* the cycle counts on both sides must be equal *)
-          raise (Except.TypeError "Static sync mode must be symmetric!")
+          raise (Except.TypeError [Text "Static sync mode must be symmetric!"])
       | Dependent (`Cycles _), Dynamic
       | Dynamic, Dependent (`Cycles _)
       | Dynamic, Dynamic -> ()
-      | _ -> raise (Except.TypeError "Unsupported sync mode!")
+      | _ -> raise (Except.TypeError [Text "Unsupported sync mode!"])
     ) cc.messages
   ) cunit.channel_classes
