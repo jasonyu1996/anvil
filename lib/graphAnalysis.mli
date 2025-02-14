@@ -71,6 +71,8 @@ val events_pred_min_dist : EventGraph.event -> int Array.t
     This does not require the two events to be on a shared path. The approximation
     can be larger than the actual possible distance.
 
+    If an event shares no trace with the given event, the result is [-event_distance_max].
+
     This is essentially a newer version of {!event_slack_graph} that
     handles branches correctly but is more relaxed for graphs
     without branches.

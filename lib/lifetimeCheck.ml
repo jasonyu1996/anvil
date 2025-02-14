@@ -305,16 +305,10 @@ let lifetime_in_range events (lt1 : lifetime) (lt2 : lifetime) =
 
 (** Definitely disjoint? *)
 let lifetime_disjoint events lt1 lt2 =
-  let separated_branches ev1 ev2 =
-    (event_is_successor ev1 ev2 |> not)
-    && (event_is_successor ev2 ev1 |> not)
-  in
   assert (List.length lt1.dead = 1);
   (* to be disjoint, either r1 <= l2 or r2 <= l1 *)
   (event_pat_rel2 events lt1.dead [(lt2.live, `Cycles 0)])
   || (List.for_all (fun de -> event_pat_rel2 events [de] [(lt1.live, `Cycles 0)]) lt2.dead)
-  || ((separated_branches lt1.live (List.hd lt2.dead |> fst))
-      && (separated_branches lt2.live (List.hd lt1.dead |> fst)))
 
 
 (* An internal identifier for a message specifier. *)

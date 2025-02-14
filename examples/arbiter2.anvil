@@ -21,7 +21,7 @@ loop {
     cycle 1
 }
 loop {
-    (
+    ((
         if (ready ch1.req) then
             (
             let in1 = recv ch1.req in
@@ -57,7 +57,7 @@ loop {
         else (
             dprint "No Producer is ready in cycle %d" (*cycle_count)
         )
-    );cycle 1=>
+    );cycle 1) =>
     (
         if (*InReady == 1'b1) then
             send ch.gnt(*result)

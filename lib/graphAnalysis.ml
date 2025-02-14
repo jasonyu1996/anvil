@@ -377,44 +377,6 @@ let events_pred_min_dist ev =
     );
   res
 
-let events_max_dist events ev =
-  let n = List.length events in
-  let res = Array.make n (-event_distance_max) in
-  let pred_min_dist = events_pred_min_dist ev in
-  let pred_min_dist_mxn = Array.length pred_min_dist in
-  let is_pred e' = e'.id < pred_min_dist_mxn && pred_min_dist.(e'.id) >= 0 in
-  let update_dist e v =
-    if res.(e.id) < v then
-      res.(e.id) <- v
-  in
-  List.rev events
-    |> List.iter (fun e ->
-      let v =
-        if is_pred e then -pred_min_dist.(e.id)
-        else (
-          (* propagate *)
-          match e.source with
-          | `Root None -> -event_distance_max
-          | `Seq (e', d) -> (
-            let gap =
-              match d with
-              | `Cycles n -> n
-              | `Send _ | `Recv _ | `Sync _ -> event_distance_max (* oo *)
-            in
-            res.(e'.id) + gap
-          )
-          | `Later (e1, e2)
-          | `Branch (_, {branch_val_true = Some e1; branch_val_false = Some e2; _}) ->
-            Int.max (res.(e1.id)) (res.(e2.id))
-          | `Root (Some (e', _)) ->
-            res.(e'.id)
-          | _ -> raise (Except.UnknownError "Unexpected event source!")
-        )
-      in
-      update_dist e v
-    );
-  res
-
 let events_reachable events ev =
   let n = List.length events in
   let event_is_reachable = Array.make n true in
@@ -446,6 +408,46 @@ let events_reachable events ev =
       )
     );
   event_is_reachable
+
+let events_max_dist events ev =
+  let n = List.length events in
+  let res = Array.make n (-event_distance_max) in
+  let pred_min_dist = events_pred_min_dist ev in
+  let pred_min_dist_mxn = Array.length pred_min_dist in
+  let is_pred e' = e'.id < pred_min_dist_mxn && pred_min_dist.(e'.id) >= 0 in
+  let reachable = events_reachable events ev in
+  let update_dist e v =
+    if res.(e.id) < v then
+      res.(e.id) <- v
+  in
+  List.rev events
+    |> List.iter (fun e ->
+      let v =
+        if is_pred e then -pred_min_dist.(e.id)
+        else if not reachable.(e.id) then -event_distance_max
+        else (
+          (* propagate *)
+          match e.source with
+          | `Root None -> -event_distance_max
+          | `Seq (e', d) -> (
+            let gap =
+              match d with
+              | `Cycles n -> n
+              | `Send _ | `Recv _ | `Sync _ -> event_distance_max (* oo *)
+            in
+            res.(e'.id) + gap
+          )
+          | `Later (e1, e2)
+          | `Branch (_, {branch_val_true = Some e1; branch_val_false = Some e2; _}) ->
+            Int.max (res.(e1.id)) (res.(e2.id))
+          | `Root (Some (e', _)) ->
+            res.(e'.id)
+          | _ -> raise (Except.UnknownError "Unexpected event source!")
+        )
+      in
+      update_dist e v
+    );
+  res
 
 let events_with_msg events msg =
   List.filter (fun e ->
