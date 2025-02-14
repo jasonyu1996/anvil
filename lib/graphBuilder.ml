@@ -586,6 +586,7 @@ let build_proc (config : Config.compile_config) sched module_name param_values
           spawns = body.spawns;
           regs = body.regs;
           last_event_id = 0;
+          thread_codespan = e.span;
         } in
         (* Bruteforce treatment: just run twice *)
         let graph_opt = if (not config.disable_lt_checks) || config.two_round_graph then (

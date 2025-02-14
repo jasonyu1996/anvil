@@ -171,6 +171,7 @@ and event_graph = {
   spawns : Lang.spawn_def list;
   regs: Lang.reg_def list;
   mutable last_event_id: int;
+  thread_codespan : Lang.code_span;
 }
 
 type proc_graph = {

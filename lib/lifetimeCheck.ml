@@ -148,8 +148,29 @@ let gen_control_set (config : Config.compile_config) (g : event_graph) =
       List.iter (fun (sa : sustained_action ast_node) ->
         match sa.d.ty with
         | Send (ms, _) | Recv ms -> (
-          if in_control_set_endps ev ms.endpoint |> not then
-            raise (event_graph_error_default "Non-linearizable endpoint use!" sa.span)
+          if in_control_set_endps ev ms.endpoint |> not then (
+            let bad_spans = ref [] in
+            List.iter (fun ev' ->
+              List.iter (fun sa' ->
+                match sa.d.ty with
+                | Send (ms', _) | Recv ms' ->
+                  if sa'.d.until.id <> sa.d.until.id && ms'.endpoint = ms.endpoint
+                    && in_control_set_endps ev' ms'.endpoint |> not then
+                      bad_spans := sa'.span::!bad_spans
+              ) ev'.sustained_actions
+            ) g.events;
+            raise (LifetimeCheckError
+                  (
+                    let open Except in
+                    [
+                      Text "Non-linearizable endpoint use!";
+                      codespan_local sa.span;
+                      Text (List.length !bad_spans |> Printf.sprintf "Conflicting uses (%d):")
+                    ] @
+                    (List.map codespan_local !bad_spans)
+                  )
+            )
+          )
           else ()
         )
       ) ev.sustained_actions
@@ -158,10 +179,16 @@ let gen_control_set (config : Config.compile_config) (g : event_graph) =
   (* check for violations of linearity for register assignments *)
   let rec check_reg_violation = function
     | (ev, range, span)::remaining ->
-      List.iter (fun (ev', range', _span') ->
+      List.iter (fun (ev', range', span') ->
         if (EventGraphOps.subreg_ranges_possibly_intersect range range') &&
            (GraphAnalysis.events_are_ordered g.events ev ev' |> not) then
-            raise (event_graph_error_default "Non-linearizable register assignment!" span)
+            raise (LifetimeCheckError
+                [
+                  Text "Non-linearizable register assignment!";
+                  Except.codespan_local span;
+                  Text "Conflicting with:";
+                  Except.codespan_local span';
+                ])
       ) remaining;
       check_reg_violation remaining
     | [] -> ()
@@ -332,7 +359,12 @@ let lifetime_check (config : Config.compile_config) (ci : cunit_info) (g : event
   let last_ev = List.hd g.events in (* assuming reverse topo order *)
   let dist = event_min_distance g.events root_ev root_ev in
   if IntHashtbl.find dist last_ev.id = 0 then
-    raise (LifetimeCheckError [Text "Thread must take at least one cycle to complete a loop!"]);
+    raise (LifetimeCheckError
+      [
+        Text "Thread must take at least one cycle to complete a loop!";
+        Except.codespan_local g.thread_codespan
+      ]
+    );
 
   gen_control_set config g;
   (* for debugging purposes*)

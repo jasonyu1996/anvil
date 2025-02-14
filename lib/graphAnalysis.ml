@@ -457,6 +457,14 @@ let events_with_msg events msg =
       | _ -> false
     ) events
 
+let events_start_msg events msg =
+  List.filter (fun e ->
+      List.exists (fun sa ->
+        match sa.d.ty with
+        | Send (msg', _) | Recv msg' -> msg' = msg
+      ) e.sustained_actions
+    ) events
+
 let events_first_msg events ev msg =
   let n = List.length events in
   let path_has_msg = Array.make n false in

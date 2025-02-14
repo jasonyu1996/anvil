@@ -83,6 +83,8 @@ val events_max_dist : EventGraph.event list -> EventGraph.event -> int Array.t
     send/recv completes). *)
 val events_with_msg : EventGraph.event list -> Lang.message_specifier -> EventGraph.event list
 
+(** Returns all events that start a specific message. *)
+val events_start_msg : EventGraph.event list -> Lang.message_specifier -> EventGraph.event list
 
 (** Returns an array indicating whether each event is reachable when a given event is reached. *)
 val events_reachable : EventGraph.event list -> EventGraph.event -> bool Array.t

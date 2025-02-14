@@ -676,3 +676,10 @@ let generate_expr (id, start, end_v, offset, body) =
 
   in
   generate_exprs start []
+
+
+(** A span that includes only the ending position of the given span. *)
+let span_to_end span = {span with st = span.ed}
+
+(** A span that includes only the starting position of the given span. *)
+let span_to_start span = {span with ed = span.st}
