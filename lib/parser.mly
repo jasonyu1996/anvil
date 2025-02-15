@@ -183,19 +183,19 @@ proc_def_body:
   {
     let open Lang in {body with loops = thread_prog::(body.loops) }
   }
-| KEYWORD_CHAN; chan_def = channel_def; body = proc_def_body // For Channel Invocation and interface aquisition
+| KEYWORD_CHAN; chan_def = node(channel_def); body = proc_def_body // For Channel Invocation and interface aquisition
   {
     let open Lang in {body with channels = chan_def::(body.channels)}
   }
-| KEYWORD_REG; reg_def = reg_def; body = proc_def_body // For reg definition
+| KEYWORD_REG; reg_def = node(reg_def); body = proc_def_body // For reg definition
   {
     let open Lang in {body with regs = reg_def::(body.regs)}
   }
-| KEYWORD_SPAWN; spawn_def = spawn; body = proc_def_body // For instantiating processes
+| KEYWORD_SPAWN; spawn_def = node(spawn); body = proc_def_body // For instantiating processes
   {
     let open Lang in {body with spawns = spawn_def::(body.spawns)}
   }
-| shared_var = shared_var_def; body = proc_def_body
+| shared_var = node(shared_var_def); body = proc_def_body
   {
     let open Lang in {body with shared_vars = shared_var :: body.shared_vars}
   }
@@ -246,6 +246,7 @@ channel_class_def:
       name = ident;
       messages = messages;
       params = [];
+      span = {st = $startpos; ed = $endpos}
     } : Lang.channel_class_def
   }
 | KEYWORD_CHAN; ident = IDENT; LEFT_ABRACK; params = separated_list(COMMA, param_def); RIGHT_ABRACK;
@@ -255,12 +256,13 @@ channel_class_def:
       name = ident;
       messages = messages;
       params = params;
+      span = {st = $startpos; ed = $endpos}
     } : Lang.channel_class_def
   }
 ;
 //For passing the list of channels that are nessacary to communicate with the instantiation of the process
 proc_def_arg_list:
-  l = separated_list(COMMA, proc_def_arg)
+  l = separated_list(COMMA, node(proc_def_arg))
   { l }
 ;
 // To Do: Can be renamed to inherited channel or something
@@ -432,7 +434,7 @@ expr:
 | LEFT_BRACE; components = separated_list(COMMA, node(expr)); RIGHT_BRACE
   { Lang.Concat components }
 | KEYWORD_MATCH; e = node(expr); KEYWORD_WITH; COLON; match_arm_list = match_arm+;KEYWORD_DONE
-  { Lang.generate_match_expression (e, match_arm_list) }
+  { Lang.generate_match_expression e match_arm_list }
 | ASTERISK; reg_ident = IDENT
   { Lang.Read reg_ident }
 | constructor_spec = constructor_spec; e = ioption(node(expr))
@@ -573,6 +575,7 @@ message_def:
       send_sync = send_sync_mode;
       recv_sync = recv_sync_mode;
       sig_types = data;
+      span = {st = $startpos; ed = $endpos}
     } : Lang.message_def
   }
 ;

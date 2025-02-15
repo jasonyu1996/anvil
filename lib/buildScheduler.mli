@@ -5,6 +5,8 @@ describes a build task. This is used in {!CompileDriver}. *)
 (** Describes a build task for a module. The module may need
 concretisation/monomorphisatoin first. *)
 type build_proc_task = {
+  file_name : string; (** file name the task originates from *)
+  codespan : Lang.code_span; (** code span the task originates from *)
   module_name : string; (** name of the module, can be different from
   that of the process due to monomorphisation, typically
   a mangled form of the process name *)
@@ -23,4 +25,5 @@ val next : build_scheduler -> build_proc_task option
 (** Add a build task. Return the generated module name. *)
 val add_proc_task :
   build_scheduler ->
+  string -> Lang.code_span ->
   string -> Lang.param_value list -> string

@@ -1,4 +1,6 @@
 type build_proc_task = {
+  file_name : string;
+  codespan : Lang.code_span;
   module_name: string;
   proc_name: string;
   param_values: Lang.param_value list;
@@ -21,7 +23,7 @@ let next sched =
   if Queue.is_empty sched.task_queue then None
   else Some (Queue.pop sched.task_queue)
 
-let add_proc_task sched proc_name param_values =
+let add_proc_task sched file_name span proc_name param_values =
   let module_name = if param_values = [] then
     proc_name
   else (
@@ -31,5 +33,5 @@ let add_proc_task sched proc_name param_values =
     StringHashTbl.replace sched.proc_instance_counter proc_name (n + 1);
     Printf.sprintf "%s_%d" proc_name n
   ) in
-  Queue.add {module_name; proc_name; param_values} sched.task_queue;
+  Queue.add {file_name; codespan = span; module_name; proc_name; param_values} sched.task_queue;
   module_name

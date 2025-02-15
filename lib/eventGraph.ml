@@ -13,6 +13,7 @@ This module provides the related types.
 
 (** Information about a compilation unit. *)
 type cunit_info = {
+  file_name : string;
   typedefs : TypedefMap.t;
   channel_classes : Lang.channel_class_def list;
   enum_mappings : (string * (string * int) list) list;

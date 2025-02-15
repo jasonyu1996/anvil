@@ -246,7 +246,7 @@ and visit_expr (graph : event_graph) (ci : cunit_info)
       let macro_val = List.assoc_opt ident (List.map (fun (macro : macro_def) ->(macro.id, macro.value)) ci.macro_defs) in
       (match ctx_val, macro_val with
         | Some _, Some _ ->
-          raise (event_graph_error_default (" Conflicting Identifier " ^ ident ^ " declarations found") e.span)
+          raise (event_graph_error_default ("Conflicting Identifier " ^ ident ^ " declarations found") e.span)
         | Some binding, None -> Typing.use_binding binding |> Typing.sync_data graph ctx.current
         | None, Some value ->
           let sz = Utils.int_log2 (value + 1) in
@@ -361,7 +361,7 @@ and visit_expr (graph : event_graph) (ci : cunit_info)
     )
   | Concat es ->
     let tds = List.map (fun e' -> (e', visit_expr graph ci ctx e')) es in
-    let ws = List.map (fun (e', td) -> unwrap_or_err "Invalid value in concat" e'.span td.w) tds in
+    let ws = List.map (fun ((e', td) : expr_node * timed_data) -> unwrap_or_err "Invalid value in concat" e'.span td.w) tds in
     let (wires', w) = WireCollection.add_concat graph.thread_id ci.typedefs ci.macro_defs ws graph.wires in
     graph.wires <- wires';
     let new_dtype = `Array (`Logic, ParamEnv.Concrete w.size) in
@@ -570,35 +570,36 @@ let build_proc (config : Config.compile_config) sched module_name param_values
   in
   match proc.body with
   | Native body ->
-    let msg_collection = MessageCollection.create body.channels proc.args body.spawns ci.channel_classes in
+    let msg_collection = MessageCollection.create body.channels
+                                      proc.args body.spawns ci.channel_classes in
     let spawns =
-    List.map (fun s ->
-      let module_name = BuildScheduler.add_proc_task sched s.proc s.compile_params in
+    List.map (fun (s : spawn_def ast_node) ->
+      let module_name = BuildScheduler.add_proc_task sched ci.file_name s.span s.d.proc s.d.compile_params in
       (module_name, s)
     ) body.spawns in
     let shared_vars_info = Hashtbl.create (List.length body.shared_vars) in
     List.iter (fun sv ->
       let v = {
         w = None;
-        glt = sv.shared_lifetime;
+        glt = sv.d.shared_lifetime;
         gdtype = unit_dtype; (* explicitly annotate? *)
       } in
       let r = {
-        assigning_thread = sv.assigning_thread;
+        assigning_thread = sv.d.assigning_thread;
         value = v;
         assigned_at = None;
       } in
-        Hashtbl.add shared_vars_info sv.ident r
+        Hashtbl.add shared_vars_info sv.d.ident r
       ) body.shared_vars;
-      let proc_threads = List.mapi (fun i e ->
+      let proc_threads = List.mapi (fun i (e : expr_node) ->
         let graph = {
           thread_id = i;
           events = [];
           wires = WireCollection.empty;
-          channels = body.channels;
+          channels = List.map data_of_ast_node body.channels;
           messages = msg_collection;
-          spawns = body.spawns;
-          regs = body.regs;
+          spawns = List.map data_of_ast_node body.spawns;
+          regs = List.map data_of_ast_node body.regs;
           last_event_id = 0;
           thread_codespan = e.span;
         } in
@@ -631,7 +632,7 @@ let build_proc (config : Config.compile_config) sched module_name param_values
       ) body.loops in
       {name = module_name; extern_module = None;
         threads = proc_threads; shared_vars_info; messages = msg_collection;
-        proc_body = proc.body; spawns}
+        proc_body = proc.body; spawns = List.map (fun (ident, {d; _}) -> (ident, d)) spawns}
     | Extern (extern_mod, _extern_body) ->
       let msg_collection = MessageCollection.create [] proc.args [] ci.channel_classes in
       {name = module_name; extern_module = Some extern_mod; threads = [];
@@ -650,6 +651,7 @@ let build (config : Config.compile_config) sched module_name param_values (cunit
   let typedefs = TypedefMap.of_list cunit.type_defs in
   let func_defs = cunit.func_defs in
   let ci = {
+    file_name = Option.get cunit.cunit_file_name;
     typedefs;
     channel_classes = cunit.channel_classes;
     enum_mappings;
@@ -673,10 +675,10 @@ let syntax_tree_precheck (_config : Config.compile_config) cunit =
       match msg.send_sync, msg.recv_sync with
       | Dependent (`Cycles n), Dependent (`Cycles m) ->
         if n <> m then (* the cycle counts on both sides must be equal *)
-          raise (Except.TypeError [Text "Static sync mode must be symmetric!"])
+          raise (Except.TypeError [Text "Static sync mode must be symmetric!"; Except.codespan_local msg.span])
       | Dependent (`Cycles _), Dynamic
       | Dynamic, Dependent (`Cycles _)
       | Dynamic, Dynamic -> ()
-      | _ -> raise (Except.TypeError [Text "Unsupported sync mode!"])
+      | _ -> raise (Except.TypeError [Text "Unsupported sync mode!"; Except.codespan_local msg.span])
     ) cc.messages
   ) cunit.channel_classes

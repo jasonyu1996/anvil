@@ -47,7 +47,13 @@ let rec parse_recursive cunits parsed_files config filename =
         | Sys_error msg ->
           raise_compile_error (Some filename) [Except.Text msg]
     in
-    GraphBuilder.syntax_tree_precheck config cunit;
+    let cunit = {cunit with cunit_file_name = Some filename} in
+    (
+      try
+        GraphBuilder.syntax_tree_precheck config cunit
+      with
+        | Except.TypeError msg -> raise_compile_error (Some filename) msg
+    );
     cunits := (filename, cunit)::!cunits;
     List.iter (fun imp ->
       let open Lang in
@@ -79,10 +85,10 @@ let compile out config =
     |> Utils.StringMap.of_list in
   let sched = BuildScheduler.create () in
   (* add processes that are concrete *)
-  List.iter (fun (_, proc) ->
+  List.iter (fun (file_name, proc) ->
     let open Lang in
     if proc.params = [] then
-      let _ = BuildScheduler.add_proc_task sched proc.name [] in ()
+      let _ = BuildScheduler.add_proc_task sched file_name Lang.code_span_dummy proc.name [] in ()
   ) all_procs;
   let modules_visited = ref Utils.StringSet.empty in
   let event_graph_complete = ref false in
@@ -100,11 +106,16 @@ let compile out config =
         match proc_file_opt with
         | None ->
           let msg_text = Printf.sprintf "Process '%s' not found!" task.proc_name in
-          raise_compile_error None [Text msg_text]
+          raise_compile_error None
+            [
+              Text msg_text;
+              codespan_in task.file_name task.codespan
+            ]
         | Some (proc, file_name) ->
           let cunit = let open Lang in
             (* hacky *)
-            {channel_classes = all_channel_classes; type_defs = all_type_defs;
+            {cunit_file_name = Some file_name;
+            channel_classes = all_channel_classes; type_defs = all_type_defs;
             procs = [proc]; imports = []; _extern_procs = [];
             func_defs = all_func_defs; enum_defs = all_enum_defs;
             macro_defs = all_macro_defs} in
