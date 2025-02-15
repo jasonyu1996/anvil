@@ -460,25 +460,38 @@ let lifetime_check (config : Config.compile_config) (ci : cunit_info) (g : event
               ] )
         );
         if lifetime_in_range g.events lt td.lt |> not then
-          raise (event_graph_error_default "Value does not live long enough in reg assignment!" a.span)
+          raise (LifetimeCheckError [
+                    Text "Value does not live long enough in reg assignment!";
+                    Except.codespan_local a.span
+                ])
         else ();
         (
           match fst lval_info.lval_range.subreg_range_interval with
           | Const _ -> ()
           | NonConst range_st_td ->
             if lifetime_in_range g.events lt range_st_td.lt |> not then
-              raise (event_graph_error_default "Lvalue index does not live long enough!" a.span)
+              raise (LifetimeCheckError [
+                  Text "Lvalue index does not live long enough!";
+                  Except.codespan_local a.span
+                ])
         )
       | DebugPrint (_, tds) ->
         List.iter (fun td ->
           if lifetime_in_range g.events (EventGraphOps.lifetime_immediate ev) td.lt |> not then
-            raise (event_graph_error_default "Value does not live long enough in debug print!" a.span)
+            raise (LifetimeCheckError
+              [
+                Text "Value does not live long enough in debug print!";
+                Except.codespan_local a.span
+              ])
           else ()
         ) tds
       | DebugFinish -> ()
       | PutShared (_, si, td) ->
         if lifetime_in_range g.events {live = ev; dead = [(ev, si.value.glt.e)]} td.lt |> not then
-          raise (event_graph_error_default "Value does not live long enough in put!" a.span)
+          raise (LifetimeCheckError [
+                  Text "Value does not live long enough in put!";
+                  Except.codespan_local a.span
+                ])
         else ()
     )
     (fun ev sa ->
@@ -502,7 +515,10 @@ let lifetime_check (config : Config.compile_config) (ci : cunit_info) (g : event
           | [] -> ()
         );
         if lifetime_in_range g.events lt td.lt |> not then
-          raise (event_graph_error_default "Value not live long enough in message send!" sa.span)
+          raise (LifetimeCheckError [
+            Text "Value not live long enough in message send!";
+            Except.codespan_local sa.span
+          ])
       | Recv _ -> ()
     )
     g.events;
@@ -588,7 +604,7 @@ let lifetime_check (config : Config.compile_config) (ci : cunit_info) (g : event
                   let error_msg = Printf.sprintf "Static sync mode mismatch (actual gap = %d > expected gap %d)!"
                     min_weights.(sa.d.until.id) gap
                   in
-                  raise (event_graph_error_default error_msg sa.span)
+                  raise (LifetimeCheckError [Text error_msg; Except.codespan_local sa.span])
               )
           | None -> ()
         ) g.events
@@ -629,7 +645,7 @@ let lifetime_check (config : Config.compile_config) (ci : cunit_info) (g : event
               let error_msg = Printf.sprintf "Static sync mode mismatch (actual gap = %d < expected gap %d)!"
                 (-maxv) gap
               in
-              raise (event_graph_error_default error_msg sa.span)
+              raise (LifetimeCheckError [Text error_msg; Except.codespan_local sa.span])
           | None -> ()
         ) (List.rev g.events)
     )

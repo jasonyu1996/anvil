@@ -526,8 +526,22 @@ and visit_expr (graph : event_graph) (ci : cunit_info)
     if graph.thread_id = shared_info.assigning_thread then
       let value_td = visit_expr graph ci ctx value_expr in
       if not ctx.lt_check_phase then (
-        if (Option.is_some shared_info.value.w) || (Option.is_some shared_info.assigned_at) then
-          raise (event_graph_error_default "Shared value can only be assigned in one place!" e.span);
+        if (Option.is_some shared_info.value.w) || (Option.is_some shared_info.assigned_at) then (
+          let prev_assign_action =
+            (Option.get shared_info.assigned_at).actions
+            |> List.find (fun {d; _} ->
+              match d with
+              | PutShared (id', _, _) -> id' = id
+              | _ -> false
+            )
+          in
+          raise (EventGraphError [
+            Text "Shared value can only be assigned in one place!";
+            Except.codespan_local e.span;
+            Text "Previously assigned at:";
+            Except.codespan_local prev_assign_action.span
+          ]);
+        );
         shared_info.value.w <- value_td.w;
         shared_info.assigned_at <- Some ctx.current;
       );
