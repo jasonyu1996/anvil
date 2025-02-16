@@ -1,14 +1,23 @@
 open EventGraph
+open EventGraphOps
 open Lang
 
 let unwrap_or_err err_msg err_span opt =
   match opt with
   | Some d -> d
-  | None -> raise (EventGraphError (err_msg, err_span))
-
+  | None -> raise (event_graph_error_default err_msg err_span)
 
 module Typing = struct
-  type context = timed_data Utils.string_map
+  type binding = {
+    binding_val : timed_data;
+    mutable binding_used : bool; (** if the binding has been used (to enforce relevance) *)
+  }
+
+  let use_binding binding =
+    binding.binding_used <- true;
+    binding.binding_val
+
+  type context = binding Utils.string_map
 
   type build_context = {
     typing_ctx : context;
@@ -24,25 +33,14 @@ module Typing = struct
         current_endps = Utils.StringMap.empty;
         outs = []; graph = g} in
       g.events <- n::g.events;
-      (
-        match source with
-        | `Later (e1, e2)
-        | `Either (e1, e2) ->
-          e1.outs <- n::e1.outs;
-          e2.outs <- n::e2.outs
-        | `Branch (_, ev')
-        | `Seq (ev', _) ->
-          ev'.outs <- n::ev'.outs
-        | _ -> ()
-      );
       n
     in
     (
       match source with
       | `Later (e1, e2) -> (
-        if GraphAnalysis.event_is_successor e1 e2 then
+        if GraphAnalysis.event_is_dominant e2 e1 then
           e2
-        else if GraphAnalysis.event_is_predecessor e1 e2 then
+        else if GraphAnalysis.event_is_dominant e1 e2 then
           e1
         else
           event_create_inner ()
@@ -64,6 +62,7 @@ module Typing = struct
     let ev = event_create g (`Later (current, td.lt.live)) in
     {td with lt = {td.lt with live = ev}}
 
+  let immediate_data _g (w : wire option) dtype (current : event) = {w; lt = lifetime_immediate current; reg_borrows = []; dtype}
   let const_data _g (w : wire option) dtype (current : event) = {w; lt = lifetime_const current; reg_borrows = []; dtype}
   let merged_data g (w : wire option) dtype (current : event) (tds : timed_data list) =
     let lts = List.map (fun x -> x.lt) tds in
@@ -84,7 +83,7 @@ module Typing = struct
     (
       match dpat with
       | `Cycles _ -> ()
-      | _ -> raise (Except.UnimplementedError "Non-static lifetime for shared data is unsupported!")
+      | _ -> raise (Except.UnimplementedError [Text "Non-static lifetime for shared data is unsupported!"])
     );
     {w = gtd.w; lt = {live = event_synced; dead = [(event_synced, dpat)]}; reg_borrows = []; dtype = gtd.gdtype}
 
@@ -95,16 +94,19 @@ module Typing = struct
     {w; lt = {live = event_received; dead = [(event_received, e)]}; reg_borrows = []; dtype = stype.dtype}
 
   let context_add (ctx : context) (v : identifier) (d : timed_data) : context =
-    Utils.StringMap.add v d ctx
+    Utils.StringMap.add v {binding_val = d; binding_used = false} ctx
   let context_empty : context = Utils.StringMap.empty
   let context_lookup (ctx : context) (v : identifier) = Utils.StringMap.find_opt v ctx
   (* checks if lt lives at least as long as required *)
+
+  let context_clear_used =
+    Utils.StringMap.map (fun r -> {r with binding_used = false})
 
   module BuildContext = struct
     type t = build_context
     let create_empty g si lt_check_phase: t = {
       typing_ctx = context_empty;
-      current = event_create g `Root;
+      current = event_create g (`Root None);
       shared_vars_info = si;
       lt_check_phase;
     }
@@ -115,8 +117,23 @@ module Typing = struct
       {ctx with typing_ctx = context_add ctx.typing_ctx v d}
     let wait g (ctx : t) (other : event) : t =
       {ctx with current = event_create g (`Later (ctx.current, other))}
-    let branch g (ctx : t) (td : timed_data) neg: t  =
-      {ctx with current = event_create g (`Branch ({data = td; neg}, ctx.current))}
+
+    (* returns a pair of contexts for *)
+    let branch_side g (ctx : t) (bi : branch_info) (sel : bool) : branch_side_info * t  =
+      let br_side_info = {branch_event = None; owner_branch = bi; branch_side_sel = sel} in
+      let event_side_root = event_create g (`Root (Some (ctx.current, br_side_info))) in
+      (br_side_info, {ctx with current = event_side_root; typing_ctx = context_clear_used ctx.typing_ctx})
+
+    let branch g (ctx : t) (br_info : branch_info) : t =
+      {ctx with current = event_create g (`Branch (ctx.current, br_info))}
+
+    (* merge the used state in context *)
+    let branch_merge ctx ctx1 ctx2 =
+      Utils.StringMap.iter (fun ident r ->
+        if r.binding_used && (Utils.StringMap.find ident ctx2.typing_ctx).binding_used then (
+          (Utils.StringMap.find ident ctx.typing_ctx).binding_used <- true
+        )
+      ) ctx1.typing_ctx
   end
 
 
@@ -225,12 +242,12 @@ and visit_expr (graph : event_graph) (ci : cunit_info)
       Typing.sync_event_data graph ident shared_info.value ctx.current
     )
   | Identifier ident ->
-      let ctx_val = Typing.context_lookup ctx.typing_ctx ident  in
+      let ctx_val = Typing.context_lookup ctx.typing_ctx ident in
       let macro_val = List.assoc_opt ident (List.map (fun (macro : macro_def) ->(macro.id, macro.value)) ci.macro_defs) in
       (match ctx_val, macro_val with
         | Some _, Some _ ->
-          raise (EventGraphError (" Conflicting Identifier " ^ ident ^ " declarations found", e.span))
-        | Some td, None -> Typing.sync_data graph ctx.current td
+          raise (event_graph_error_default ("Conflicting Identifier " ^ ident ^ " declarations found") e.span)
+        | Some binding, None -> Typing.use_binding binding |> Typing.sync_data graph ctx.current
         | None, Some value ->
           let sz = Utils.int_log2 (value + 1) in
           let (wires', w) = WireCollection.add_literal graph.thread_id
@@ -241,7 +258,7 @@ and visit_expr (graph : event_graph) (ci : cunit_info)
         | None, None ->
           Typing.context_lookup ctx.typing_ctx ident
           |> unwrap_or_err ("Undefined identifier: " ^ ident) e.span
-          |> Typing.sync_data graph ctx.current
+          |> Typing.use_binding |> Typing.sync_data graph ctx.current
       )
 
   | Assign (lval, e') ->
@@ -284,8 +301,14 @@ and visit_expr (graph : event_graph) (ci : cunit_info)
         {td with lt} (* forcing the bound value to be awaited *)
       | [ident], _ ->
         let ctx' = BuildContext.add_binding ctx ident td1 in
-        visit_expr graph ci ctx' e2
-      | _ -> raise (EventGraphError ("Discarding expression results!", e.span))
+        let td = visit_expr graph ci ctx' e2 in
+        (* check if the binding is used *)
+        let binding = Typing.context_lookup ctx'.typing_ctx ident |> Option.get in
+        if not binding.binding_used then (
+          raise (event_graph_error_default "Unused value!" e1.span)
+        );
+        td
+      | _ -> raise (event_graph_error_default "Discarding expression results!" e.span)
     )
   | Wait (e1, e2) ->
     let td1 = visit_expr graph ci ctx e1 in
@@ -296,22 +319,34 @@ and visit_expr (graph : event_graph) (ci : cunit_info)
       |> unwrap_or_err "Invalid message specifier in ready" e.span in
     if msg.dir <> In then (
       (* mismatching direction *)
-      raise (EventGraphError ("Mismatching message direction!", e.span))
+      raise (event_graph_error_default "Mismatching message direction!" e.span)
     );
     let wires, msg_valid_port = WireCollection.add_msg_valid_port graph.thread_id ci.typedefs msg_spec graph.wires in
     graph.wires <- wires;
-    Typing.const_data graph (Some msg_valid_port) `Logic ctx.current
+    Typing.immediate_data graph (Some msg_valid_port) `Logic ctx.current
   | Cycle n -> Typing.cycles_data graph n ctx.current
   | IfExpr (e1, e2, e3) ->
     let td1 = visit_expr graph ci ctx e1 in
     (* TODO: type checking *)
     let w1 = unwrap_or_err "Invalid condition" e1.span td1.w in
     let ctx' = BuildContext.wait graph ctx td1.lt.live in
-    let ctx_true = BuildContext.branch graph ctx' td1 false in
+    let branch_info = {branch_cond = td1; branch_to_true = None; branch_to_false = None; branch_val_true = None; branch_val_false = None} in
+    let (br_side_true, ctx_true) = BuildContext.branch_side graph ctx' branch_info true in
+
+    branch_info.branch_to_true <- Some ctx_true.current;
     let td2 = visit_expr graph ci ctx_true e2 in
-    let ctx_false = BuildContext.branch graph ctx' td1 true in
+    branch_info.branch_val_true <- Some td2.lt.live;
+    let (br_side_false, ctx_false) = BuildContext.branch_side graph ctx' branch_info false in
+    branch_info.branch_to_false <- Some ctx_false.current;
     let td3 = visit_expr graph ci ctx_false e3 in
-    let lt = {live = Typing.event_create graph (`Either (td2.lt.live, td3.lt.live));
+    branch_info.branch_val_false <- Some td3.lt.live;
+
+    BuildContext.branch_merge ctx' ctx_true ctx_false;
+
+    let ctx_br = BuildContext.branch graph ctx' branch_info in
+    br_side_true.branch_event <- Some ctx_br.current;
+    br_side_false.branch_event <- Some ctx_br.current;
+    let lt = {live = ctx_br.current; (* branch event is reached when either split event is reached *)
       dead = td1.lt.dead @ td2.lt.dead @td3.lt.dead} in
     let reg_borrows' = td1.reg_borrows @ td2.reg_borrows @ td3.reg_borrows in
     (
@@ -322,11 +357,11 @@ and visit_expr (graph : event_graph) (ci : cunit_info)
         let (wires', w) = WireCollection.add_switch graph.thread_id ci.typedefs [(w1, w2)] w3 graph.wires in
         graph.wires <- wires';
         {w = Some w; lt; reg_borrows = reg_borrows'; dtype = td2.dtype}
-      | _ -> raise (EventGraphError ("Invalid if expression!", e.span))
+      | _ -> raise (event_graph_error_default "Invalid if expression!" e.span)
     )
   | Concat es ->
     let tds = List.map (fun e' -> (e', visit_expr graph ci ctx e')) es in
-    let ws = List.map (fun (e', td) -> unwrap_or_err "Invalid value in concat" e'.span td.w) tds in
+    let ws = List.map (fun ((e', td) : expr_node * timed_data) -> unwrap_or_err "Invalid value in concat" e'.span td.w) tds in
     let (wires', w) = WireCollection.add_concat graph.thread_id ci.typedefs ci.macro_defs ws graph.wires in
     graph.wires <- wires';
     let new_dtype = `Array (`Logic, ParamEnv.Concrete w.size) in
@@ -337,18 +372,18 @@ and visit_expr (graph : event_graph) (ci : cunit_info)
     let (wires', w) = WireCollection.add_reg_read graph.thread_id ci.typedefs ci.macro_defs r graph.wires in
     graph.wires <- wires';
     let sz = TypedefMap.data_type_size ci.typedefs ci.macro_defs r.dtype in
-    let borrow = {borrow_range = full_reg_range reg_ident sz; borrow_start = ctx.current} in
-    {w = Some w; lt = EventGraph.lifetime_const ctx.current; reg_borrows = [borrow]; dtype = r.dtype}
+    let borrow = {borrow_range = full_reg_range reg_ident sz; borrow_start = ctx.current; borrow_source_span = e.span} in
+    {w = Some w; lt = EventGraphOps.lifetime_const ctx.current; reg_borrows = [borrow]; dtype = r.dtype}
   | Debug op ->
     (
       match op with
       | DebugPrint (s, e_list) ->
         let timed_ws = List.map (visit_expr graph ci ctx) e_list in
         ctx.current.actions <- (let open EventGraph in DebugPrint (s, timed_ws) |> tag_with_span e.span)::ctx.current.actions;
-        {w = None; lt = EventGraph.lifetime_const ctx.current; reg_borrows = []; dtype = unit_dtype}
+        {w = None; lt = EventGraphOps.lifetime_const ctx.current; reg_borrows = []; dtype = unit_dtype}
       | DebugFinish ->
         ctx.current.actions <- (let open EventGraph in tag_with_span e.span DebugFinish)::ctx.current.actions;
-        {w = None; lt = EventGraph.lifetime_const ctx.current; reg_borrows = []; dtype = unit_dtype}
+        {w = None; lt = EventGraphOps.lifetime_const ctx.current; reg_borrows = []; dtype = unit_dtype}
     )
   | Send send_pack ->
     (* just check that the endpoint and the message type is defined *)
@@ -356,7 +391,7 @@ and visit_expr (graph : event_graph) (ci : cunit_info)
       |> unwrap_or_err "Invalid message specifier in send" e.span in
     if msg.dir <> Out then (
       (* mismatching direction *)
-      raise (EventGraphError ("Mismatching message direction!", e.span))
+      raise (event_graph_error_default "Mismatching message direction!" e.span)
     );
     let td = visit_expr graph ci ctx send_pack.send_data in
     let ntd = Typing.send_msg_data graph send_pack.send_msg_spec ctx.current in
@@ -371,7 +406,7 @@ and visit_expr (graph : event_graph) (ci : cunit_info)
       |> unwrap_or_err "Invalid message specifier in receive" e.span in
     if msg.dir <> In then (
       (* mismatching direction *)
-      raise (EventGraphError ("Mismatching message direction!", e.span))
+      raise (event_graph_error_default "Mismatching message direction!" e.span)
     );
     let (wires', w) = WireCollection.add_msg_port graph.thread_id ci.typedefs ci.macro_defs recv_pack.recv_msg_spec 0 msg graph.wires in
     graph.wires <- wires';
@@ -433,9 +468,9 @@ and visit_expr (graph : event_graph) (ci : cunit_info)
             let (wires', w) = WireCollection.add_concat graph.thread_id ci.typedefs ci.macro_defs ws graph.wires in
             graph.wires <- wires';
             List.map snd tds |> Typing.merged_data graph (Some w) (`Named (record_ty_name, [])) ctx.current
-          | _ -> raise (EventGraphError ("Invalid record type value!", e.span))
+          | _ -> raise (event_graph_error_default "Invalid record type value!" e.span)
         )
-      | _ -> raise (EventGraphError ("Invalid record type name!", e.span))
+      | _ -> raise (event_graph_error_default "Invalid record type name!" e.span)
     )
   | Construct (cstr_spec, cstr_expr_opt) ->
     (
@@ -481,9 +516,9 @@ and visit_expr (graph : event_graph) (ci : cunit_info)
             end in
             graph.wires <- wires';
             Typing.const_data graph (Some new_w)  (`Named (cstr_spec.variant_ty_name, [])) ctx.current
-          | _ -> raise (EventGraphError ("Invalid variant construct expression!", e.span))
+          | _ -> raise (event_graph_error_default "Invalid variant construct expression!" e.span)
         )
-      | _ -> raise (EventGraphError ("Invalid variant type name!", e.span))
+      | _ -> raise (event_graph_error_default "Invalid variant type name!" e.span)
     )
   | SharedAssign (id, value_expr) ->
     let shared_info = Hashtbl.find_opt ctx.shared_vars_info id
@@ -491,15 +526,29 @@ and visit_expr (graph : event_graph) (ci : cunit_info)
     if graph.thread_id = shared_info.assigning_thread then
       let value_td = visit_expr graph ci ctx value_expr in
       if not ctx.lt_check_phase then (
-        if (Option.is_some shared_info.value.w) || (Option.is_some shared_info.assigned_at) then
-          raise (EventGraphError ("Shared value can only be assigned in one place!", e.span));
+        if (Option.is_some shared_info.value.w) || (Option.is_some shared_info.assigned_at) then (
+          let prev_assign_action =
+            (Option.get shared_info.assigned_at).actions
+            |> List.find (fun {d; _} ->
+              match d with
+              | PutShared (id', _, _) -> id' = id
+              | _ -> false
+            )
+          in
+          raise (EventGraphError [
+            Text "Shared value can only be assigned in one place!";
+            Except.codespan_local e.span;
+            Text "Previously assigned at:";
+            Except.codespan_local prev_assign_action.span
+          ]);
+        );
         shared_info.value.w <- value_td.w;
         shared_info.assigned_at <- Some ctx.current;
       );
       ctx.current.actions <- (PutShared (id, shared_info, value_td) |> tag_with_span e.span)::ctx.current.actions;
       Typing.const_data graph None (unit_dtype) ctx.current
     else
-      raise (EventGraphError ("Shared variable assigned in wrong thread", e.span))
+      raise (event_graph_error_default "Shared variable assigned in wrong thread" e.span)
   | List li ->
     let tds = List.map (visit_expr graph ci ctx) li in
     let ws = List.map (fun td -> unwrap_or_err "Invalid wires!" e.span td.w) tds in
@@ -508,7 +557,7 @@ and visit_expr (graph : event_graph) (ci : cunit_info)
     graph.wires <- wires';
     let td = List.hd tds in
     Typing.merged_data graph (Some new_w) (`Array (td.dtype, ParamEnv.Concrete (List.length tds))) ctx.current tds
-  | _ -> raise (EventGraphError ("Unimplemented expression!", e.span))
+  | _ -> raise (event_graph_error_default "Unimplemented expression!" e.span)
 
 (* Builds the graph representation for each process To Do: Add support for commands outside loop (be executed once or continuosly)*)
 let build_proc (config : Config.compile_config) sched module_name param_values
@@ -521,36 +570,38 @@ let build_proc (config : Config.compile_config) sched module_name param_values
   in
   match proc.body with
   | Native body ->
-    let msg_collection = MessageCollection.create body.channels proc.args body.spawns ci.channel_classes in
+    let msg_collection = MessageCollection.create body.channels
+                                      proc.args body.spawns ci.channel_classes in
     let spawns =
-    List.map (fun s ->
-      let module_name = BuildScheduler.add_proc_task sched s.proc s.compile_params in
+    List.map (fun (s : spawn_def ast_node) ->
+      let module_name = BuildScheduler.add_proc_task sched ci.file_name s.span s.d.proc s.d.compile_params in
       (module_name, s)
     ) body.spawns in
     let shared_vars_info = Hashtbl.create (List.length body.shared_vars) in
     List.iter (fun sv ->
       let v = {
         w = None;
-        glt = sv.shared_lifetime;
+        glt = sv.d.shared_lifetime;
         gdtype = unit_dtype; (* explicitly annotate? *)
       } in
       let r = {
-        assigning_thread = sv.assigning_thread;
+        assigning_thread = sv.d.assigning_thread;
         value = v;
         assigned_at = None;
       } in
-        Hashtbl.add shared_vars_info sv.ident r
+        Hashtbl.add shared_vars_info sv.d.ident r
       ) body.shared_vars;
-      let proc_threads = List.mapi (fun i e ->
+      let proc_threads = List.mapi (fun i (e : expr_node) ->
         let graph = {
           thread_id = i;
           events = [];
           wires = WireCollection.empty;
-          channels = body.channels;
+          channels = List.map data_of_ast_node body.channels;
           messages = msg_collection;
-          spawns = body.spawns;
-          regs = body.regs;
+          spawns = List.map data_of_ast_node body.spawns;
+          regs = List.map data_of_ast_node body.regs;
           last_event_id = 0;
+          thread_codespan = e.span;
         } in
         (* Bruteforce treatment: just run twice *)
         let graph_opt = if (not config.disable_lt_checks) || config.two_round_graph then (
@@ -581,7 +632,7 @@ let build_proc (config : Config.compile_config) sched module_name param_values
       ) body.loops in
       {name = module_name; extern_module = None;
         threads = proc_threads; shared_vars_info; messages = msg_collection;
-        proc_body = proc.body; spawns}
+        proc_body = proc.body; spawns = List.map (fun (ident, {d; _}) -> (ident, d)) spawns}
     | Extern (extern_mod, _extern_body) ->
       let msg_collection = MessageCollection.create [] proc.args [] ci.channel_classes in
       {name = module_name; extern_module = Some extern_mod; threads = [];
@@ -600,6 +651,7 @@ let build (config : Config.compile_config) sched module_name param_values (cunit
   let typedefs = TypedefMap.of_list cunit.type_defs in
   let func_defs = cunit.func_defs in
   let ci = {
+    file_name = Option.get cunit.cunit_file_name;
     typedefs;
     channel_classes = cunit.channel_classes;
     enum_mappings;
@@ -615,3 +667,18 @@ let build (config : Config.compile_config) sched module_name param_values (cunit
     external_event_graphs = [];
     enum_mappings;
   }
+
+let syntax_tree_precheck (_config : Config.compile_config) cunit =
+  (* just check if the channel definitions have well-formed sync modes *)
+  List.iter (fun cc ->
+    List.iter (fun msg ->
+      match msg.send_sync, msg.recv_sync with
+      | Dependent (`Cycles n), Dependent (`Cycles m) ->
+        if n <> m then (* the cycle counts on both sides must be equal *)
+          raise (Except.TypeError [Text "Static sync mode must be symmetric!"; Except.codespan_local msg.span])
+      | Dependent (`Cycles _), Dynamic
+      | Dynamic, Dependent (`Cycles _)
+      | Dynamic, Dynamic -> ()
+      | _ -> raise (Except.TypeError [Text "Unsupported sync mode!"; Except.codespan_local msg.span])
+    ) cc.messages
+  ) cunit.channel_classes

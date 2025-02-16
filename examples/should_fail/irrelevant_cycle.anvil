@@ -1,0 +1,5 @@
+proc irrelevant_cycle () =
+    loop {
+        let a = cycle 10 in
+        cycle 1
+    }

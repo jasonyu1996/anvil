@@ -1,0 +1,27 @@
+/* The receiver receives too frequently here. The receiver is receiving every two cycles,
+   but the sender only guarantees sending every three cycles.
+*/
+
+
+chan ch = {
+    left req: (logic[8]@#1) @#3-@dyn // left end point is dyn, right end point is #1
+}
+
+proc slave(ep : left ch) =
+    loop {
+        let r = recv ep.req in
+        r =>
+        dprint "Value = %d" (r);
+        cycle 2
+    }
+
+proc static_dyn_sync() =
+    chan le -- ri : ch
+    spawn slave(le)
+    reg r : logic[8]
+
+    loop {
+        send ri.req(*r) =>
+        set r := *r + 8'd1
+    }
+

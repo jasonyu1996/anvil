@@ -25,6 +25,8 @@ let ast_node_of_data st ed d = { span = {st; ed}; d }
 let tag_with_span s d = { span = s; d }
 let dummy_ast_node_of_data d = { span = code_span_dummy; d }
 
+let data_of_ast_node n = n.d
+
 (** Type of a parameter. *)
 type param_type =
   | IntParam (** an integer constant *)
@@ -219,6 +221,7 @@ type message_def = {
   send_sync: message_sync_mode; (** how to synchronise when data is available *)
   recv_sync: message_sync_mode; (** how to synchronise when data is acknowledged *)
   sig_types: sig_type_chan_local list; (** the signal types of the values carried in the message *)
+  span: code_span; (** code span of the message definition *)
 }
 
 (** A channel class definition, containing a list of message type definitions. *)
@@ -226,6 +229,7 @@ type channel_class_def = {
   name: identifier;
   messages: message_def list;
   params: param list;  (** List of generic parameters *)
+  span: code_span; (** code span of the channel class definition *)
 }
 
 (** The visibility of a channel. *)
@@ -444,11 +448,11 @@ type shared_var_def = {
 (** Process body. *)
 type proc_def_body = {
   (* new channels available to this process *)
-  channels: channel_def list;
+  channels: channel_def ast_node list;
   (* processes spawned by this process *)
-  spawns: spawn_def list;
-  regs: reg_def list;
-  shared_vars: shared_var_def list;  (* New field *)
+  spawns: spawn_def ast_node list;
+  regs: reg_def ast_node list;
+  shared_vars: shared_var_def ast_node list;  (* New field *)
   (* prog: expr; *)
   loops: expr_node list;
 }
@@ -468,7 +472,7 @@ type proc_def_body_maybe_extern =
 type proc_def = {
   name: string;
   (* arguments are endpoints passed from outside *)
-  args: endpoint_def list; (** endpoints passed from outside *)
+  args: endpoint_def ast_node list; (** endpoints passed from outside *)
   body: proc_def_body_maybe_extern; (** process body *)
   params: param list; (** compile-time parameters *)
 }
@@ -487,6 +491,7 @@ type func_def =  {
 
 (** A compilation unit, corresponding to a source file. *)
 type compilation_unit = {
+  cunit_file_name : string option; (** filename in which the compilation unit resides *)
   channel_classes: channel_class_def list;
   type_defs: type_def list;
   enum_defs: enum_def list;
@@ -498,7 +503,8 @@ type compilation_unit = {
 }
 
 let cunit_empty : compilation_unit =
-  { channel_classes = []; type_defs = []; procs = []; imports = []; _extern_procs = [];enum_defs = [];macro_defs = [];func_defs = []}
+  {cunit_file_name = None; channel_classes = []; type_defs = [];
+  procs = []; imports = []; _extern_procs = [];enum_defs = [];macro_defs = [];func_defs = []}
 
 let cunit_add_channel_class
   (c : compilation_unit) (cc : channel_class_def) : compilation_unit =
@@ -561,7 +567,7 @@ and string_of_literal (lit : literal) : string =
   | WithLength (n, v) -> "WithLength (" ^ string_of_int n ^ ", " ^ string_of_int v ^ ")"
   | NoLength v -> "NoLength " ^ string_of_int v
 
-let generate_match_expression (e, match_arms) =
+let generate_match_expression (e : expr_node) match_arms =
   let is_default_pattern = function
     | {d = Identifier "_"; _} -> true
     | _ -> false
@@ -680,3 +686,10 @@ let generate_expr (id, start, end_v, offset, body) =
 
   in
   generate_exprs start []
+
+
+(** A span that includes only the ending position of the given span. *)
+let span_to_end span = {span with st = span.ed}
+
+(** A span that includes only the starting position of the given span. *)
+let span_to_start span = {span with ed = span.st}

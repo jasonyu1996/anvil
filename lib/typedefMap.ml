@@ -45,7 +45,7 @@ let rec data_type_size (type_defs : t) (macro_defs : macro_def list) (dtype : da
       List.fold_left (fun m n -> m + (snd n |> data_type_size type_defs macro_defs)) 0 flist
   | `Tuple comp_dtype_list ->
       List.fold_left (fun m n -> m + (data_type_size type_defs macro_defs n)) 0 comp_dtype_list
-  | `Opaque _ -> raise (TypeError "Opaque data type is unsized!")
+  | `Opaque _ -> raise (TypeError [Text "Opaque data type is unsized!"])
 
 
 let data_type_indirect (type_defs : t) (macro_defs: macro_def list) (dtype : data_type) (fieldname : identifier) : (int * int * data_type) option =

@@ -39,14 +39,16 @@ let message_sync_mode_allowed = function
   | Dependent (`Cycles _) -> true
   | _ -> false
 
-let create (channels : channel_def list)
-           (args : endpoint_def list)
-           (spawns : spawn_def list)
+let create (channels : channel_def ast_node list)
+           (args : endpoint_def ast_node list)
+           (spawns : spawn_def ast_node list)
            (channel_classes : channel_class_def list) =
-  let endpoint_in_spawns = List.concat_map (fun (spawn : spawn_def) -> spawn.params) spawns
-                                              |> Utils.StringSet.of_list in
+  let endpoint_in_spawns =
+    List.map data_of_ast_node spawns
+    |> List.concat_map (fun (spawn : spawn_def) -> spawn.params)
+    |> Utils.StringSet.of_list in
   let get_foreign name = Utils.StringSet.mem name endpoint_in_spawns in
-  let codegen_chan = fun (chan : channel_def) ->
+  let codegen_chan = fun span (chan : channel_def) ->
     (* let (left_foreign, right_foreign) =
       match chan.visibility with
       | BothForeign -> (true, true)
@@ -60,26 +62,26 @@ let create (channels : channel_def list)
     let right_endpoint = { name = chan.endpoint_right; channel_class = chan.channel_class;
                           channel_params = chan.channel_params;
                           dir = Right; foreign = get_foreign chan.endpoint_right; opp = Some chan.endpoint_left } in
-    [left_endpoint; right_endpoint]
+    [(left_endpoint, span); (right_endpoint, span)]
   in
-  let endpoints = List.concat_map codegen_chan channels in
-  let gather_from_endpoint (endpoint: endpoint_def) =
+  let endpoints = List.concat_map (fun (ch : channel_def ast_node) -> codegen_chan ch.span ch.d) channels in
+  let gather_from_endpoint ((endpoint, span): endpoint_def * code_span) =
     match lookup_channel_class channel_classes endpoint.channel_class with
     | Some cc ->
         let msg_map = fun (msg: message_def) ->
-          if (message_sync_mode_allowed msg.send_sync) &&
-             (message_sync_mode_allowed msg.recv_sync) then (
-                let msg_dir = get_message_direction msg.dir endpoint.dir in
-                (endpoint, ParamConcretise.concretise_message cc.params endpoint.channel_params msg, msg_dir)
-          ) else (
-            raise (Except.UnimplementedError "Synchronization mode unimplemented!")
-          )
+          (* these should have been checked earlier *)
+          assert ((message_sync_mode_allowed msg.send_sync) && (message_sync_mode_allowed msg.recv_sync));
+          let msg_dir = get_message_direction msg.dir endpoint.dir in
+          (endpoint, ParamConcretise.concretise_message cc.params endpoint.channel_params msg, msg_dir)
         in List.map msg_map cc.messages
     | None ->
-        raise (Except.UnknownError (Printf.sprintf "Channel class %s not found" endpoint.channel_class))
+        raise (Except.TypeError [
+          Text (Printf.sprintf "Channel class %s not found" endpoint.channel_class);
+          Except.codespan_local span
+        ])
   in
   (* override the user-specified foreign in args *)
-  let args = List.map (fun (ep : endpoint_def)-> {ep with foreign = get_foreign ep.name}) args in
-  let local_messages = List.filter (fun p -> not p.foreign) (args @ endpoints) |>
+  let args = List.map (fun ({d = ep; span} : endpoint_def ast_node) -> ({ep with foreign = get_foreign ep.name}, span)) args in
+  let local_messages = List.filter (fun ((p, _) : endpoint_def * code_span) -> not p.foreign) (args @ endpoints) |>
   List.concat_map gather_from_endpoint in
-  {endpoints; args; local_messages}
+  {endpoints = List.map fst endpoints; args = List.map fst args; local_messages}

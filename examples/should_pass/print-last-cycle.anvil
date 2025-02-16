@@ -9,6 +9,7 @@ loop{
     let x = recv ch.req in
     x =>
     dprint "x: %d" (x);
+    cycle 1 =>
     send ch.res(1'b1)=>
     cycle 1
 }

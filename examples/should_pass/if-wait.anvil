@@ -12,5 +12,6 @@ proc receiver(ch : left ch) =
             else
                 dprint "Not ready" ()
         ) =>
+        in1 =>
         cycle 1 => cycle 1 => cycle 1
 }

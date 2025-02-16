@@ -24,8 +24,8 @@ and concretise_dtype_params int_env type_env (dtype : data_type) : data_type =
     let base_type = concretise_dtype_params int_env type_env v in
     let size = match concretise int_env n with
       | Some s -> s
-      | None -> 
-          Printf.eprintf "[ERROR] Failed to concretise array size parameter: %s\n" 
+      | None ->
+          Printf.eprintf "[ERROR] Failed to concretise array size parameter: %s\n"
             (match n with
              | ParamEnv.Concrete i -> Printf.sprintf "Concrete(%d)" i
              | ParamEnv.Param p -> Printf.sprintf "Param(%s)" p);
@@ -77,7 +77,7 @@ let build_param_envs param_values params =
           add_value p.param_name n int_env
         | TypeParamValue t, TypeParam ->
           add_value p.param_name t type_env
-        | _ -> raise (Except.TypeError "Invalid parameter!")
+        | _ -> raise (Except.TypeError [Text "Invalid parameter!"])
       );
   (int_env, type_env)
 
@@ -87,27 +87,27 @@ let concretise_proc param_values proc =
   else (
     let (int_param_env, type_param_env) = build_param_envs param_values proc.params in
     let args = List.map
-      (fun (a : Lang.endpoint_def) ->
+      (fun ({d = a; span} : endpoint_def ast_node) ->
         let params = concretise_params int_param_env type_param_env a.channel_params in
-        {a with channel_params = params}
+        {d = {a with channel_params = params}; span}
       ) proc.args in
     (
       match proc.body with
       | Extern _ -> proc
       | Native body ->
         let regs = List.map
-          (fun r -> {r with dtype = concretise_dtype_params int_param_env type_param_env r.dtype})
+          (fun {d = r; span} -> {d = {r with dtype = concretise_dtype_params int_param_env type_param_env r.dtype}; span})
           body.regs in
         let spawns = List.map
-          (fun sp ->
+          (fun {d = sp; span} ->
             let compile_params = concretise_params int_param_env type_param_env sp.compile_params in
-            {sp with compile_params}
+            {d = {sp with compile_params}; span}
           )
           body.spawns in
         let channels = List.map
-          (fun ch ->
+          (fun {d = ch; span} ->
             let params = concretise_params int_param_env type_param_env ch.channel_params in
-            {ch with channel_params = params}
+            {d = {ch with channel_params = params}; span}
           )
           body.channels in
         {proc with args; body = Native {body with regs; spawns; channels}}

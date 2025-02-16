@@ -1,6 +1,6 @@
 open Lang
 
-exception LiteralConversionError of string
+exception LiteralConversionError of Except.error_message
 
 let bit_literal_of_string (s : string) : literal =
   let spl = String.split_on_char 'b' s in
@@ -22,7 +22,7 @@ let dec_literal_of_string (s : string) : literal =
     | '7' -> `Z7
     | '8' -> `Z8
     | '9' -> `Z9
-    | _ -> raise (LiteralConversionError "Bad character in decimal literal!")
+    | _ -> raise (LiteralConversionError [Text "Bad character in decimal literal!"])
   in
   let spl = String.split_on_char 'd' s in
   let base =  List.nth spl 1 |>
@@ -50,7 +50,7 @@ let hex_literal_of_string (s : string) : literal =
     | 'd' -> `Zd
     | 'e' -> `Ze
     | 'f' -> `Zf
-    | _ -> raise (LiteralConversionError "Bad character in hexadecimal literal!")
+    | _ -> raise (LiteralConversionError [Text "Bad character in hexadecimal literal!"])
   in
   let spl = String.split_on_char 'd' s in
   let base =  List.nth spl 1 |>

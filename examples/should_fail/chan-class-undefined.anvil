@@ -1,0 +1,4 @@
+proc main(endp : left ch) =
+    loop {
+        cycle 1
+    }

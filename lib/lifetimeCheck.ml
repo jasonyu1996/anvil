@@ -73,7 +73,6 @@ let gen_control_set (config : Config.compile_config) (g : event_graph) =
     let (a, b) = Option.get a_opt in
     Some (a, min v b)
   in
-  let last_ev : (event option) ref = ref None in
   List.iter
     (fun (ev : event) ->
       List.iter
@@ -94,26 +93,29 @@ let gen_control_set (config : Config.compile_config) (g : event_graph) =
       in
       (
         match ev.source with
-        | `Root -> ()
-        | `Later (e1, e2) | `Either (e1, e2) ->
+        | `Root None -> ()
+        | `Later (e1, e2)
+        | `Branch (_, {branch_val_true = Some e1; branch_val_false = Some e2; _}) ->
           (* Printf.eprintf "FR %d, %d -> %d\n" e1.id e2.id ev.id; *)
           forward_from e1;
           forward_from e2
         | `Seq (ev', _)  ->
           (* Printf.eprintf "FR %d -> %d\n" ev'.id ev.id; *)
           forward_from ev'
-        | `Branch (c, ev') ->
-          if c.neg then
-            forward_from (Option.get !last_ev)
-          else
+        | `Root (Some (ev', br_side_info)) ->
+          (* to true side first *)
+          if br_side_info.branch_side_sel then
             forward_from ev'
+          else
+            Option.get br_side_info.owner_branch.branch_val_true |> forward_from
+        | _ ->
+          raise (Except.unknown_error_default "Unexpected event source!")
       );
-      last_ev := Some ev
     )
     events_rev;
   (* backward pass *)
-  List.iteri
-    (fun idx (ev : event) ->
+  List.iter
+    (fun (ev : event) ->
       let backward_to (ev' : event) =
         ev'.control_endps <- Utils.StringMap.merge (fun _ a b -> opt_update_backward (Option.get a |> snd) b) ev.control_endps ev'.control_endps;
         ev'.control_endps <- Utils.StringMap.merge (fun _ a b -> opt_update_backward (Option.get a |> snd) b) ev.current_endps ev'.control_endps
@@ -121,19 +123,21 @@ let gen_control_set (config : Config.compile_config) (g : event_graph) =
       (
         ev.control_endps <- Utils.StringMap.merge (fun _ a b -> opt_update_backward (let v = Option.get a in v + 1) b) !endp_use_cnt ev.control_endps;
         match ev.source with
-        | `Root -> ()
-      | `Later (e1, e2) ->
-        backward_to e1;
-        backward_to e2
-      | `Seq (ev', _) ->
-        backward_to ev'
-      | `Either (_e1, e2) ->
-        backward_to e2
-      | `Branch (c, ev') ->
-        if c.neg then
-          backward_to (List.nth g.events (idx + 1))
-        else
+        | `Root None -> ()
+        | `Later (e1, e2) ->
+          backward_to e1;
+          backward_to e2
+        | `Seq (ev', _) ->
           backward_to ev'
+        | `Branch (_, {branch_val_true = Some _e1; branch_val_false = Some e2; _}) ->
+          backward_to e2 (* to false side first *)
+        | `Root (Some (ev', br_side_info)) ->
+          if br_side_info.branch_side_sel then
+            backward_to ev'
+          else
+            Option.get br_side_info.owner_branch.branch_val_true |> backward_to
+        | _ ->
+          raise (Except.unknown_error_default "Unexpected event source!")
       )
     ) g.events;
   (* print_control_set g;
@@ -144,8 +148,29 @@ let gen_control_set (config : Config.compile_config) (g : event_graph) =
       List.iter (fun (sa : sustained_action ast_node) ->
         match sa.d.ty with
         | Send (ms, _) | Recv ms -> (
-          if in_control_set_endps ev ms.endpoint |> not then
-            raise (EventGraphError ("Non-linearizable endpoint use!", sa.span))
+          if in_control_set_endps ev ms.endpoint |> not then (
+            let bad_spans = ref [] in
+            List.iter (fun ev' ->
+              List.iter (fun sa' ->
+                match sa.d.ty with
+                | Send (ms', _) | Recv ms' ->
+                  if sa'.d.until.id <> sa.d.until.id && ms'.endpoint = ms.endpoint
+                    && in_control_set_endps ev' ms'.endpoint |> not then
+                      bad_spans := sa'.span::!bad_spans
+              ) ev'.sustained_actions
+            ) g.events;
+            raise (LifetimeCheckError
+                  (
+                    let open Except in
+                    [
+                      Text "Non-linearizable endpoint use!";
+                      codespan_local sa.span;
+                      Text (List.length !bad_spans |> Printf.sprintf "Conflicting uses (%d):")
+                    ] @
+                    (List.map codespan_local !bad_spans)
+                  )
+            )
+          )
           else ()
         )
       ) ev.sustained_actions
@@ -154,10 +179,16 @@ let gen_control_set (config : Config.compile_config) (g : event_graph) =
   (* check for violations of linearity for register assignments *)
   let rec check_reg_violation = function
     | (ev, range, span)::remaining ->
-      List.iter (fun (ev', range', _span') ->
-        if (subreg_ranges_possibly_intersect range range') &&
+      List.iter (fun (ev', range', span') ->
+        if (EventGraphOps.subreg_ranges_possibly_intersect range range') &&
            (GraphAnalysis.events_are_ordered g.events ev ev' |> not) then
-            raise (EventGraphError ("Non-linearizable register assignment!", span))
+            raise (LifetimeCheckError
+                [
+                  Text "Non-linearizable register assignment!";
+                  Except.codespan_local span;
+                  Text "Conflicting with:";
+                  Except.codespan_local span';
+                ])
       ) remaining;
       check_reg_violation remaining
     | [] -> ()
@@ -170,7 +201,7 @@ module IntHashtbl = Hashtbl.Make(Int)
 (** Is ev_pat1 matched always no later than ev_pat2 is matched?
 Produce a conservative result.
 Only length 1 ev_pat1 supported. *)
-let event_pat_rel events (ev_pat1 : event_pat) (ev_pat2 : event_pat) =
+let _event_pat_rel events (ev_pat1 : event_pat) (ev_pat2 : event_pat) =
   if (List.length ev_pat1) <> 1 then
     false
   else (
@@ -190,7 +221,7 @@ let event_pat_rel events (ev_pat1 : event_pat) (ev_pat2 : event_pat) =
                 let d = get_dist ev2 in
                 n1 <= d + n2
               else (
-                let slacks = event_slack_graph events ev2 in
+                let slacks = events_max_dist events ev2 in
                 let d = slacks.(ev1.id) in
                 n1 + d <= n2
               )
@@ -217,7 +248,7 @@ let event_pat_rel events (ev_pat1 : event_pat) (ev_pat2 : event_pat) =
               | `Cycles n2 -> (* earliest estimate *)
                 if event_is_predecessor ev2 ri1 then true
                 else (
-                  let slacks = event_slack_graph events ev2 in
+                  let slacks = events_max_dist events ev2 in
                   let d = slacks.(ri1.id) in
                   d <= n2
                 )
@@ -234,6 +265,59 @@ let event_pat_rel events (ev_pat1 : event_pat) (ev_pat2 : event_pat) =
     List.for_all (fun (ev2, d_pat2) -> check_f ev2 d_pat2) ev_pat2
   )
 
+(* Newer and more rigorous algorithm. *)
+let event_pat_rel2 events ev_pat1 ev_pat2 =
+  let get_points_dist (ev, d_pat) =
+    match d_pat with
+    | `Cycles n -> ([ev], n)
+    | `Eternal -> ([ev], -1)
+    | `Message m ->
+      let g = GraphAnalysis.events_first_msg events ev m in
+      (* Printf.eprintf "FM %d %d\n" ev.id (List.length g); *)
+      (g, 0)
+  in
+  match ev_pat1 with
+  | [spat1] -> (
+    (* source_points is the set of source points to consider *)
+    (* dist1 is the distance required, -1 to indicate eternal *)
+    let (source_points, dist1) = get_points_dist spat1 in
+    (* Printf.eprintf "Sources %d (%d) = " (fst spat1).id dist1;
+    List.iter (fun source -> Printf.eprintf "%d " source.id) source_points;
+    Printf.eprintf "\n"; *)
+    let targets_list = List.map get_points_dist ev_pat2 in
+    if dist1 = -1 then
+      List.for_all (fun (_, dist2) -> dist2 = -1) targets_list
+    else (
+      (* dist1 != -1 *)
+      List.for_all (fun (target_points, dist2) ->
+        if dist2 = -1 then
+          true
+        else (
+          (* Printf.eprintf "Targets (%d) = " dist2;
+          List.iter (fun target -> Printf.eprintf "%d " target.id) target_points;
+          Printf.eprintf "\n"; *)
+          (* neither dist2 nor dist1 is -1 *)
+          List.for_all (fun target ->
+            let slacks = GraphAnalysis.events_max_dist events target in
+            List.for_all (fun source -> slacks.(source.id) <= dist2 - dist1) source_points
+          ) target_points
+        )
+      ) targets_list
+      (* List.for_all (fun source ->
+        let slacks = GraphAnalysis.events_max_dist events source in
+        List.for_all (fun (target_points, dist2) ->
+          if dist2 = -1 then
+            true
+          else (
+            (* neither dist2 nor dist1 is -1 *)
+            List.for_all (fun target -> slacks.(target.id) <= dist2 - dist1) target_points
+          )
+        ) targets_list
+      ) source_points *)
+    )
+  )
+  | _ -> false (* not to be supported *)
+
 (** Check that lt1 is always fully covered by lt2 *)
 let lifetime_in_range events (lt1 : lifetime) (lt2 : lifetime) =
   (* 1. check if lt2's start is a predecessor of lt1's start *)
@@ -243,21 +327,15 @@ let lifetime_in_range events (lt1 : lifetime) (lt2 : lifetime) =
     let r = event_pat_matches lt1.live lt2.dead in
     (not r.at) && (not r.aft)
   ) *)
-  (event_pat_rel events [(lt2.live, `Cycles 0)] [(lt1.live, `Cycles 0)])
-    && (event_pat_rel events lt1.dead lt2.dead)
+  (event_pat_rel2 events [(lt2.live, `Cycles 0)] [(lt1.live, `Cycles 0)])
+    && (event_pat_rel2 events lt1.dead lt2.dead)
 
 (** Definitely disjoint? *)
 let lifetime_disjoint events lt1 lt2 =
-  let separated_branches ev1 ev2 =
-    (event_is_successor ev1 ev2 |> not)
-    && (event_is_successor ev2 ev1 |> not)
-  in
   assert (List.length lt1.dead = 1);
   (* to be disjoint, either r1 <= l2 or r2 <= l1 *)
-  (event_pat_rel events lt1.dead [(lt2.live, `Cycles 0)])
-  || (List.for_all (fun de -> event_pat_rel events [de] [(lt1.live, `Cycles 0)]) lt2.dead)
-  || ((separated_branches lt1.live (List.hd lt2.dead |> fst))
-      && (separated_branches lt2.live (List.hd lt1.dead |> fst)))
+  (event_pat_rel2 events lt1.dead [(lt2.live, `Cycles 0)])
+  || (List.for_all (fun de -> event_pat_rel2 events [de] [(lt1.live, `Cycles 0)]) lt2.dead)
 
 
 (* An internal identifier for a message specifier. *)
@@ -266,41 +344,52 @@ let msg_ident msg = Printf.sprintf "%s@%s" msg.endpoint msg.msg
 module StringHashtbl = Hashtbl.Make(String)
 
 let lifetime_check (config : Config.compile_config) (ci : cunit_info) (g : event_graph) =
+  if config.verbose then (
+    EventGraphOps.print_graph g;
+    Printf.eprintf "// BEGIN GRAPH IN DOT FORMAT\n";
+    Printf.eprintf "// can render to PDF with 'dot -Tpdf -O <filename>'\n";
+    EventGraphOps.print_dot_graph g Out_channel.stderr;
+    Printf.eprintf "// END GRAPH IN DOT FORMAT\n"
+  );
+
+  GraphAnalysis.events_prepare_outs g.events;
+
   (* check that it takes at least one cycle to execute *)
-  let root_ev = List.find (fun e -> e.source = `Root) g.events in
+  let root_ev = List.find (fun e -> e.source = `Root None) g.events in
   let last_ev = List.hd g.events in (* assuming reverse topo order *)
   let dist = event_min_distance g.events root_ev root_ev in
   if IntHashtbl.find dist last_ev.id = 0 then
-    raise (LifetimeCheckError "Thread must take at least one cycle to complete a loop!");
+    raise (LifetimeCheckError
+      [
+        Text "Thread must take at least one cycle to complete a loop!";
+        Except.codespan_local g.thread_codespan
+      ]
+    );
 
   gen_control_set config g;
   (* for debugging purposes*)
   if config.verbose then (
-    EventGraph.print_graph g;
-    Printf.eprintf "// BEGIN GRAPH IN DOT FORMAT\n";
-    Printf.eprintf "// can render to PDF with 'dot -Tpdf -O <filename>'\n";
-    EventGraph.print_dot_graph g Out_channel.stderr;
-    Printf.eprintf "// END GRAPH IN DOT FORMAT\n";
     print_control_set g
   );
   let reg_borrows = StringHashtbl.create 8 in (* regname -> (lifetime, range)*)
   let msg_borrows = StringHashtbl.create 8 in
   (* check lifetime for each use of a wire *)
-  let not_borrowed_reg s lt range =
+  let intersects_borrowed_reg s lt range =
     let borrows = StringHashtbl.find_opt reg_borrows s |> Option.value ~default:[] in
-    List.for_all (fun (lt', range') ->
-      (subreg_ranges_possibly_intersect range range' |> not) || (lifetime_disjoint g.events lt lt'))
+    List.filter (fun (lt_tagged', range') ->
+      (EventGraphOps.subreg_ranges_possibly_intersect range range') && (lifetime_disjoint g.events lt lt_tagged'.d |> not))
       borrows
   in
-  let not_borrowed_msg_and_add s lt =
+  let intersects_borrowed_msg_and_add s lt_tagged =
+    let lt = lt_tagged.d in
     let borrows = StringHashtbl.find_opt msg_borrows s |> Option.value ~default:[] in
-    let not_borrowed = List.for_all (lifetime_disjoint g.events lt) borrows in
-    if not_borrowed then StringHashtbl.replace msg_borrows s (lt::borrows);
-    not_borrowed
+    let intersects = List.filter (fun lt_tagged' -> lifetime_disjoint g.events lt lt_tagged'.d |> not) borrows in
+    if intersects = [] then StringHashtbl.replace msg_borrows s (lt_tagged::borrows);
+    intersects
   in
-  let borrow_add_reg s lt range =
+  let borrow_add_reg s lt_tagged range =
     let borrows = StringHashtbl.find_opt reg_borrows s |> Option.value ~default:[] in
-    StringHashtbl.replace reg_borrows s ((lt, range)::borrows)
+    StringHashtbl.replace reg_borrows s ((lt_tagged, range)::borrows)
   in
   let visit_actions a_visitor sa_visitor =
     List.iter (fun ev ->
@@ -348,7 +437,8 @@ let lifetime_check (config : Config.compile_config) (ci : cunit_info) (g : event
     g.events;
   List.iter (fun (td, dead) ->
     List.iter (fun borrow ->
-      borrow_add_reg borrow.borrow_range.subreg_name {live = borrow.borrow_start; dead = [dead]} borrow.borrow_range
+      let lt_tagged = tag_with_span borrow.borrow_source_span {live = borrow.borrow_start; dead = [dead]} in
+      borrow_add_reg borrow.borrow_range.subreg_name lt_tagged borrow.borrow_range
     ) td.reg_borrows
   ) !td_to_live_until;
   (* check register and message borrows *)
@@ -356,30 +446,52 @@ let lifetime_check (config : Config.compile_config) (ci : cunit_info) (g : event
     (fun ev a ->
       match a.d with
       | RegAssign (lval_info, td) ->
-        let lt = EventGraph.lifetime_immediate ev in
-        if not_borrowed_reg lval_info.lval_range.subreg_name lt lval_info.lval_range |> not then
-          raise (EventGraphError ("Attempted assignment to a borrowed register!", a.span))
-        else ();
+        let lt = EventGraphOps.lifetime_immediate ev in
+        (
+          match intersects_borrowed_reg lval_info.lval_range.subreg_name lt lval_info.lval_range with
+          | [] -> ()
+          | (lt_tagged, _)::_ ->
+              let open Except in
+              raise (LifetimeCheckError [
+                Text "Attempted assignment to a borrowed register!";
+                codespan_local a.span;
+                Text "Borrowed at:";
+                codespan_local lt_tagged.span
+              ] )
+        );
         if lifetime_in_range g.events lt td.lt |> not then
-          raise (EventGraphError ("Value does not live long enough in reg assignment!", a.span))
+          raise (LifetimeCheckError [
+                    Text "Value does not live long enough in reg assignment!";
+                    Except.codespan_local a.span
+                ])
         else ();
         (
           match fst lval_info.lval_range.subreg_range_interval with
           | Const _ -> ()
           | NonConst range_st_td ->
             if lifetime_in_range g.events lt range_st_td.lt |> not then
-              raise (EventGraphError ("Lvalue index does not live long enough!", a.span))
+              raise (LifetimeCheckError [
+                  Text "Lvalue index does not live long enough!";
+                  Except.codespan_local a.span
+                ])
         )
       | DebugPrint (_, tds) ->
         List.iter (fun td ->
-          if lifetime_in_range g.events (EventGraph.lifetime_immediate ev) td.lt |> not then
-            raise (EventGraphError ("Value does not live long enough in debug print!", a.span))
+          if lifetime_in_range g.events (EventGraphOps.lifetime_immediate ev) td.lt |> not then
+            raise (LifetimeCheckError
+              [
+                Text "Value does not live long enough in debug print!";
+                Except.codespan_local a.span
+              ])
           else ()
         ) tds
       | DebugFinish -> ()
       | PutShared (_, si, td) ->
         if lifetime_in_range g.events {live = ev; dead = [(ev, si.value.glt.e)]} td.lt |> not then
-          raise (EventGraphError ("Value does not live long enough in put!", a.span))
+          raise (LifetimeCheckError [
+                  Text "Value does not live long enough in put!";
+                  Except.codespan_local a.span
+                ])
         else ()
     )
     (fun ev sa ->
@@ -389,11 +501,24 @@ let lifetime_check (config : Config.compile_config) (ci : cunit_info) (g : event
         let stype = List.hd msg_d.sig_types in
         let e_dpat = delay_pat_globalise msg.endpoint stype.lifetime.e in
         let lt = {live = ev; dead = [(sa.d.until, e_dpat)]} in
-        if not_borrowed_msg_and_add (string_of_msg_spec msg) lt |> not then
-          raise (EventGraphError ("Potentially conflicting message sending!", sa.span))
-        else ();
+        (
+          match intersects_borrowed_msg_and_add (string_of_msg_spec msg) (tag_with_span sa.span lt) with
+          | lt_intersect_tagged::_ ->
+            raise (LifetimeCheckError
+              [
+                Text "Potentially conflicting message sending!";
+                Except.codespan_local sa.span;
+                Text "Conflicting with:";
+                Except.codespan_local lt_intersect_tagged.span
+              ]
+            )
+          | [] -> ()
+        );
         if lifetime_in_range g.events lt td.lt |> not then
-          raise (EventGraphError ("Value not live long enough in message send!", sa.span))
+          raise (LifetimeCheckError [
+            Text "Value not live long enough in message send!";
+            Except.codespan_local sa.span
+          ])
       | Recv _ -> ()
     )
     g.events;
@@ -405,9 +530,14 @@ let lifetime_check (config : Config.compile_config) (ci : cunit_info) (g : event
   let msg_to_check = ref Utils.StringMap.empty in
   let get_msg_gap is_send msg =
     let msg_def = MessageCollection.lookup_message g.messages msg ci.channel_classes |> Option.get in
-    let sync_mode = if is_send then msg_def.send_sync else msg_def.recv_sync in
-    match sync_mode with
-    | Dependent (`Cycles n) -> Some n
+    let (sync_mode, other_sync_mode) = if is_send then
+      (msg_def.send_sync, msg_def.recv_sync)
+    else
+      (msg_def.recv_sync, msg_def.send_sync) in
+    match sync_mode, other_sync_mode with
+    | Dependent (`Cycles n), Dependent (`Cycles _) -> Some (n, true, true)
+    | Dependent (`Cycles n), Dynamic -> Some (n, true, false)
+    | Dynamic, Dependent (`Cycles n) -> Some (n, false, true)
     | _ -> None
   in
   visit_actions
@@ -428,11 +558,12 @@ let lifetime_check (config : Config.compile_config) (ci : cunit_info) (g : event
   if config.verbose then (
     Config.debug_println config "Messages requiring sync mode checks below:";
     Utils.StringMap.iter
-      (fun m n -> Printf.sprintf "Message %s with gap %d\n" m n |> Config.debug_println config)
+      (fun m (n, self_check, other_check) -> Printf.sprintf "Message %s with gap %d (<=: %b, >=: %b)\n" m n self_check other_check
+        |> Config.debug_println config)
     !msg_to_check
   );
   (* Check per message *)
-  let check_msg_sync_mode msg gap =
+  let check_msg_sync_mode msg (gap, self_check, other_check) =
     (* if msg is an action at this event, obtain until *)
     let has_msg ev = List.find_map
       (fun sa ->
@@ -446,35 +577,78 @@ let lifetime_check (config : Config.compile_config) (ci : cunit_info) (g : event
             None
         )
       ) ev.sustained_actions in
-    let is_first = ref true in
-    List.iter
-      (fun ev ->
-        match has_msg ev with
-        | Some sa ->
-            if !is_first then
-              is_first := false (* skip the first msg (comes last) *)
-            else (
-              let slacks = GraphAnalysis.event_slack_graph g.events sa.d.until in
-              (* mask out events that do not have the message *)
-              List.iter (fun ev' ->
-                if has_msg ev' |> Option.is_none then
-                  slacks.(ev'.id) <- GraphAnalysis.event_distance_max
-              ) g.events;
-              if config.verbose then (
-                Array.iteri (fun idx sl -> Printf.eprintf "Sl %d = %d\n" idx sl) slacks
-              );
-              let min_weights = GraphAnalysis.event_min_among_succ g.events slacks in
-              if config.verbose then (
-                Array.iteri (fun idx sl -> Printf.eprintf "Mw %d = %d\n" idx sl) min_weights
-              );
-              if min_weights.(sa.d.until.id) > gap then
-                let error_msg = Printf.sprintf "Static sync mode mismatch (actual gap = %d > expected gap %d)!"
-                  min_weights.(sa.d.until.id) gap
-                in
-                raise (EventGraphError (error_msg, sa.span))
-            )
-        | None -> ()
-      ) g.events
+    if self_check then (
+      (* on the self side, check that adjacent events are no more than gap cycles apart *)
+      let is_first = ref true in
+      List.iter
+        (fun ev ->
+          match has_msg ev with
+          | Some sa ->
+              if !is_first then
+                is_first := false (* skip the first msg (comes last) *)
+              else (
+                let slacks = GraphAnalysis.events_max_dist g.events sa.d.until in
+                (* mask out events that do not have the message *)
+                List.iter (fun ev' ->
+                  if has_msg ev' |> Option.is_none then
+                    slacks.(ev'.id) <- GraphAnalysis.event_distance_max
+                ) g.events;
+                if config.verbose then (
+                  Array.iteri (fun idx sl -> Printf.eprintf "Sl %d = %d\n" idx sl) slacks
+                );
+                let min_weights = GraphAnalysis.event_min_among_succ g.events slacks in
+                if config.verbose then (
+                  Array.iteri (fun idx sl -> Printf.eprintf "Mw %d = %d\n" idx sl) min_weights
+                );
+                if min_weights.(sa.d.until.id) > gap then
+                  let error_msg = Printf.sprintf "Static sync mode mismatch (actual gap = %d > expected gap %d)!"
+                    min_weights.(sa.d.until.id) gap
+                  in
+                  raise (LifetimeCheckError [Text error_msg; Except.codespan_local sa.span])
+              )
+          | None -> ()
+        ) g.events
+    );
+    if other_check then (
+      (* if the other side is static, this side needs checking that the adjacent
+      events are at least gap cycles apart; here we need to take into consideration
+      the root event to ensure that the reference point is the beginning of a loop *)
+      let has_msg_end ev =
+        match ev.source with
+        | `Seq (ev', `Send msg')
+        | `Seq (ev', `Recv msg') ->
+          if (msg_ident msg') = msg then
+            Some ev'
+          else
+            None
+        | _ -> None
+      in
+      let is_first = ref true in
+      List.iter
+        (fun ev ->
+          match has_msg ev with
+          | Some sa ->
+            let slacks = GraphAnalysis.events_max_dist g.events ev in
+            if config.verbose then (
+              Array.iteri (fun idx sl -> Printf.eprintf "Sl %d = %d\n" idx sl) slacks
+            );
+            List.iter (fun ev' ->
+              if !is_first && (ev'.source = `Root None) then
+                slacks.(ev'.id) <- slacks.(ev'.id) - 1
+              else if has_msg_end ev' |> Option.is_none then
+                slacks.(ev'.id) <- -event_distance_max
+            ) g.events;
+            is_first := false;
+            let maxv = GraphAnalysis.event_predecessors ev |> List.map (fun ev' -> slacks.(ev'.id))
+              |> List.fold_left Int.max (-event_distance_max) in
+            if maxv > -gap then
+              let error_msg = Printf.sprintf "Static sync mode mismatch (actual gap = %d < expected gap %d)!"
+                (-maxv) gap
+              in
+              raise (LifetimeCheckError [Text error_msg; Except.codespan_local sa.span])
+          | None -> ()
+        ) (List.rev g.events)
+    )
   in
   Utils.StringMap.iter check_msg_sync_mode !msg_to_check;
 

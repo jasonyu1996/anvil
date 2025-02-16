@@ -29,7 +29,7 @@ let collect_reg_states g =
       (* this state needs to distinguish two sources *)
       let sn = EventStateFormatter.format_scorer g.thread_id e.id in
       [("logic[1:0]", sn)]
-    | `Branch _ | `Either _ | `Root -> []
+    | `Branch _ | `Root _ -> []
   ) g.events
 
 (* prints out declarations for event-related wires and registers *)
@@ -110,7 +110,9 @@ let codegen_next printer (graphs : EventGraph.event_graph_collection)
             Printf.sprintf "assign %s_n = (%s || %s_q) && !%s;" sn cn' sn wn
           ] |> print_lines
       )
-    | `Either (e1, e2) ->
+    | `Branch (_e, br_info) ->
+      let e1 = Option.get br_info.branch_val_true
+      and e2 = Option.get br_info.branch_val_false in
       Printf.sprintf "assign %s = %s || %s;" cn
         (EventStateFormatter.format_current g.thread_id e1.id)
         (EventStateFormatter.format_current g.thread_id e2.id)
@@ -124,20 +126,20 @@ let codegen_next printer (graphs : EventGraph.event_graph_collection)
         Printf.sprintf "assign %s = (%s & %s_q[0]) | (%s & %s_q[1]) | (%s & %s);" cn cn1 sn cn2 sn cn1 cn2;
         Printf.sprintf "assign %s_n = %s_q ^ {%s, %s} ^ {%s, %s};" sn sn cn1 cn2 cn cn
       ] |> print_lines
-    | `Root ->
+    | `Root None ->
       [
         Printf.sprintf "assign %s = _init || %s;"
           cn
           (EventStateFormatter.format_current g.thread_id g.last_event_id)
       ] |> print_lines
-    | `Branch (cond, e') ->
+    | `Root (Some (e', br_side_info)) ->
       let cn' = EventStateFormatter.format_current g.thread_id e'.id in
-      let w = Option.get cond.data.w in
+      let w = Option.get br_side_info.owner_branch.branch_cond.w in
       let wn = CodegenFormat.format_wirename w.thread_id w.id in
-      print_line (if cond.neg then
-        Printf.sprintf "assign %s = %s && !%s;" cn cn' wn
+      print_line (if br_side_info.branch_side_sel then
+        Printf.sprintf "assign %s = %s && %s;" cn cn' wn
       else
-        Printf.sprintf "assign %s = %s && %s;" cn cn' wn)
+        Printf.sprintf "assign %s = %s && !%s;" cn cn' wn)
   in
   List.iter print_compute_next g.events
 
