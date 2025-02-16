@@ -596,6 +596,10 @@ let rec substitute_expr_identifier (id: identifier) (value: expr_node) (expr: ex
   | LetIn (ids, e1, e2) ->
       if List.mem id ids then expr.d
       else LetIn (ids, substitute_expr_identifier id value e1, substitute_expr_identifier id value e2)
+  | Record (name, fields) ->
+      Record (name, List.map (fun (field_name, field_expr) ->
+        (field_name, substitute_expr_identifier id value field_expr)
+      ) fields)
   | Binop (op, e1, e2) ->
       Binop (op, substitute_expr_identifier id value e1, substitute_expr_identifier id value e2)
   | Unop (op, e) ->
