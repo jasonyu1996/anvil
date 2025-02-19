@@ -1,0 +1,63 @@
+/*
+  Not an actual ALU. This is currently just inverting a bit with
+  an artificial delay.
+*/
+
+chan alu_in = {
+    left req : (logic@#1) @dyn-@#1
+}
+
+chan alu_out = {
+    left res : (logic@#1) @dyn-@dyn
+}
+
+proc alu_inner (in_p : left alu_in, out_p : right alu_out) =
+    reg r0 : logic
+    reg r1 : logic
+    reg r2 : logic
+    reg stage0 : logic
+    reg stage1 : logic
+
+    loop {
+        if ready in_p.req then (
+            let req = recv in_p.req in
+            req =>
+            (
+                set r0 := req;
+                set stage0 := 1'b1
+            )
+        ) else (
+            set stage0 := 1'b0
+        )
+    }
+
+    loop {
+        if *stage0 then (
+            set r1 := ~*r0;
+            set stage1 := 1'b1
+        ) else (
+            set stage1 := 1'b0
+        )
+    }
+
+    loop {
+        if *stage1 then (
+            set r2 := *r1 => // preferably we don't want an extra register here
+            send out_p.res (*r2)
+        ) else
+            cycle 1
+    }
+
+proc alu () =
+    chan in_le -- in_ri : alu_in
+    chan out_le -- out_ri : alu_out
+    spawn alu_inner (in_le, out_ri)
+    loop {
+        send in_ri.req (1'b0) => cycle 1 =>
+        send in_ri.req (1'b1) => cycle 1 =>
+        let r = recv out_le.res in
+        r => dprint "RES = %d\n" (r);
+        cycle 1 =>
+        let r = recv out_le.res in
+        r => dprint "RES = %d\n" (r)
+    }
