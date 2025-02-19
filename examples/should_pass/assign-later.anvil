@@ -1,0 +1,13 @@
+chan ch = {
+    right req : (logic@#1)
+}
+
+proc top(e : left ch) =
+    reg r : logic[2]
+    loop {
+        cycle 1;
+        (
+            send e.req (1'b0) =>
+            set r := 1'b1
+        )
+    }

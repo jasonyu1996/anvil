@@ -92,3 +92,6 @@ val events_reachable : EventGraph.event list -> EventGraph.event -> bool Array.t
 (** Over-approximation of first events with send/recv of a given message
     {i after} (with greater timestamp than) a given event. *)
 val events_first_msg : EventGraph.event list -> EventGraph.event -> Lang.message_specifier -> EventGraph.event list
+
+(** Sort in topological order. *)
+val toposort : EventGraph.event list -> EventGraph.event list

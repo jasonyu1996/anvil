@@ -21,6 +21,48 @@ let event_traverse (ev : event) visitor : event list =
   done;
   !res
 
+(* returns immediate predecessors *)
+let imm_preds ev =
+  match ev.source with
+  | `Seq (e', _)
+  | `Root (Some (e', _)) -> [e']
+  | `Branch (_, {branch_val_true = Some e1; branch_val_false = Some e2; _})
+  | `Later (e1, e2) -> [e1; e2]
+  | `Root None -> []
+  | _ ->
+      raise (Except.unknown_error_default "Unexpected event source!")
+
+let toposort events =
+  let n = List.fold_left (fun l e -> Int.max l e.id) 0 events in
+  let n = n + 1 in
+  let in_subgraph = Array.make n false in
+  let outdegs = Array.make n 0 in
+  let is_in_subgraph e' =
+    e'.id < n && in_subgraph.(e'.id)
+  in
+  List.iter (fun e -> in_subgraph.(e.id) <- true) events;
+  List.iter (fun e ->
+    imm_preds e |>
+    List.iter (fun e' ->
+      if is_in_subgraph e' then
+        outdegs.(e'.id) <- outdegs.(e'.id) + 1
+    )
+  ) events;
+  let q = List.filter (fun e -> outdegs.(e.id) = 0) events |> List.to_seq |> Queue.of_seq in
+  let res = ref [] in
+  while Queue.is_empty q |> not do
+    let e = Queue.pop q in
+    res := e::!res;
+    imm_preds e |> List.iter (fun e' ->
+      if is_in_subgraph e' then (
+        outdegs.(e'.id) <- outdegs.(e'.id) - 1;
+        if outdegs.(e'.id) = 0 then
+          Queue.add e' q
+      )
+    )
+  done;
+  !res
+
 let event_predecessors (ev : event) : event list =
   let visitor add_to_queue cur =
     match cur.source with
@@ -34,13 +76,13 @@ let event_predecessors (ev : event) : event list =
     | `Root None -> ()
     | _ -> ()
   in
-  event_traverse ev visitor
+  event_traverse ev visitor |> toposort
 
 let event_successors (ev : event) : event list =
   let visitor add_to_queue cur =
     List.iter add_to_queue cur.outs
   in
-  event_traverse ev visitor |> List.rev
+  event_traverse ev visitor |> toposort
 
 let events_pred events ev =
   let n = List.length events in
