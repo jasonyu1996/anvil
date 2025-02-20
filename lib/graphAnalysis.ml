@@ -451,7 +451,7 @@ let events_reachable events ev =
     );
   event_is_reachable
 
-let events_max_dist events ev =
+let events_max_dist events lookup_message ev =
   let n = List.length events in
   let res = Array.make n (-event_distance_max) in
   let pred_min_dist = events_pred_min_dist ev in
@@ -475,7 +475,21 @@ let events_max_dist events ev =
             let gap =
               match d with
               | `Cycles n -> n
-              | `Send _ | `Recv _ | `Sync _ -> event_distance_max (* oo *)
+              | `Send m  ->
+                let msg_def = lookup_message m |> Option.get in
+                (
+                  match msg_def.recv_sync with
+                  | Dependent (`Cycles _) -> 0
+                  | _ -> event_distance_max
+                )
+              | `Recv m ->
+                let msg_def = lookup_message m |> Option.get in
+                (
+                  match msg_def.send_sync with
+                  | Dependent (`Cycles _) -> 0
+                  | _ -> event_distance_max
+                )
+              | `Sync _ -> event_distance_max (* oo *)
             in
             res.(e'.id) + gap
           )

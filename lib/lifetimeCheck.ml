@@ -198,75 +198,8 @@ let gen_control_set (config : Config.compile_config) (g : event_graph) =
 
 module IntHashtbl = Hashtbl.Make(Int)
 
-(** Is ev_pat1 matched always no later than ev_pat2 is matched?
-Produce a conservative result.
-Only length 1 ev_pat1 supported. *)
-let _event_pat_rel events (ev_pat1 : event_pat) (ev_pat2 : event_pat) =
-  if (List.length ev_pat1) <> 1 then
-    false
-  else (
-    let (ev1, d_pat1) = List.hd ev_pat1 in
-    let check_f = match d_pat1 with
-      | `Eternal -> fun _ev2 d_pat2 -> d_pat2 = `Eternal
-      | `Cycles n1 ->
-        (* compute the min possible cycle distance from n1 to successors *)
-        let dist = event_min_distance events ev1 ev1 in
-        let get_dist ev' = IntHashtbl.find_opt dist ev'.id |> Option.value ~default:0 in
-        (
-          fun ev2 d_pat2 ->
-            match d_pat2 with
-            | `Eternal -> true
-            | `Cycles n2 ->
-              if event_is_successor ev1 ev2 then
-                let d = get_dist ev2 in
-                n1 <= d + n2
-              else (
-                let slacks = events_max_dist events ev2 in
-                let d = slacks.(ev1.id) in
-                n1 + d <= n2
-              )
-            | `Message msg ->
-                let n2_opt' = event_succ_msg_match_earliest ev2 msg false in
-                match n2_opt' with
-                | None -> true (* never matching *)
-                | Some n2' ->
-                  if event_is_predecessor ev1 n2' then
-                    true
-                  else if event_is_successor ev1 n2' then
-                    n1 <= get_dist n2'
-                  else false
-        )
-      | `Message msg ->
-        (
-          let ri1_opt = event_succ_msg_match_latest ev1 msg true in (* latest estimated *)
-          match ri1_opt with
-          | None -> fun _ _ -> true (* End of the second loop. Don't handle *)
-          | Some ri1 ->
-            fun ev2 d_pat2 -> (
-              match d_pat2 with
-              | `Eternal -> true
-              | `Cycles n2 -> (* earliest estimate *)
-                if event_is_predecessor ev2 ri1 then true
-                else (
-                  let slacks = events_max_dist events ev2 in
-                  let d = slacks.(ri1.id) in
-                  d <= n2
-                )
-              | `Message msg2 ->
-                (
-                  let le2_opt = event_succ_msg_match_earliest ev2 msg2 false in
-                  match le2_opt with
-                  | None -> true
-                  | Some le2 -> event_is_predecessor le2 ri1
-                )
-            )
-        )
-    in
-    List.for_all (fun (ev2, d_pat2) -> check_f ev2 d_pat2) ev_pat2
-  )
-
 (* Newer and more rigorous algorithm. *)
-let event_pat_rel2 events ev_pat1 ev_pat2 =
+let event_pat_rel2 events lookup_message ev_pat1 ev_pat2 =
   let get_points_dist (ev, d_pat) =
     match d_pat with
     | `Cycles n -> ([ev], n)
@@ -298,7 +231,7 @@ let event_pat_rel2 events ev_pat1 ev_pat2 =
           Printf.eprintf "\n"; *)
           (* neither dist2 nor dist1 is -1 *)
           List.for_all (fun target ->
-            let slacks = GraphAnalysis.events_max_dist events target in
+            let slacks = GraphAnalysis.events_max_dist events lookup_message target in
             List.for_all (fun source -> slacks.(source.id) <= dist2 - dist1) source_points
           ) target_points
         )
@@ -319,7 +252,7 @@ let event_pat_rel2 events ev_pat1 ev_pat2 =
   | _ -> false (* not to be supported *)
 
 (** Check that lt1 is always fully covered by lt2 *)
-let lifetime_in_range events (lt1 : lifetime) (lt2 : lifetime) =
+let lifetime_in_range events lookup_message (lt1 : lifetime) (lt2 : lifetime) =
   (* 1. check if lt2's start is a predecessor of lt1's start *)
   (* 2. derive a set of all time points A potentially within lt1 *)
   (* 4. check that end time of lt2 does not match any time point in A *)
@@ -327,15 +260,15 @@ let lifetime_in_range events (lt1 : lifetime) (lt2 : lifetime) =
     let r = event_pat_matches lt1.live lt2.dead in
     (not r.at) && (not r.aft)
   ) *)
-  (event_pat_rel2 events [(lt2.live, `Cycles 0)] [(lt1.live, `Cycles 0)])
-    && (event_pat_rel2 events lt1.dead lt2.dead)
+  (event_pat_rel2 events lookup_message [(lt2.live, `Cycles 0)] [(lt1.live, `Cycles 0)])
+    && (event_pat_rel2 events lookup_message lt1.dead lt2.dead)
 
 (** Definitely disjoint? *)
-let lifetime_disjoint events lt1 lt2 =
+let lifetime_disjoint events lookup_message lt1 lt2 =
   assert (List.length lt1.dead = 1);
   (* to be disjoint, either r1 <= l2 or r2 <= l1 *)
-  (event_pat_rel2 events lt1.dead [(lt2.live, `Cycles 0)])
-  || (List.for_all (fun de -> event_pat_rel2 events [de] [(lt1.live, `Cycles 0)]) lt2.dead)
+  (event_pat_rel2 events lookup_message lt1.dead [(lt2.live, `Cycles 0)])
+  || (List.for_all (fun de -> event_pat_rel2 events lookup_message [de] [(lt1.live, `Cycles 0)]) lt2.dead)
 
 
 (* An internal identifier for a message specifier. *)
@@ -344,6 +277,8 @@ let msg_ident msg = Printf.sprintf "%s@%s" msg.endpoint msg.msg
 module StringHashtbl = Hashtbl.Make(String)
 
 let lifetime_check (config : Config.compile_config) (ci : cunit_info) (g : event_graph) =
+  let lookup_message msg = MessageCollection.lookup_message g.messages msg ci.channel_classes in
+
   if config.verbose then (
     EventGraphOps.print_graph g;
     Printf.eprintf "// BEGIN GRAPH IN DOT FORMAT\n";
@@ -377,13 +312,13 @@ let lifetime_check (config : Config.compile_config) (ci : cunit_info) (g : event
   let intersects_borrowed_reg s lt range =
     let borrows = StringHashtbl.find_opt reg_borrows s |> Option.value ~default:[] in
     List.filter (fun (lt_tagged', range') ->
-      (EventGraphOps.subreg_ranges_possibly_intersect range range') && (lifetime_disjoint g.events lt lt_tagged'.d |> not))
+      (EventGraphOps.subreg_ranges_possibly_intersect range range') && (lifetime_disjoint g.events lookup_message lt lt_tagged'.d |> not))
       borrows
   in
   let intersects_borrowed_msg_and_add s lt_tagged =
     let lt = lt_tagged.d in
     let borrows = StringHashtbl.find_opt msg_borrows s |> Option.value ~default:[] in
-    let intersects = List.filter (fun lt_tagged' -> lifetime_disjoint g.events lt lt_tagged'.d |> not) borrows in
+    let intersects = List.filter (fun lt_tagged' -> lifetime_disjoint g.events lookup_message lt lt_tagged'.d |> not) borrows in
     if intersects = [] then StringHashtbl.replace msg_borrows s (lt_tagged::borrows);
     intersects
   in
@@ -428,7 +363,7 @@ let lifetime_check (config : Config.compile_config) (ci : cunit_info) (g : event
     (fun _ev sa ->
       match sa.d.ty with
       | Send (msg, td) ->
-        let msg_d = MessageCollection.lookup_message g.messages msg ci.channel_classes |> Option.get in
+        let msg_d = lookup_message msg |> Option.get in
         let stype = List.hd msg_d.sig_types in
         let e_dpat = delay_pat_globalise msg.endpoint stype.lifetime.e |> delay_pat_reduce_cycles 1 in
         td_to_live_until := (td, (sa.d.until, e_dpat))::!td_to_live_until
@@ -459,7 +394,7 @@ let lifetime_check (config : Config.compile_config) (ci : cunit_info) (g : event
                 codespan_local lt_tagged.span
               ] )
         );
-        if lifetime_in_range g.events lt td.lt |> not then
+        if lifetime_in_range g.events lookup_message lt td.lt |> not then
           raise (LifetimeCheckError [
                     Text "Value does not live long enough in reg assignment!";
                     Except.codespan_local a.span
@@ -469,7 +404,7 @@ let lifetime_check (config : Config.compile_config) (ci : cunit_info) (g : event
           match fst lval_info.lval_range.subreg_range_interval with
           | Const _ -> ()
           | NonConst range_st_td ->
-            if lifetime_in_range g.events lt range_st_td.lt |> not then
+            if lifetime_in_range g.events lookup_message lt range_st_td.lt |> not then
               raise (LifetimeCheckError [
                   Text "Lvalue index does not live long enough!";
                   Except.codespan_local a.span
@@ -477,7 +412,7 @@ let lifetime_check (config : Config.compile_config) (ci : cunit_info) (g : event
         )
       | DebugPrint (_, tds) ->
         List.iter (fun td ->
-          if lifetime_in_range g.events (EventGraphOps.lifetime_immediate ev) td.lt |> not then
+          if lifetime_in_range g.events lookup_message (EventGraphOps.lifetime_immediate ev) td.lt |> not then
             raise (LifetimeCheckError
               [
                 Text "Value does not live long enough in debug print!";
@@ -487,7 +422,7 @@ let lifetime_check (config : Config.compile_config) (ci : cunit_info) (g : event
         ) tds
       | DebugFinish -> ()
       | PutShared (_, si, td) ->
-        if lifetime_in_range g.events {live = ev; dead = [(ev, si.value.glt.e)]} td.lt |> not then
+        if lifetime_in_range g.events lookup_message {live = ev; dead = [(ev, si.value.glt.e)]} td.lt |> not then
           raise (LifetimeCheckError [
                   Text "Value does not live long enough in put!";
                   Except.codespan_local a.span
@@ -514,7 +449,7 @@ let lifetime_check (config : Config.compile_config) (ci : cunit_info) (g : event
             )
           | [] -> ()
         );
-        if lifetime_in_range g.events lt td.lt |> not then
+        if lifetime_in_range g.events lookup_message lt td.lt |> not then
           raise (LifetimeCheckError [
             Text "Value not live long enough in message send!";
             Except.codespan_local sa.span
@@ -587,7 +522,7 @@ let lifetime_check (config : Config.compile_config) (ci : cunit_info) (g : event
               if !is_first then
                 is_first := false (* skip the first msg (comes last) *)
               else (
-                let slacks = GraphAnalysis.events_max_dist g.events sa.d.until in
+                let slacks = GraphAnalysis.events_max_dist g.events lookup_message sa.d.until in
                 (* mask out events that do not have the message *)
                 List.iter (fun ev' ->
                   if has_msg ev' |> Option.is_none then
@@ -628,7 +563,7 @@ let lifetime_check (config : Config.compile_config) (ci : cunit_info) (g : event
         (fun ev ->
           match has_msg ev with
           | Some sa ->
-            let slacks = GraphAnalysis.events_max_dist g.events ev in
+            let slacks = GraphAnalysis.events_max_dist g.events lookup_message ev in
             if config.verbose then (
               Array.iteri (fun idx sl -> Printf.eprintf "Sl %d = %d\n" idx sl) slacks
             );
