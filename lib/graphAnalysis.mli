@@ -77,7 +77,8 @@ val events_pred_min_dist : EventGraph.event -> int Array.t
     handles branches correctly but is more relaxed for graphs
     without branches.
 *)
-val events_max_dist : EventGraph.event list -> EventGraph.event -> int Array.t
+val events_max_dist : EventGraph.event list -> (Lang.message_specifier -> Lang.message_def option)
+                        -> EventGraph.event -> int Array.t
 
 (** Returns all events with a specific message. Those are the {i until} events of messages (when
     send/recv completes). *)
