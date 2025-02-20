@@ -1,0 +1,27 @@
+import "Alu.anvil"
+
+proc Alu_test() =
+    chan l_le -- l_ri : Alu_in_l
+    chan r_le -- r_ri : Alu_in_r
+    chan op_le -- op_ri : Alu_in_op
+    chan out_le -- out_ri : Alu_out
+    spawn Alu (out_ri, l_le, r_le, op_le)
+
+    reg cycle_count : logic[5]
+
+    loop {
+        dprint "Sent %d" (*cycle_count);
+        send l_ri.data(1'b1) =>
+        send r_ri.data(1'b0) =>
+        send op_ri.data(1'b0) =>
+        let r = recv out_le.data in
+        r =>
+        (
+            dprint "Cycle = %d, %d" (*cycle_count, r);
+            cycle 1
+        )
+    }
+
+    loop {
+        set cycle_count := *cycle_count + 5'd1
+    }

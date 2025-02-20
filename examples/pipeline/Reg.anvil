@@ -1,0 +1,19 @@
+/* This is intended to be used for the filament translated pipelines. */
+
+chan Reg_in_v = {
+    left data : (logic@#1) @dyn-@#1
+}
+
+chan Reg_out = {
+    /* TODO: This signature need to be customized to fit the frequency of whoever instantiates this */
+    left data : (logic@#1) @dyn-@#1
+}
+
+proc Reg (out_p : right Reg_out, in_p : left Reg_in_v) =
+    reg r : logic
+    loop {
+        let r_val = recv in_p.data in
+        r_val =>
+        set r := r_val =>
+        send out_p.data (*r)
+    }
