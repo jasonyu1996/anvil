@@ -673,12 +673,11 @@ let syntax_tree_precheck (_config : Config.compile_config) cunit =
   List.iter (fun cc ->
     List.iter (fun msg ->
       match msg.send_sync, msg.recv_sync with
-      | Dependent (`Cycles n), Dependent (`Cycles m) ->
-        if n <> m then (* the cycle counts on both sides must be equal *)
+      | Static (o_n, n), Static (o_m, m) ->
+        if n <> m || o_n <> o_m then (* the cycle counts on both sides must be equal *)
           raise (Except.TypeError [Text "Static sync mode must be symmetric!"; Except.codespan_local msg.span])
-      | Dependent (`Cycles _), Dynamic
-      | Dynamic, Dependent (`Cycles _)
+      | Static _, Dynamic
+      | Dynamic, Static _
       | Dynamic, Dynamic -> ()
-      | _ -> raise (Except.TypeError [Text "Unsupported sync mode!"; Except.codespan_local msg.span])
     ) cc.messages
   ) cunit.channel_classes

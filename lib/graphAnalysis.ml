@@ -479,14 +479,14 @@ let events_max_dist events lookup_message ev =
                 let msg_def = lookup_message m |> Option.get in
                 (
                   match msg_def.recv_sync with
-                  | Dependent (`Cycles _) -> 0
+                  | Static _ -> 0
                   | _ -> event_distance_max
                 )
               | `Recv m ->
                 let msg_def = lookup_message m |> Option.get in
                 (
                   match msg_def.send_sync with
-                  | Dependent (`Cycles _) -> 0
+                  | Static _ -> 0
                   | _ -> event_distance_max
                 )
               | `Sync _ -> event_distance_max (* oo *)

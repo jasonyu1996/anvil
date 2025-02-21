@@ -210,9 +210,7 @@ type message_direction = In | Out
 (** Synchronisation mode of a message type. *)
 type message_sync_mode =
   | Dynamic (** dynamic synchronisation, e.g., through [valid]/[ack] handshakes *)
-  | Dependent of delay_pat_chan_local (** we have some static knowledge about
-              when the synchronisation takes place.
-              {b Currently only support fixed-cycle delays.} *)
+  | Static of int * int (** (init offset, static interval) *)
 
 (** A message type definition, as part of a channel definition. *)
 type message_def = {

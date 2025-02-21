@@ -586,9 +586,13 @@ recv_message_sync_mode_spec:
 ;
 
 message_sync_mode_spec:
-| AT; t = timestamp_chan_local
+| AT; SHARP; n = INT
   {
-    Lang.Dependent t
+    Lang.Static (n - 1, n)
+  }
+| AT; SHARP; o = INT; TILDE; n = INT
+  {
+    Lang.Static (o, n)
   }
 | AT; KEYWORD_DYN
   {
