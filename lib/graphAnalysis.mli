@@ -39,7 +39,8 @@ val event_max_distance : EventGraph.event list -> EventGraph.event -> EventGraph
 
 (** Check if two events are ordered in all possible traces in which both of them appear (also returns true if
     they never appear in the same trace as in two branches). *)
-val events_are_ordered : EventGraph.event list -> EventGraph.event -> EventGraph.event -> bool
+val events_are_ordered : EventGraph.event list -> (Lang.message_specifier -> Lang.message_def option)
+                        -> EventGraph.event -> EventGraph.event -> bool
 
 
 (** Visit events in topologically backward order *)

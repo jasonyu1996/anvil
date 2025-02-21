@@ -12,7 +12,7 @@ let print_control_set (g : event_graph) =
 
 (** Generate the control set for each event in the event graph. The control set of event
 includes actions that are synchronised at the event. *)
-let gen_control_set (config : Config.compile_config) (g : event_graph) =
+let gen_control_set (config : Config.compile_config) lookup_message (g : event_graph) =
   let events_rev = List.rev g.events in
   let all_endpoints = g.messages.endpoints @ g.messages.args in
   let endp_use_cnt_empty =
@@ -181,7 +181,7 @@ let gen_control_set (config : Config.compile_config) (g : event_graph) =
     | (ev, range, span)::remaining ->
       List.iter (fun (ev', range', span') ->
         if (EventGraphOps.subreg_ranges_possibly_intersect range range') &&
-           (GraphAnalysis.events_are_ordered g.events ev ev' |> not) then
+           (GraphAnalysis.events_are_ordered g.events lookup_message ev ev' |> not) then
             raise (LifetimeCheckError
                 [
                   Text "Non-linearizable register assignment!";
@@ -301,7 +301,7 @@ let lifetime_check (config : Config.compile_config) (ci : cunit_info) (g : event
       ]
     );
 
-  gen_control_set config g;
+  gen_control_set config lookup_message g;
   (* for debugging purposes*)
   if config.verbose then (
     print_control_set g

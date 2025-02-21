@@ -1,0 +1,15 @@
+proc general_recurse_assign() =
+    reg counter : logic[4]
+    reg cycle_count : logic[4]
+
+    loop {
+        set cycle_count := *cycle_count + 4'd1
+    }
+
+    recursive {
+        (
+            cycle 3 => dprint "counter = %d @ %d" (*counter, *cycle_count) =>
+            set counter := *counter + 4'd1
+        );
+        cycle 2 => recurse
+    }
