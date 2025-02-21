@@ -618,6 +618,31 @@ and visit_expr (graph : event_graph) (ci : cunit_info)
     Typing.const_data graph None unit_dtype ctx.current
   | _ -> raise (event_graph_error_default "Unimplemented expression!" e.span)
 
+
+module IntHashTbl = Hashtbl.Make(Int)
+
+(* unfold until sufficient for lifetime checks *)
+let recurse_unfold_for_checks ci shared_vars_info graph expr_node =
+  let tmp_graph = {graph with last_event_id = 0} in
+  let td = visit_expr tmp_graph ci
+    (BuildContext.create_empty tmp_graph shared_vars_info true)
+    expr_node in
+  (* now just check the total *)
+  let root = List.find (fun e -> e.source = `Root None) tmp_graph.events in
+  let recurse = List.find (fun e -> e.is_recurse) tmp_graph.events in
+  let dists = GraphAnalysis.event_min_distance tmp_graph.events root root in
+  let full_dist = IntHashTbl.find dists td.lt.live.id in
+  let recurse_dist = IntHashTbl.find dists recurse.id in
+  if recurse_dist = 0 then
+    raise (event_graph_error_default "Recurse delay must be greater than 0!" expr_node.span);
+  (* the number of times to unfold is minimum for the recurse time to first pass the end event *)
+  let unfold_times = full_dist / recurse_dist in
+  let cur_expr = ref expr_node in
+  for _ = 1 to unfold_times do
+    cur_expr := recurse_unfold !cur_expr expr_node
+  done;
+  !cur_expr
+
 (* Builds the graph representation for each process To Do: Add support for commands outside loop (be executed once or continuosly)*)
 let build_proc (config : Config.compile_config) sched module_name param_values
               (ci : cunit_info) (proc : proc_def) : proc_graph =
@@ -668,7 +693,7 @@ let build_proc (config : Config.compile_config) sched module_name param_values
           let tmp_graph = {graph with last_event_id = 0} in
           let td = visit_expr tmp_graph ci
             (BuildContext.create_empty tmp_graph shared_vars_info true)
-            (recurse_unfold e e) in
+            (recurse_unfold_for_checks ci shared_vars_info graph e) in
           tmp_graph.last_event_id <- (EventGraphOps.find_last_event tmp_graph).id;
           tmp_graph.is_general_recursive <- tmp_graph.last_event_id <> td.lt.live.id;
           (* Optimisation *)
