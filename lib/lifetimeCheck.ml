@@ -469,11 +469,20 @@ let lifetime_check (config : Config.compile_config) (ci : cunit_info) (g : event
       (msg_def.send_sync, msg_def.recv_sync)
     else
       (msg_def.recv_sync, msg_def.send_sync) in
-    match sync_mode, other_sync_mode with
-    | Static (o, n), Static _ -> Some (o, n, true, true)
-    | Static (o, n), Dynamic -> Some (o, n, true, false)
-    | Dynamic, Static (o, n) -> Some (o, n, false, true)
-    | _ -> None
+    (
+      match sync_mode, other_sync_mode with
+      | Static (o, n), Static _ -> Some (o, msg, n, true, true)
+      | Static (o, n), Dynamic -> Some (o, msg, n, true, false)
+      | Dynamic, Static (o, n) -> Some (o, msg, n, false, true)
+      | Dependent (m, n), Dependent _ -> Some (0, {msg with msg = m}, n, true, true)
+      | Dependent (m, n), Dynamic -> Some (0, {msg with msg = m}, n, true, false)
+      | Dynamic, Dependent (m, n) -> Some (0, {msg with msg = m}, n, false, true)
+      | _ -> None
+    ) |> Option.map (
+      function
+      | (o, m, n, l, r) -> (o, msg_ident m, n, l, r)
+    )
+
   in
   visit_actions
           (fun _ _ -> ())
@@ -493,15 +502,16 @@ let lifetime_check (config : Config.compile_config) (ci : cunit_info) (g : event
   if config.verbose then (
     Config.debug_println config "Messages requiring sync mode checks below:";
     Utils.StringMap.iter
-      (fun m (o, n, self_check, other_check) -> Printf.sprintf "Message %s with init offset %d, gap %d (<=: %b, >=: %b)\n"
-                                                m o n self_check other_check
+      (fun m (o, relative_msg, n, self_check, other_check) ->
+        Printf.sprintf "Message %s with init offset %d, gap %d, relative to %s(<=: %b, >=: %b)\n"
+            m o n relative_msg self_check other_check
         |> Config.debug_println config)
     !msg_to_check
   );
   (* Check per message *)
-  let check_msg_sync_mode msg (init_offset, gap, self_check, other_check) =
+  let check_msg_sync_mode msg (init_offset, relative_msg, gap, self_check, other_check) =
     (* if msg is an action at this event, obtain until *)
-    let has_msg ev = List.find_map
+    let has_msg msg ev = List.find_map
       (fun sa ->
         match sa.d.ty with
         | Send (msg', _)
@@ -517,55 +527,85 @@ let lifetime_check (config : Config.compile_config) (ci : cunit_info) (g : event
       (* on the self side, check that adjacent events are no more than gap cycles apart,
          also check that the root to the first event is no more than init offset cycles apart
       *)
-      let is_first = ref true in
-      List.iter
-        (fun ev ->
-          match has_msg ev with
-          | Some sa ->
-              if !is_first then
-                is_first := false (* skip the first msg (comes last) *)
-              else (
-                let slacks = GraphAnalysis.events_max_dist g.events lookup_message sa.d.until in
-                (* mask out events that do not have the message *)
-                List.iter (fun ev' ->
-                  if has_msg ev' |> Option.is_none then
-                    slacks.(ev'.id) <- GraphAnalysis.event_distance_max
-                ) g.events;
-                if config.verbose then (
-                  Array.iteri (fun idx sl -> Printf.eprintf "Sl %d = %d\n" idx sl) slacks
-                );
-                let min_weights = GraphAnalysis.event_min_among_succ g.events slacks in
-                if config.verbose then (
-                  Array.iteri (fun idx sl -> Printf.eprintf "Mw %d = %d\n" idx sl) min_weights
-                );
-                if min_weights.(sa.d.until.id) > gap then
-                  let error_msg = Printf.sprintf "Static sync mode mismatch (actual gap = %d > expected gap %d)!"
-                    min_weights.(sa.d.until.id) gap
-                  in
-                  raise (LifetimeCheckError [Text error_msg; Except.codespan_local sa.span])
-              )
-          | None -> ()
-        ) g.events;
       (* check root *)
-      let ev_root = (List.length g.events) - 1 |> List.nth g.events in
-      assert(ev_root.source = (`Root None));
-      let slacks = GraphAnalysis.events_max_dist g.events lookup_message ev_root in
-      List.iter (fun ev' ->
-        if has_msg ev' |> Option.is_none then
-          slacks.(ev'.id) <- GraphAnalysis.event_distance_max
-      ) g.events;
-      let min_weights = GraphAnalysis.event_min_among_succ g.events slacks in
-      if min_weights.(ev_root.id) > init_offset then
-        let error_msg = Printf.sprintf "Static sync mode mismatch (actual init offset = %d > expected init offset %d)!"
-          min_weights.(ev_root.id) init_offset
-        in
-        raise (LifetimeCheckError [Text error_msg]) (* TODO: better error message *)
+      if relative_msg = msg then (
+        let is_first = ref true in
+        List.iter
+          (fun ev ->
+            match has_msg relative_msg ev with
+            | Some sa ->
+                if !is_first then
+                  is_first := false (* skip the first msg (comes last) *)
+                else (
+                  let slacks = GraphAnalysis.events_max_dist g.events lookup_message sa.d.until in
+                  (* mask out events that do not have the message *)
+                  List.iter (fun ev' ->
+                    if has_msg msg ev' |> Option.is_none then
+                      slacks.(ev'.id) <- GraphAnalysis.event_distance_max
+                  ) g.events;
+                  if config.verbose then (
+                    Array.iteri (fun idx sl -> Printf.eprintf "Sl %d = %d\n" idx sl) slacks
+                  );
+                  let min_weights = GraphAnalysis.event_min_among_succ g.events slacks in
+                  if config.verbose then (
+                    Array.iteri (fun idx sl -> Printf.eprintf "Mw %d = %d\n" idx sl) min_weights
+                  );
+                  if min_weights.(sa.d.until.id) > gap then
+                    let error_msg = Printf.sprintf "Static sync mode mismatch (actual gap = %d > expected gap %d)!"
+                      min_weights.(sa.d.until.id) gap
+                    in
+                    raise (LifetimeCheckError [Text error_msg; Except.codespan_local sa.span])
+                )
+            | None -> ()
+          ) g.events;
+        let ev_root = (List.length g.events) - 1 |> List.nth g.events in
+        assert(ev_root.source = (`Root None));
+        let slacks = GraphAnalysis.events_max_dist g.events lookup_message ev_root in
+        List.iter (fun ev' ->
+          if has_msg relative_msg ev' |> Option.is_none then
+            slacks.(ev'.id) <- GraphAnalysis.event_distance_max
+        ) g.events;
+        let min_weights = GraphAnalysis.event_min_among_succ g.events slacks in
+        if min_weights.(ev_root.id) > init_offset then
+          let error_msg = Printf.sprintf "Static sync mode mismatch (actual init offset = %d > expected init offset %d)!"
+            min_weights.(ev_root.id) init_offset
+          in
+          raise (LifetimeCheckError [Text error_msg]) (* TODO: better error message *)
+      ) else (
+        (* FIXME: need to check *)
+          (* otherwise, do a perfect match between the two messages *)
+          (* let msg_ev_list = List.filter (fun e -> has_msg msg e |> Option.is_none) g.events in
+          let relative_msg_ev_list = List.filter (fun e -> has_msg relative_msg e |> Option.is_none) g.events in
+          let n_msg_ev = List.length msg_ev_list in
+          let n_relative_msg_ev = List.length relative_msg_ev_list in
+          if n_msg_ev <> n_relative_msg_ev then
+            raise (LifetimeCheckError [Text "Mismatching number of events for dependent sync mode!"]);
+          let create_ev_to_idx_map li =
+            let tbl = Hashtbl.create 8 in
+            List.iteri (fun idx e ->
+              Hashtbl.add tbl e.id idx
+            ) li;
+            tbl
+          in
+          let msg_ev_to_idx = create_ev_to_idx_map msg_ev_list in
+          let relative_msg_ev_to_idx = create_ev_to_idx_map relative_msg_ev_list in
+          let to_edges = Array.make n_msg_ev [] in
+          List.iter
+            (fun ev ->
+              let sa = has_msg relative_msg ev |> Option.get in
+              let slacks = GraphAnalysis.events_max_dist g.events lookup_message sa.d.until in
+              let le_idx = Hashtbl.find relative_msg_ev_to_idx ev.id in
+              List.iter (fun ev' ->
+                if
+              ) msg_ev_list
+            ) relative_msg_ev_list *)
+      )
     );
     if other_check then (
       (* if the other side is static, this side needs checking that the adjacent
       events are at least gap cycles apart; here we need to take into consideration
       the root event to ensure that the reference point is the beginning of a loop *)
-      let has_msg_end ev =
+      let has_msg_end msg ev =
         match ev.source with
         | `Seq (ev', `Send msg')
         | `Seq (ev', `Recv msg') ->
@@ -575,32 +615,36 @@ let lifetime_check (config : Config.compile_config) (ci : cunit_info) (g : event
             None
         | _ -> None
       in
-      let is_first = ref true in
-      List.iter
-        (fun ev ->
-          match has_msg ev with
-          | Some sa ->
-            let slacks = GraphAnalysis.events_max_dist g.events lookup_message ev in
-            if config.verbose then (
-              Array.iteri (fun idx sl -> Printf.eprintf "Sl %d = %d\n" idx sl) slacks
-            );
-            List.iter (fun ev' ->
-              if !is_first && (ev'.source = `Root None) then
-                slacks.(ev'.id) <- slacks.(ev'.id) + init_offset - gap
-              else if has_msg_end ev' |> Option.is_none then
-                slacks.(ev'.id) <- -event_distance_max
-            ) g.events;
-            is_first := false;
-            let maxv = GraphAnalysis.event_predecessors ev |> List.map (fun ev' -> slacks.(ev'.id))
-              |> List.fold_left Int.max (-event_distance_max) in
-            if maxv > -gap then
-              let error_msg = Printf.sprintf "Static sync mode mismatch (actual gap = %d < expected gap %d)!"
-                (-maxv) gap
-              in
-              raise (LifetimeCheckError [Text error_msg; Except.codespan_local sa.span])
-          | None -> ()
-        ) (List.rev g.events)
-    )
+      if msg = relative_msg then (
+        let is_first = ref true in
+        List.iter
+          (fun ev ->
+            match has_msg msg ev with
+            | Some sa ->
+              let slacks = GraphAnalysis.events_max_dist g.events lookup_message ev in
+              if config.verbose then (
+                Array.iteri (fun idx sl -> Printf.eprintf "Sl %d = %d\n" idx sl) slacks
+              );
+              List.iter (fun ev' ->
+                if !is_first && (ev'.source = `Root None) then
+                  slacks.(ev'.id) <- slacks.(ev'.id) + init_offset - gap
+                else if has_msg_end relative_msg ev' |> Option.is_none then
+                  slacks.(ev'.id) <- -event_distance_max
+              ) g.events;
+              is_first := false;
+              let maxv = GraphAnalysis.event_predecessors ev |> List.map (fun ev' -> slacks.(ev'.id))
+                |> List.fold_left Int.max (-event_distance_max) in
+              if maxv > -gap then
+                let error_msg = Printf.sprintf "Static sync mode mismatch (actual gap = %d < expected gap %d)!"
+                  (-maxv) gap
+                in
+                raise (LifetimeCheckError [Text error_msg; Except.codespan_local sa.span])
+            | None -> ()
+          ) (List.rev g.events)
+       ) else (
+          (* FIXME: add checks *)
+       )
+   )
   in
   Utils.StringMap.iter check_msg_sync_mode !msg_to_check;
 

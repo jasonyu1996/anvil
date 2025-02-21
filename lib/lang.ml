@@ -211,6 +211,7 @@ type message_direction = In | Out
 type message_sync_mode =
   | Dynamic (** dynamic synchronisation, e.g., through [valid]/[ack] handshakes *)
   | Static of int * int (** (init offset, static interval) *)
+  | Dependent of string * int (** relative to another message (msg, delay) **)
 
 (** A message type definition, as part of a channel definition. *)
 type message_def = {

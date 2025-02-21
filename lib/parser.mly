@@ -594,6 +594,10 @@ message_sync_mode_spec:
   {
     Lang.Static (o, n)
   }
+| AT; SHARP; m = IDENT; PLUS; n = INT
+  {
+    Lang.Dependent (m, n)
+  }
 | AT; KEYWORD_DYN
   {
     Lang.Dynamic
@@ -742,14 +746,18 @@ enum_def:
     {
       { name = name; variants = variants } : Lang.enum_def
     }
+;
+
 macro_def:
   | KEYWORD_USE; id = IDENT; EQUAL; value = INT
     {
       { id = id; value = value } : Lang.macro_def
     }
+;
 
 function_def:
   | KEYWORD_FUNCTION; name = IDENT; LEFT_PAREN; args = separated_list(COMMA, IDENT); RIGHT_PAREN; EQUAL; body = node(expr)
     {
       { name = name; args = args; body = body } : Lang.func_def
     }
+;
