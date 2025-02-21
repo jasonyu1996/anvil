@@ -6,6 +6,6 @@ proc general_recurse_simple() =
     }
 
     recursive {
-        (cycle 1 => cycle 1 => dprint "counter = %d" (*counter));
+        (cycle 2 => dprint "counter = %d" (*counter));
         cycle 1 => recurse
     }

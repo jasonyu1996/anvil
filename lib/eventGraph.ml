@@ -174,6 +174,7 @@ and event_graph = {
   regs: Lang.reg_def list;
   mutable last_event_id: int;
   thread_codespan : Lang.code_span;
+  mutable is_general_recursive : bool; (** is this a general recursive graph? *)
 }
 
 type proc_graph = {

@@ -660,6 +660,7 @@ let build_proc (config : Config.compile_config) sched module_name param_values
           spawns = List.map data_of_ast_node body.spawns;
           regs = List.map data_of_ast_node body.regs;
           last_event_id = 0;
+          is_general_recursive = false;
           thread_codespan = e.span;
         } in
         (* Bruteforce treatment: just run twice *)
@@ -669,7 +670,7 @@ let build_proc (config : Config.compile_config) sched module_name param_values
             (BuildContext.create_empty tmp_graph shared_vars_info true)
             (recurse_unfold e e) in
           tmp_graph.last_event_id <- (EventGraphOps.find_last_event tmp_graph).id;
-          td.lt.live.is_recurse <- true;
+          tmp_graph.is_general_recursive <- tmp_graph.last_event_id <> td.lt.live.id;
           (* Optimisation *)
           let tmp_graph = GraphOpt.optimize config true ci tmp_graph in
           if not config.disable_lt_checks then (
@@ -685,8 +686,9 @@ let build_proc (config : Config.compile_config) sched module_name param_values
         | None -> (
             (* discard after type checking *)
             let ctx = (BuildContext.create_empty graph shared_vars_info false) in
-            let _td = visit_expr graph ci ctx e in
+            let td = visit_expr graph ci ctx e in
             graph.last_event_id <- (EventGraphOps.find_last_event graph).id;
+            graph.is_general_recursive <- graph.last_event_id <> td.lt.live.id;
             GraphOpt.optimize config false ci graph
         )
       ) body.threads in

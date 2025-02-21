@@ -18,9 +18,17 @@ let collect_reg_states g =
     | `Seq (_, d) -> (
       match d with
       | `Cycles n ->
-        let width = Utils.int_log2 (n + 1) in
-        let sn = EventStateFormatter.format_counter g.thread_id e.id in
-        [(Printf.sprintf "logic[%d:0]" (width - 1), sn)]
+        if g.is_general_recursive then (
+          (* split into one-hot single cycles in general recursive case *)
+          let sn = EventStateFormatter.format_counter g.thread_id e.id in
+          Seq.ints 1 |> Seq.take n |> Seq.map (fun i -> ("logic", Printf.sprintf "%s_%d" sn i))
+            |> List.of_seq
+        ) else (
+          (* otherwise, count *)
+          let width = Utils.int_log2 (n + 1) in
+          let sn = EventStateFormatter.format_counter g.thread_id e.id in
+          [(Printf.sprintf "logic[%d:0]" (width - 1), sn)]
+        )
       | `Send _ | `Recv _ | `Sync _ ->
         let sn = EventStateFormatter.format_syncstate g.thread_id e.id in
         [("logic", sn)]
@@ -61,13 +69,24 @@ let codegen_next printer (graphs : EventGraph.event_graph_collection)
         let cn' = EventStateFormatter.format_current g.thread_id e'.id in
         match d with
         | `Cycles n when n >= 1 ->
-          let width = Utils.int_log2 (n + 1) in
-          let sn = EventStateFormatter.format_counter g.thread_id e.id in
-          (* reached when the counter *)
-          [
-            Printf.sprintf "assign %s = %s_q == %d'd%d;" cn sn width n;
-            Printf.sprintf "assign %s_n = %s ? %d'd1 : %s ? '0 : %s_q ? (%s_q + %d'd1) : %s_q;" sn cn' width cn sn sn width sn
-          ] |> print_lines
+          if g.is_general_recursive then (
+            (* we need to split into individual cycles one-hot *)
+            let sn = EventStateFormatter.format_counter g.thread_id e.id in
+            Printf.sprintf "assign %s = %s_%d_q;" cn sn n |> print_line;
+            for i = 2 to n do
+              Printf.sprintf "assign %s_%d_n = %s_%d_q;" sn i sn (i - 1) |> print_line
+            done;
+            Printf.sprintf "assign %s_1_n = %s;" sn cn' |> print_line
+          ) else (
+            (* recurse at the end node *)
+            let width = Utils.int_log2 (n + 1) in
+            let sn = EventStateFormatter.format_counter g.thread_id e.id in
+            (* reached when the counter *)
+            [
+              Printf.sprintf "assign %s = %s_q == %d'd%d;" cn sn width n;
+              Printf.sprintf "assign %s_n = %s ? %d'd1 : %s ? '0 : %s_q ? (%s_q + %d'd1) : %s_q;" sn cn' width cn sn sn width sn
+            ] |> print_lines
+          )
         | `Cycles _ ->
           failwith "Invalid number of cycles"
         | `Send msg ->
