@@ -113,6 +113,7 @@ and event_pat = (event * Lang.delay_pat) list
 and event = {
   id : int; (** an integral identifier of the event, unique within the event graph *)
   graph : event_graph;
+  mutable is_recurse : bool; (** does this event represent the recursive structure of the event graph *)
   mutable actions: action Lang.ast_node list; (** instant actions that take place when this event is reached *)
   mutable sustained_actions : sustained_action Lang.ast_node list;
   (** actions that may take multiple cycles and start when this event is reached*)
@@ -176,13 +177,13 @@ and event_graph = {
 }
 
 type proc_graph = {
-    name: Lang.identifier;
-    extern_module: string option;
-    threads: event_graph list;
-    shared_vars_info : (Lang.identifier, shared_var_info) Hashtbl.t;
-    messages : MessageCollection.t;
-    proc_body : Lang.proc_def_body_maybe_extern;
-    spawns : (Lang.identifier * Lang.spawn_def) list;
+  name: Lang.identifier;
+  extern_module: string option;
+  threads: event_graph list;
+  shared_vars_info : (Lang.identifier, shared_var_info) Hashtbl.t;
+  messages : MessageCollection.t;
+  proc_body : Lang.proc_def_body_maybe_extern;
+  spawns : (Lang.identifier * Lang.spawn_def) list;
 }
 
 (** A collection of event graphs, corresponding to a compilation unit.

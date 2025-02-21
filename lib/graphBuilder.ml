@@ -29,6 +29,7 @@ module Typing = struct
   let event_create g source =
     let event_create_inner () =
       let n = {actions = []; sustained_actions = []; source; id = List.length g.events;
+        is_recurse = false;
         control_endps = Utils.StringMap.empty;
         current_endps = Utils.StringMap.empty;
         outs = []; graph = g} in
@@ -186,6 +187,61 @@ let binop_td_td graph (ci:cunit_info) ctx span op td1 td2 =
   let open Typing in
   let new_dtype = (`Array (`Logic, ParamEnv.Concrete sz')) in
   Typing.merged_data graph (Some wres) new_dtype ctx.current [td1; td2]
+
+let rec recurse_unfold expr_full_node expr_node =
+  let unfold = recurse_unfold expr_full_node in
+  if expr_node.d = Recurse then
+    expr_full_node
+  else
+    let expr' = match expr_node.d with
+    | Literal _ | Identifier _
+    | Cycle _ | Sync _ | EnumRef _
+    | Ready _ | Read _
+    | Debug DebugFinish
+    | Recv _ -> expr_node.d
+    | Call (ident, expr_nodes) ->
+      Call (ident, List.map unfold expr_nodes)
+    | Assign (lval, expr_node') ->
+      Assign (lval, unfold expr_node')
+    | Binop (op, e1, e2) ->
+      Binop (op, unfold e1, unfold e2)
+    | Unop (op, expr_node') ->
+      Unop (op, unfold expr_node')
+    | Tuple expr_nodes ->
+      Tuple (List.map unfold expr_nodes)
+    | LetIn (idents, e1, e2) ->
+      LetIn (idents, unfold e1, unfold e2)
+    | Wait (e1, e2) ->
+      Wait (unfold e1, unfold e2)
+    | IfExpr (e1, e2, e3) ->
+      IfExpr (unfold e1, unfold e2, unfold e3)
+    | Construct (cs, e') ->
+      Construct (cs, Option.map unfold e')
+    | Record (ident, vs) ->
+      Record (ident,
+        List.map (fun (i, e) -> (i, unfold e)) vs
+      )
+    | Index (e', idx) ->
+      Index (unfold e', idx)
+    | Indirect (e', ident) ->
+      Indirect (unfold e', ident)
+    | Concat es ->
+      Concat (List.map unfold es)
+    | Match (e, arms) ->
+      Match (unfold e,
+        List.map (fun (m, eop) -> (m, Option.map unfold eop)) arms
+      )
+    | Debug (DebugPrint (format, es)) ->
+      Debug (DebugPrint (format, List.map unfold es))
+    | Send sp ->
+      Send {sp with send_data = unfold sp.send_data}
+    | SharedAssign (ident, e') ->
+      SharedAssign (ident, unfold e')
+    | List es ->
+      List (List.map unfold es)
+    | Recurse -> failwith "Shouldn't reach here!"
+    in
+    {expr_node with d = expr'}
 
 let rec lvalue_info_of graph (ci:cunit_info) ctx span lval =
   let binop_td_const = binop_td_const graph ci ctx span
@@ -557,6 +613,9 @@ and visit_expr (graph : event_graph) (ci : cunit_info)
     graph.wires <- wires';
     let td = List.hd tds in
     Typing.merged_data graph (Some new_w) (`Array (td.dtype, ParamEnv.Concrete (List.length tds))) ctx.current tds
+  | Recurse ->
+    ctx.current.is_recurse <- true;
+    Typing.const_data graph None unit_dtype ctx.current
   | _ -> raise (event_graph_error_default "Unimplemented expression!" e.span)
 
 (* Builds the graph representation for each process To Do: Add support for commands outside loop (be executed once or continuosly)*)
@@ -608,8 +667,9 @@ let build_proc (config : Config.compile_config) sched module_name param_values
           let tmp_graph = {graph with last_event_id = 0} in
           let td = visit_expr tmp_graph ci
             (BuildContext.create_empty tmp_graph shared_vars_info true)
-            (dummy_ast_node_of_data (Wait (e, e))) in
-          tmp_graph.last_event_id <- td.lt.live.id;
+            (recurse_unfold e e) in
+          tmp_graph.last_event_id <- (EventGraphOps.find_last_event tmp_graph).id;
+          td.lt.live.is_recurse <- true;
           (* Optimisation *)
           let tmp_graph = GraphOpt.optimize config true ci tmp_graph in
           if not config.disable_lt_checks then (
@@ -625,11 +685,11 @@ let build_proc (config : Config.compile_config) sched module_name param_values
         | None -> (
             (* discard after type checking *)
             let ctx = (BuildContext.create_empty graph shared_vars_info false) in
-            let td = visit_expr graph ci ctx e in
-              graph.last_event_id <- td.lt.live.id;
+            let _td = visit_expr graph ci ctx e in
+            graph.last_event_id <- (EventGraphOps.find_last_event graph).id;
             GraphOpt.optimize config false ci graph
         )
-      ) body.loops in
+      ) body.threads in
       {name = module_name; extern_module = None;
         threads = proc_threads; shared_vars_info; messages = msg_collection;
         proc_body = proc.body; spawns = List.map (fun (ident, {d; _}) -> (ident, d)) spawns}

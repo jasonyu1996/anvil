@@ -1,0 +1,11 @@
+proc general_recurse_simple() =
+    reg counter : logic[4]
+
+    loop {
+        set counter := *counter + 4'd1
+    }
+
+    recursive {
+        (cycle 1 => cycle 1 => dprint "counter = %d" (*counter));
+        cycle 1 => recurse
+    }
