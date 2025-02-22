@@ -1,0 +1,22 @@
+import "Reg.anvil"
+
+proc simple_usereg_pipeline () =
+    chan le -- ri : Reg_itfc
+    spawn Reg(le)
+    reg cycle_count : logic[4]
+
+    recursive {
+        (
+            cycle 3 =>
+            send ri.input_v(1'b1) =>
+            cycle 1 =>
+            let res = recv ri.output in
+            res =>
+            dprint "Res = %d @ %d" (res, *cycle_count)
+        );
+        (cycle 1 => recurse)
+    }
+
+    loop {
+        set cycle_count := *cycle_count + 4'd1
+    }

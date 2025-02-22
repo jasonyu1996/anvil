@@ -762,8 +762,10 @@ let syntax_tree_precheck (_config : Config.compile_config) cunit =
         if n <> m || o_n <> o_m then (* the cycle counts on both sides must be equal *)
           raise (Except.TypeError [Text "Static sync mode must be symmetric!"; Except.codespan_local msg.span])
       | Static _, Dependent _
-      | Dependent _, Static _ ->
-        raise (Except.TypeError [Text "Dependent sync mode cannot mix with static mode!"; Except.codespan_local msg.span])
+      | Dependent _, Static _
+      | Dynamic, Dependent _
+      | Dependent _, Dynamic ->
+        raise (Except.TypeError [Text "Dependent sync mode cannot be mixed with other sync mode!"; Except.codespan_local msg.span])
       | Dependent (msg1, n1), Dependent (msg2, n2) ->
         if msg1 <> msg2 || n1 <> n2 then
           raise (Except.TypeError [Text "Dependent sync mode must be symmetric!"; Except.codespan_local msg.span])

@@ -38,6 +38,7 @@ TESTS=(
     bug_stuck
     static_dyn_sync
     static_sync
+    simple_usereg_pipeline
 )
 
 passed=0
