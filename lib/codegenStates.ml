@@ -294,21 +294,21 @@ let codegen_sustained_actions printer (graphs : EventGraph.event_graph_collectio
     ) else (
       (* if we have more than one site that sends, keep track of which event is the last send (TODO: optimisation) *)
       let width = Utils.int_log2 n in
-      send_data_selectors := (width, w_name, !conds_dw)::!send_data_selectors;
-      let (_, dw, _) = List.hd !conds_dw in
-      List.mapi (fun site_idx (_, _, vw) ->
-        Printf.sprintf "(%s_selector_n == %d'd%d) ? %s : " w_name width site_idx vw
-      ) !conds_dw
-      |> String.concat ""
-      |> Printf.sprintf "assign %s = %s'0;" dw
-      |> print_line
+      send_data_selectors := (width, w_name, !conds_dw)::!send_data_selectors
     )
   ) send_or_assigns;
 
   if !send_data_selectors <> [] then (
     (* generate declarations for selectors *)
-    List.iter (fun (width, name, _) ->
+    List.iter (fun (width, name, conds_dw) ->
       Printf.sprintf "logic[%d:0] %s_selector_q, %s_selector_n;" (width - 1) name name
+      |> print_line;
+      let (_, dw, _) = List.hd conds_dw in
+      List.mapi (fun site_idx (_, _, vw) ->
+        Printf.sprintf "(%s_selector_n == %d'd%d) ? %s : " name width site_idx vw
+      ) conds_dw
+      |> String.concat ""
+      |> Printf.sprintf "assign %s = %s'0;" dw
       |> print_line
     ) !send_data_selectors;
 
