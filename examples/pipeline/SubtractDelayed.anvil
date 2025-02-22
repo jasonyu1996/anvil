@@ -1,0 +1,25 @@
+chan SubtractDelayed_itfc<T : type> = {
+    left input_l : (T@#1) @dyn-@#1,
+    left input_r : (T@#1) @#input_l-@#input_l,
+    right output : (T@#1) @#input_l+2-@#input_l+2
+}
+
+proc SubtractDelayed<T : type> (endp : left SubtractDelayed_itfc<T>) =
+    reg r0 : T
+    reg r1 : T
+
+    recursive {
+        let l = recv endp.input_l in
+        l =>
+        (
+            (
+                let r = recv endp.input_r in
+                r =>
+                set r0 := l - r =>
+                set r1 := *r0 =>
+                send endp.output (*r1)
+            );
+            cycle 1 => recurse
+        )
+    }
+

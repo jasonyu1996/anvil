@@ -1,8 +1,8 @@
-import "Reg.anvil"
+import "pipeline/Reg.anvil"
 
 proc simple_usereg_pipeline () =
-    chan le -- ri : Reg_itfc
-    spawn Reg(le)
+    chan le -- ri : Reg_itfc<logic>
+    spawn Reg<logic>(le)
     reg cycle_count : logic[4]
 
     recursive {

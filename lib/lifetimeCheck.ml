@@ -457,11 +457,13 @@ let lifetime_check (config : Config.compile_config) (ci : cunit_info) (g : event
                 if config.verbose then (
                   Array.iteri (fun idx sl -> Printf.eprintf "Mw %d = %d\n" idx sl) min_weights
                 );
-                if min_weights.(sa.d.until.id) > gap then
-                  let error_msg = Printf.sprintf "Static sync mode mismatch (actual gap = %d > expected gap %d)!"
+                if min_weights.(sa.d.until.id) > gap then (
+                  let error_msg = Printf.sprintf "Static sync mode mismatch between %s and %s (actual gap = %d > expected gap %d)!"
+                    relative_msg msg
                     min_weights.(sa.d.until.id) gap
                   in
                   raise (LifetimeCheckError [Text error_msg; Except.codespan_local sa.span])
+                )
               )
           | None -> ()
         ) g.events;

@@ -605,6 +605,10 @@ message_sync_mode_spec:
   {
     Lang.Static (o, n)
   }
+| AT; SHARP; m = IDENT
+  {
+    Lang.Dependent (m, 0)
+  }
 | AT; SHARP; m = IDENT; PLUS; n = INT
   {
     Lang.Dependent (m, n)
