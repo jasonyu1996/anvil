@@ -119,10 +119,6 @@ and event = {
   (** actions that may take multiple cycles and start when this event is reached*)
   mutable source: event_source; (** under what circumstances is this event reached.
                       {i Those are effectively the edges in the event graph} *)
-  (* for lifetime checking *)
-  mutable control_endps: (int * int) Utils.string_map;
-  mutable current_endps : (int * int) Utils.string_map;
-  (** used for lifetime checking *)
   mutable outs : event list; (** the outbound edges, i.e., the events that directly depend on this event *)
 }
 

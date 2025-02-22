@@ -99,22 +99,6 @@ let event_is_predecessor (ev : event) (ev' : event) =
   event_predecessors ev |> List.exists (fun x -> x.id = ev'.id)
 
 
-let in_control_set (cur : (int * int) Utils.string_map) (cnt : (int * int) Utils.string_map) (s : identifier) =
-  let (pre, post) = Utils.StringMap.find s cnt in
-  if Utils.StringMap.find s cur |> fst = 0 then
-    pre + 1 = post
-  else
-    pre + 2 = post
-
-let in_control_set_endps (ev : event) = in_control_set ev.current_endps ev.control_endps
-
-(** evs must be in topological order*)
-let find_controller (endpts : identifier list) =
-  List.find_opt
-    (fun ev ->
-      List.for_all (fun endpt -> in_control_set_endps ev endpt) endpts
-    )
-
 (* inclusive: include the matching event itself or its predecessor? *)
 let find_first_msg_after (ev : event) (msg: Lang.message_specifier) inclusive =
   event_successors ev |> List.find_map
@@ -126,16 +110,6 @@ let find_first_msg_after (ev : event) (msg: Lang.message_specifier) inclusive =
       ) ev'.sustained_actions
       |> Option.map (fun (ev', sa) -> if inclusive then sa.d.until else ev')
     )
-
-let event_succ_msg_match_earliest (ev : event) (msg : message_specifier) =
-  let preds = event_predecessors ev in
-  let pred_controller = find_controller [msg.endpoint] (List.rev preds) |> Option.get in
-  find_first_msg_after pred_controller msg
-
-let event_succ_msg_match_latest (ev : event) (msg : message_specifier) =
-  let succs = event_successors ev in
-  let succ_controller = find_controller [msg.endpoint] succs |> Option.get in
-  find_first_msg_after succ_controller msg
 
 
 module IntHashtbl = Hashtbl.Make(Int)
@@ -540,12 +514,34 @@ let events_first_msg events ev msg =
     ) events
 
 
-let events_are_ordered events lookup_message e1 e2 =
-  let mx_dist1 = (events_max_dist events lookup_message e1).(e2.id) in
-  if mx_dist1 = -event_distance_max then true
-  else if mx_dist1 = 0 then false (* same cycle *)
-  else (
-    let mx_dist2 = (events_max_dist events lookup_message e2).(e1.id) in
-    if mx_dist2 = -event_distance_max then true
-    else (mx_dist1 < 0 && mx_dist2 > 0) || (mx_dist1 > 0 && mx_dist2 < 0)
-  )
+type events_order =
+| Before
+| After
+| BeforeEq
+| AfterEq
+| AlwaysEq
+| Unordered
+| Unreachable
+
+let is_strict_ordered = function
+  | Before | After | Unreachable -> true
+  | _ -> false
+
+let events_get_order events lookup_message e1 e2 =
+  let to_sign v =
+    if v = -event_distance_max then -2
+    else if v < 0 then -1
+    else if v > 0 then 1
+    else 0
+  in
+  let mx_dist1 = (events_max_dist events lookup_message e1).(e2.id) |> to_sign in
+  let mx_dist2 = (events_max_dist events lookup_message e2).(e1.id) |> to_sign in
+  match mx_dist1, mx_dist2 with
+  | -2, _ | _, -2 -> Unreachable
+  | 0, 0 -> AlwaysEq
+  | 1, 1 | -1, -1 -> Unordered
+  | -1, 0 | 0, 1 -> AfterEq
+  | -1, 1 -> After
+  | 1, 0 | 0, -1 -> BeforeEq
+  | 1, -1 -> Before
+  | _ -> Unreachable
