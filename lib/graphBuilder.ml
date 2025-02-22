@@ -369,12 +369,12 @@ and visit_expr (graph : event_graph) (ci : cunit_info)
     let ctx' = BuildContext.wait graph ctx td1.lt.live in
     visit_expr graph ci ctx' e2
   | Ready msg_spec ->
-    let msg = MessageCollection.lookup_message graph.messages msg_spec ci.channel_classes
-      |> unwrap_or_err "Invalid message specifier in ready" e.span in
-    if msg.dir <> In then (
+    (* let msg = MessageCollection.lookup_message graph.messages msg_spec ci.channel_classes
+      |> unwrap_or_err "Invalid message specifier in ready" e.span in *)
+    (* if msg.dir <> In then (
       (* mismatching direction *)
       raise (event_graph_error_default "Mismatching message direction!" e.span)
-    );
+    ); *)
     let wires, msg_valid_port = WireCollection.add_msg_valid_port graph.thread_id ci.typedefs msg_spec graph.wires in
     graph.wires <- wires;
     Typing.immediate_data graph (Some msg_valid_port) `Logic ctx.current

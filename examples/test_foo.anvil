@@ -1,0 +1,9 @@
+func setR()= set r := 1'd1
+
+proc test_foo() =
+reg r : logic
+
+loop{
+    set r := (cycle 2 => 1'd1);
+    cycle 1
+}
