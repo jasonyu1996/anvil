@@ -200,29 +200,29 @@ let codegen_actions printer (g : EventGraph.event_graph) =
 
 
 let codegen_transition printer (_graphs : EventGraph.event_graph_collection) (g : EventGraph.event_graph) =
+  let open EventGraph in
   let print_line ?(lvl_delta_pre = 0) ?(lvl_delta_post = 0) =
     CodegenPrinter.print_line printer ~lvl_delta_pre:lvl_delta_pre ~lvl_delta_post:lvl_delta_post in
   let reg_states = collect_reg_states g in
-  let print_reset_states () =
-    List.iter (fun (_, sn) -> Printf.sprintf "%s_q <= '0;" sn |> print_line) reg_states;
-    print_line "_init <= '1;"
-  in
   (* reset states *)
+
+  let owned_regs = GraphAnalysis.graph_owned_regs g |> Utils.StringSet.of_list in
+  let owned_regs = List.filter (fun (r : Lang.reg_def) -> Utils.StringSet.mem r.name owned_regs) g.regs in
+
   Printf.sprintf "always_ff @(posedge clk_i or negedge rst_ni) begin : _thread_%d_st_transition" g.thread_id |> print_line ~lvl_delta_post:1;
   print_line ~lvl_delta_post:1 "if (~rst_ni) begin";
-  print_reset_states ();
   (* register reset *)
   List.iter (
     fun (r : Lang.reg_def) ->
       let open CodegenFormat in
       Printf.sprintf "%s <= '0;" (format_regname_current r.name) |> print_line
-  ) g.regs;
+  ) owned_regs;
+  List.iter (fun (_, sn) -> Printf.sprintf "%s_q <= '0;" sn |> print_line) reg_states;
   print_line ~lvl_delta_pre:(-1) ~lvl_delta_post:1 "end else begin";
   (* actions *)
   codegen_actions printer g;
   (* next states *)
   List.iter (fun (_, sn) -> Printf.sprintf "%s_q <= %s_n;" sn sn |> print_line) reg_states;
-  print_line "_init <= '0;";
   print_line ~lvl_delta_pre:(-1) "end";
   print_line ~lvl_delta_pre:(-1) "end"
 
@@ -349,4 +349,34 @@ let codegen_states printer
   codegen_next printer graphs pg g;
   codegen_sustained_actions printer graphs pg g;
   codegen_transition printer graphs g
+
+let codegen_proc_states printer proc =
+  let open EventGraph in
+  let g = List.hd proc.threads in
+
+  CodegenPrinter.print_line ~lvl_delta_post:1 printer
+    "always_ff @(posedge clk_i or negedge rst_ni) begin : _proc_transition";
+  CodegenPrinter.print_line ~lvl_delta_post:1 printer "if (~rst_ni) begin";
+  CodegenPrinter.print_line printer "_init <= '1;";
+
+  (* figure out the set of registers not set in any thread *)
+  let owned_regs = ref Utils.StringSet.empty in
+  List.iter (
+    fun graph ->
+      owned_regs := GraphAnalysis.graph_owned_regs graph
+                |> Utils.StringSet.of_list |> Utils.StringSet.union !owned_regs
+  ) proc.threads;
+
+  List.filter (fun (r : Lang.reg_def) -> Utils.StringSet.mem r.name !owned_regs |> not) g.regs
+  |> List.iter (
+    fun (r : Lang.reg_def) ->
+      let open CodegenFormat in
+      Printf.sprintf "%s <= '0;" (format_regname_current r.name)
+        |> CodegenPrinter.print_line printer
+  );
+  CodegenPrinter.print_line ~lvl_delta_pre:(-1) ~lvl_delta_post:1 printer "end else begin";
+  CodegenPrinter.print_line printer "_init <= '0;";
+  CodegenPrinter.print_line ~lvl_delta_pre:(-1) printer "end";
+  CodegenPrinter.print_line ~lvl_delta_pre:(-1) printer "end"
+
 

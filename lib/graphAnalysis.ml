@@ -545,3 +545,15 @@ let events_get_order events lookup_message e1 e2 =
   | 1, 0 | 0, -1 -> BeforeEq
   | 1, -1 -> Before
   | _ -> Unreachable
+
+let graph_owned_regs g =
+  let res = ref [] in
+  List.iter (fun e ->
+    List.iter (fun ac_span ->
+      match ac_span.d with
+      | RegAssign (lval, _td) ->
+        res := lval.lval_range.subreg_name::!res
+      | _ -> ()
+    ) e.actions
+  ) g.events;
+  !res

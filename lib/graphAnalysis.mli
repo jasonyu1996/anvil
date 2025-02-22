@@ -108,3 +108,6 @@ val events_first_msg : EventGraph.event list -> EventGraph.event -> Lang.message
 
 (** Sort in topological order. *)
 val toposort : EventGraph.event list -> EventGraph.event list
+
+(** Return the list of registers modified in the graph *)
+val graph_owned_regs : EventGraph.event_graph -> Lang.identifier list
