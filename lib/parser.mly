@@ -75,6 +75,8 @@
 %token KEYWORD_IMPORT       (* import *)
 %token KEYWORD_EXTERN       (* extern *)
 %token KEYWORD_INT          (* int *)
+%token KEYWORD_RECURSIVE    (* recursive *)
+%token KEYWORD_RECURSE      (* recurse *)
 %token <int>INT             (* int literal *)
 %token <string>IDENT        (* identifier *)
 %token <string>BIT_LITERAL  (* bit literal *)
@@ -175,13 +177,20 @@ proc_def_body:
       channels = [];
       spawns = [];
       regs = [];
-      loops = [];
+      threads = [];
       shared_vars = [];
     }
   }
-| KEYWORD_LOOP; LEFT_BRACE thread_prog = node(expr); RIGHT_BRACE; body=proc_def_body //For thread definitions
+| KEYWORD_LOOP; LEFT_BRACE; thread_prog = node(expr); RIGHT_BRACE; body=proc_def_body //For thread definitions
   {
-    let open Lang in {body with loops = thread_prog::(body.loops) }
+    let open Lang in
+    let thread_prog = Wait (thread_prog, dummy_ast_node_of_data Recurse) |> dummy_ast_node_of_data in
+    {body with threads = thread_prog::(body.threads) }
+  }
+| KEYWORD_RECURSIVE; LEFT_BRACE; thread_prog = node(expr); RIGHT_BRACE; body = proc_def_body
+  {
+    let open Lang in
+    { body with threads = thread_prog::(body.threads) }
   }
 | KEYWORD_CHAN; chan_def = node(channel_def); body = proc_def_body // For Channel Invocation and interface aquisition
   {
@@ -372,6 +381,8 @@ term:
   { Lang.Literal (Lang.NoLength literal_val)}
 | ident = IDENT
   { Lang.Identifier ident }
+| KEYWORD_RECURSE
+  { Lang.Recurse }
 ;
 //expressions
 expr:

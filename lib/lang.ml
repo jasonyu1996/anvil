@@ -393,6 +393,7 @@ and expr =
   | Recv of recv_pack
   | SharedAssign of identifier * expr_node (** make ready a shared value *)
   | List of expr_node list (** array/list of expressions *)
+  | Recurse
 and expr_node = expr ast_node
 
 (** A "location" that can be assigned to. *)
@@ -453,7 +454,7 @@ type proc_def_body = {
   regs: reg_def ast_node list;
   shared_vars: shared_var_def ast_node list;  (* New field *)
   (* prog: expr; *)
-  loops: expr_node list;
+  threads: expr_node list;
 }
 
 (** Extern process definition *)

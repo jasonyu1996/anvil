@@ -2,35 +2,21 @@ open Lang
 open EventGraph
 open GraphAnalysis
 
-let print_control_set (g : event_graph) =
-  List.iter (fun ev ->
-    Printf.eprintf "=== Event %d ===\n" ev.id;
-    Utils.StringMap.iter (fun endp r ->
-      Printf.eprintf "Endpoint %s: %d, %d\n" endp (fst r) (snd r)
-    ) ev.control_endps
-  ) g.events
-
-(** Generate the control set for each event in the event graph. The control set of event
-includes actions that are synchronised at the event. *)
-let gen_control_set (config : Config.compile_config) (g : event_graph) =
+(** Check if the uses of endpoints and registers follow defined order. *)
+let check_linear (config : Config.compile_config) lookup_message (g : event_graph) =
   let events_rev = List.rev g.events in
-  let all_endpoints = g.messages.endpoints @ g.messages.args in
-  let endp_use_cnt_empty =
-      List.map (fun (e : endpoint_def) -> (e.name, 0)) all_endpoints
-        |> List.to_seq |> Utils.StringMap.of_seq
-  in
-  let endp_use_cnt = ref endp_use_cnt_empty in
-  let control_endps_init = Seq.repeat (0, Int.max_int) |> Seq.take (List.length all_endpoints)
-        |> Seq.zip (List.map (fun (ep : endpoint_def) -> ep.name) all_endpoints |> List.to_seq)
-        |> Utils.StringMap.of_seq in
   let reg_ops = ref [] in (* all uses of registers *)
-  (* let _add_reg_ops_td ev td =
-    List.iter (fun borrow -> reg_ops := (ev, borrow.borrow_range)::!reg_ops) td.reg_borrows
-  in *)
+  let msg_uses = Hashtbl.create 2 in (* uses of messages *)
+  let string_of_msg msg = Printf.sprintf "%s.%s" msg.endpoint msg.msg in (* serialise messagse *)
+  let add_msg msg ev sa_span =
+    let msg_str = string_of_msg msg in
+    match Hashtbl.find_opt msg_uses msg_str with
+    | Some li -> li := (ev, sa_span)::!li
+    | None -> Hashtbl.add msg_uses msg_str (ref [(ev, sa_span)])
+  in
+  (* gather register and message uses *)
   List.iter
     (fun (ev : event) ->
-      ev.control_endps <- control_endps_init;
-      ev.current_endps <- control_endps_init;
       List.iter (fun ac_span ->
         match ac_span.d with
         | DebugFinish -> ()
@@ -43,12 +29,11 @@ let gen_control_set (config : Config.compile_config) (g : event_graph) =
           ()
           (* add_reg_ops_td ev td *)
       ) ev.actions;
-      (* List.iter (fun sa_span ->
+      List.iter (fun sa_span ->
         match sa_span.d.ty with
-        | Send (_, td) ->
-          add_reg_ops_td ev td
-        | Recv _ -> ()
-      ) ev.sustained_actions *)
+        | Send (msg, _)
+        | Recv msg -> add_msg msg ev sa_span
+      ) ev.sustained_actions
     )
     events_rev;
 
@@ -59,129 +44,21 @@ let gen_control_set (config : Config.compile_config) (g : event_graph) =
       | (NonConst _, sz) -> Printf.sprintf "%s[var, %d]" range.subreg_name sz
       in
       Printf.eprintf "RegAssign at %d to %s\n" ev.id range_s
-    ) !reg_ops
+    ) !reg_ops;
+    Hashtbl.iter (fun msg_str li ->
+      Printf.eprintf "Uses of %s:\n" msg_str;
+      List.iter (fun (ev, sa_span) ->
+        Printf.eprintf "  %d -> %d\n" ev.id sa_span.d.until.id
+      ) !li
+    ) msg_uses
   );
 
-  let opt_incr (a_opt : int option) =
-    let a = Option.get a_opt in
-    Some (a + 1)
-  in
-  let opt_update_forward (v : int) (a_opt : (int * int) option) =
-    let (a, b) = Option.get a_opt in
-    Some (max v a, b)
-  and opt_update_backward (v : int) (a_opt : (int * int) option) =
-    let (a, b) = Option.get a_opt in
-    Some (a, min v b)
-  in
-  List.iter
-    (fun (ev : event) ->
-      List.iter
-        (fun (a : sustained_action ast_node) ->
-          match a.d.ty with
-          | Send (ms, _) | Recv ms -> (
-            endp_use_cnt := Utils.StringMap.update ms.endpoint opt_incr !endp_use_cnt;
-            let v = Utils.StringMap.find ms.endpoint !endp_use_cnt in
-            ev.current_endps <- Utils.StringMap.update ms.endpoint (opt_update_forward v) ev.current_endps;
-            ev.current_endps <- Utils.StringMap.update ms.endpoint (opt_update_backward v) ev.current_endps
-          )
-        )
-        ev.sustained_actions;
-      (* forward pass *)
-      let forward_from (ev' : event) =
-        ev.control_endps <- Utils.StringMap.merge (fun _ a b -> opt_update_forward (Option.get a |> fst) b) ev'.control_endps ev.control_endps;
-        ev.control_endps <- Utils.StringMap.merge (fun _ a b -> opt_update_forward (Option.get a |> fst) b) ev'.current_endps ev.control_endps
-      in
-      (
-        match ev.source with
-        | `Root None -> ()
-        | `Later (e1, e2)
-        | `Branch (_, {branch_val_true = Some e1; branch_val_false = Some e2; _}) ->
-          (* Printf.eprintf "FR %d, %d -> %d\n" e1.id e2.id ev.id; *)
-          forward_from e1;
-          forward_from e2
-        | `Seq (ev', _)  ->
-          (* Printf.eprintf "FR %d -> %d\n" ev'.id ev.id; *)
-          forward_from ev'
-        | `Root (Some (ev', br_side_info)) ->
-          (* to true side first *)
-          if br_side_info.branch_side_sel then
-            forward_from ev'
-          else
-            Option.get br_side_info.owner_branch.branch_val_true |> forward_from
-        | _ ->
-          raise (Except.unknown_error_default "Unexpected event source!")
-      );
-    )
-    events_rev;
-  (* backward pass *)
-  List.iter
-    (fun (ev : event) ->
-      let backward_to (ev' : event) =
-        ev'.control_endps <- Utils.StringMap.merge (fun _ a b -> opt_update_backward (Option.get a |> snd) b) ev.control_endps ev'.control_endps;
-        ev'.control_endps <- Utils.StringMap.merge (fun _ a b -> opt_update_backward (Option.get a |> snd) b) ev.current_endps ev'.control_endps
-      in
-      (
-        ev.control_endps <- Utils.StringMap.merge (fun _ a b -> opt_update_backward (let v = Option.get a in v + 1) b) !endp_use_cnt ev.control_endps;
-        match ev.source with
-        | `Root None -> ()
-        | `Later (e1, e2) ->
-          backward_to e1;
-          backward_to e2
-        | `Seq (ev', _) ->
-          backward_to ev'
-        | `Branch (_, {branch_val_true = Some _e1; branch_val_false = Some e2; _}) ->
-          backward_to e2 (* to false side first *)
-        | `Root (Some (ev', br_side_info)) ->
-          if br_side_info.branch_side_sel then
-            backward_to ev'
-          else
-            Option.get br_side_info.owner_branch.branch_val_true |> backward_to
-        | _ ->
-          raise (Except.unknown_error_default "Unexpected event source!")
-      )
-    ) g.events;
-  (* print_control_set g;
-  print_graph g; *)
-  (* check for violations of linearity *)
-  List.iter
-    (fun (ev : event) ->
-      List.iter (fun (sa : sustained_action ast_node) ->
-        match sa.d.ty with
-        | Send (ms, _) | Recv ms -> (
-          if in_control_set_endps ev ms.endpoint |> not then (
-            let bad_spans = ref [] in
-            List.iter (fun ev' ->
-              List.iter (fun sa' ->
-                match sa.d.ty with
-                | Send (ms', _) | Recv ms' ->
-                  if sa'.d.until.id <> sa.d.until.id && ms'.endpoint = ms.endpoint
-                    && in_control_set_endps ev' ms'.endpoint |> not then
-                      bad_spans := sa'.span::!bad_spans
-              ) ev'.sustained_actions
-            ) g.events;
-            raise (LifetimeCheckError
-                  (
-                    let open Except in
-                    [
-                      Text "Non-linearizable endpoint use!";
-                      codespan_local sa.span;
-                      Text (List.length !bad_spans |> Printf.sprintf "Conflicting uses (%d):")
-                    ] @
-                    (List.map codespan_local !bad_spans)
-                  )
-            )
-          )
-          else ()
-        )
-      ) ev.sustained_actions
-    )
-    g.events;
   (* check for violations of linearity for register assignments *)
   let rec check_reg_violation = function
     | (ev, range, span)::remaining ->
       List.iter (fun (ev', range', span') ->
         if (EventGraphOps.subreg_ranges_possibly_intersect range range') &&
-           (GraphAnalysis.events_are_ordered g.events ev ev' |> not) then
+           (events_get_order g.events lookup_message ev ev' |> is_strict_ordered |> not) then
             raise (LifetimeCheckError
                 [
                   Text "Non-linearizable register assignment!";
@@ -193,8 +70,42 @@ let gen_control_set (config : Config.compile_config) (g : event_graph) =
       check_reg_violation remaining
     | [] -> ()
   in
-  check_reg_violation !reg_ops
+  check_reg_violation !reg_ops;
 
+  (* check for violations of linearity for message uses *)
+  Hashtbl.iter (fun _msg_str li ->
+    let rec check_msg_violation = function
+      | (ev, sa_span)::li' ->
+        List.iter (fun (ev', sa_span') ->
+          let order1 = events_get_order g.events lookup_message ev sa_span'.d.until in
+          let order2 = events_get_order g.events lookup_message sa_span.d.until ev' in
+          let order_to_sign = function
+            | Before | BeforeEq -> -1
+            | After | AfterEq -> 1
+            | AlwaysEq | Unreachable -> 0
+            | Unordered -> -2
+          in
+          let check_ok =
+            match order_to_sign order1, order_to_sign order2 with
+            | -2, _ | _, -2 -> false
+            | 1, _ | _, -1 -> true
+            | 0, _ | _, 0 -> true
+            | _ -> false
+          in
+          if not check_ok then
+            raise (LifetimeCheckError
+                  [
+                    Text "Non-linearizable message use!";
+                    Except.codespan_local sa_span.span;
+                    Text "Conflicting with:";
+                    Except.codespan_local sa_span'.span;
+                  ])
+        ) li';
+        check_msg_violation li'
+      | [] -> ()
+    in
+    check_msg_violation !li
+  ) msg_uses
 
 module IntHashtbl = Hashtbl.Make(Int)
 
@@ -301,11 +212,8 @@ let lifetime_check (config : Config.compile_config) (ci : cunit_info) (g : event
       ]
     );
 
-  gen_control_set config g;
-  (* for debugging purposes*)
-  if config.verbose then (
-    print_control_set g
-  );
+  check_linear config lookup_message g;
+
   let reg_borrows = StringHashtbl.create 8 in (* regname -> (lifetime, range)*)
   let msg_borrows = StringHashtbl.create 8 in
   (* check lifetime for each use of a wire *)
