@@ -438,7 +438,10 @@ let events_max_dist events lookup_message ev =
                 )
               | `Sync _ -> event_distance_max (* oo *)
             in
-            res.(e'.id) + gap
+            if res.(e'.id) = -event_distance_max then
+              res.(e'.id)
+            else
+              res.(e'.id) + gap
           )
           | `Later (e1, e2)
           | `Branch (_, {branch_val_true = Some e1; branch_val_false = Some e2; _}) ->
