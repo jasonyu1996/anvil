@@ -14,7 +14,7 @@ dune exec anvil -- [-verbose] [-disable-lt-checks] [-two-round] <anvil-source-fi
 
 NOTE: To disable lifetime-related checks, pass `-disable-lt-checks`. The `-two-round` flag
 generates code for two rounds of each thread to work around some combinational loop issues
-codegen currently has (see https://github.com/jasonyu1996/anvil/issues/33).
+codegen currently has (see https://github.com/Anonymous/anvil/issues/33).
 
 ### Examples
 

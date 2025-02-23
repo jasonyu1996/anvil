@@ -8,8 +8,8 @@ maintainer: ["Anonymous"]
 authors: ["Anonymous"]
 license: "LICENSE"
 tags: ["hdl" "safety" "fpga"]
-homepage: "https://github.com/jasonyu1996/anvil"
-bug-reports: "https://github.com/jasonyu1996/anvil/issues"
+homepage: "https://github.com/Anonymous/anvil"
+bug-reports: "https://github.com/Anonymous/anvil/issues"
 depends: [
   "ocaml" {>= "4.14.0"}
   "dune" {>= "3.8" & >= "3.8"}
@@ -30,4 +30,4 @@ build: [
     "@doc" {with-doc}
   ]
 ]
-dev-repo: "git+https://github.com/jasonyu1996/anvil.git"
+dev-repo: "git+https://github.com/##/anvil.git"

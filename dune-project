@@ -5,7 +5,7 @@
 (generate_opam_files true)
 
 (source
- (github jasonyu1996/anvil))
+ (github Anonymous/anvil))
 
 (authors "Anonymous")
 
