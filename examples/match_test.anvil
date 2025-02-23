@@ -1,6 +1,6 @@
 Use l = 2
 Use p = 32
-func add (a,b) = 
+func add (a,b) =
 (
     if(b==2'd0) then a+2'd1
     else
@@ -20,6 +20,6 @@ proc match_test () =
         |> 2'd0 -> dprint "This is first cycle" ()
         |> 2'd1 -> dprint "This is the second cycle" ()
         |> _ -> dprint "More than 2 cycles have passed" ()
-        done;
+        done =>
         cycle 1
     }

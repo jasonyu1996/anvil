@@ -207,7 +207,7 @@ let lifetime_check (config : Config.compile_config) (ci : cunit_info) (g : event
   if IntHashtbl.find dist last_ev.id = 0 then
     raise (LifetimeCheckError
       [
-        Text "Thread must take at least one cycle to complete a loop!";
+        Text "All paths must take at least one cycle to complete!";
         Except.codespan_local g.thread_codespan
       ]
     );

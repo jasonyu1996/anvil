@@ -114,7 +114,7 @@ let find_first_msg_after (ev : event) (msg: Lang.message_specifier) inclusive =
 
 module IntHashtbl = Hashtbl.Make(Int)
 let event_distance_max = 1 lsl 20
-let event_succ_distance non_succ_dist msg_dist_f either_dist_f events (ev : event) (cur: event) =
+let event_succ_distance non_succ_dist msg_dist_f later_dist_f either_dist_f events (ev : event) (cur: event) =
   let preds = event_predecessors ev in
   let preds_cur = event_predecessors cur in
   let succs = event_successors cur in
@@ -127,7 +127,7 @@ let event_succ_distance non_succ_dist msg_dist_f either_dist_f events (ev : even
     if IntHashtbl.find_opt dist ev'.id |> Option.is_none then
     let d = match ev'.source with
     | `Root None -> raise (Except.unknown_error_default "Unexpected root!")
-    | `Later (ev1, ev2) -> max (get_dist ev1) (get_dist ev2)
+    | `Later (ev1, ev2) -> later_dist_f (get_dist ev1) (get_dist ev2)
     | `Seq (ev1, ad) ->
       let d1 = get_dist ev1 in
       (
@@ -157,7 +157,7 @@ let event_succ_distance non_succ_dist msg_dist_f either_dist_f events (ev : even
 let event_slack_graph events ev =
   let n = List.length events in
   let root = List.nth events (n - 1) in
-  let dist = event_succ_distance event_distance_max (fun d -> d) min events root root in
+  let dist = event_succ_distance event_distance_max (fun d -> d) max min events root root in
   (* IntHashtbl.iter (fun ev_id d -> Printf.eprintf "Dist %d = %d\n" ev_id d) dist; *)
   (* Now compute max dist allowed *)
   let max_dists = Array.make n event_distance_max in
@@ -256,10 +256,10 @@ let event_min_among_succ events weights =
   res
 
 let event_min_distance =
-  event_succ_distance event_distance_max (fun d -> d) min
+  event_succ_distance event_distance_max (fun d -> d) min min
 
 let event_max_distance =
-  event_succ_distance event_distance_max (fun _ -> event_distance_max) max
+  event_succ_distance event_distance_max (fun _ -> event_distance_max) max max
 
 
 let events_visit_backward visitor = List.iter visitor

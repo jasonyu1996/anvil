@@ -184,7 +184,7 @@ proc_def_body:
 | KEYWORD_LOOP; LEFT_BRACE; thread_prog = node(expr); RIGHT_BRACE; body=proc_def_body //For thread definitions
   {
     let open Lang in
-    let thread_prog = Wait (thread_prog, dummy_ast_node_of_data Recurse) |> dummy_ast_node_of_data in
+    let thread_prog = {thread_prog with d = Wait (thread_prog, dummy_ast_node_of_data Recurse)} in
     {body with threads = thread_prog::(body.threads) }
   }
 | KEYWORD_RECURSIVE; LEFT_BRACE; thread_prog = node(expr); RIGHT_BRACE; body = proc_def_body

@@ -9,10 +9,11 @@ proc receiver(ch : left ch) =
                (
                 let in1 = recv ch.req in
                 in1 =>
-                dprint "Received: %d" (in1))
-            else
-                dprint "Not ready" ();
-            cycle 1
+                dprint "Received: %d" (in1)) =>
+                cycle 1
+            else (
+                dprint "Not ready" () => cycle 1
+            )
         )
     }
 

@@ -11,6 +11,5 @@ proc test_regIndex1() =
         if 1'b1 then
             set x := *x + 2'b01
         else
-            dprint "Never Taken" ();
-        cycle 1
+            ( dprint "Never Taken" (); cycle 1 )
     }
