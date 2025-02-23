@@ -628,7 +628,7 @@ let recurse_unfold_for_checks ci shared_vars_info graph expr_node =
   (* now just check the total *)
   let root = List.find (fun e -> e.source = `Root None) tmp_graph.events in
   let recurse = List.find (fun e -> e.is_recurse) tmp_graph.events in
-  let dists = GraphAnalysis.event_min_distance tmp_graph.events root root in
+  let dists = GraphAnalysis.event_min_distance_with_later tmp_graph.events root root in
   let full_dist = IntHashTbl.find dists td.lt.live.id in
   let recurse_dist = IntHashTbl.find dists recurse.id in
   if recurse_dist = 0 then
