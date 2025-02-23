@@ -35,9 +35,9 @@ let lookup_message (mc : t) (msg_spec : message_specifier) (channel_classes : ch
   )
 
 let message_sync_mode_allowed = function
-  | Dynamic
-  | Dependent (`Cycles _) -> true
-  | _ -> false
+| Static (n, m) -> n >= 0 && m > 0
+| Dependent (_, n) -> n >= 0
+| Dynamic -> true
 
 let create (channels : channel_def ast_node list)
            (args : endpoint_def ast_node list)

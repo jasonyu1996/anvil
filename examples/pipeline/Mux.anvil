@@ -1,0 +1,17 @@
+chan Mux_itfc<T : type> = {
+    left input_l : (T@#1) @dyn-@#1,
+    left input_r : (T@#1) @#input_l-@#input_l,
+    left input_op : (logic@#1) @#input_l-@#input_l,
+    right output : (T@#1) @#input_l-@#input_l
+}
+
+proc Mux<T : type> (endp : left Mux_itfc<T>) =
+    loop {
+        let l = recv endp.input_l in
+        l =>
+        let r = recv endp.input_r in
+        let op = recv endp.input_op in
+        r => op =>
+        send endp.output (if op then r else l) =>
+        cycle 1
+    }

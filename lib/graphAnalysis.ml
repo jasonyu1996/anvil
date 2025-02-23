@@ -99,22 +99,6 @@ let event_is_predecessor (ev : event) (ev' : event) =
   event_predecessors ev |> List.exists (fun x -> x.id = ev'.id)
 
 
-let in_control_set (cur : (int * int) Utils.string_map) (cnt : (int * int) Utils.string_map) (s : identifier) =
-  let (pre, post) = Utils.StringMap.find s cnt in
-  if Utils.StringMap.find s cur |> fst = 0 then
-    pre + 1 = post
-  else
-    pre + 2 = post
-
-let in_control_set_endps (ev : event) = in_control_set ev.current_endps ev.control_endps
-
-(** evs must be in topological order*)
-let find_controller (endpts : identifier list) =
-  List.find_opt
-    (fun ev ->
-      List.for_all (fun endpt -> in_control_set_endps ev endpt) endpts
-    )
-
 (* inclusive: include the matching event itself or its predecessor? *)
 let find_first_msg_after (ev : event) (msg: Lang.message_specifier) inclusive =
   event_successors ev |> List.find_map
@@ -127,20 +111,10 @@ let find_first_msg_after (ev : event) (msg: Lang.message_specifier) inclusive =
       |> Option.map (fun (ev', sa) -> if inclusive then sa.d.until else ev')
     )
 
-let event_succ_msg_match_earliest (ev : event) (msg : message_specifier) =
-  let preds = event_predecessors ev in
-  let pred_controller = find_controller [msg.endpoint] (List.rev preds) |> Option.get in
-  find_first_msg_after pred_controller msg
-
-let event_succ_msg_match_latest (ev : event) (msg : message_specifier) =
-  let succs = event_successors ev in
-  let succ_controller = find_controller [msg.endpoint] succs |> Option.get in
-  find_first_msg_after succ_controller msg
-
 
 module IntHashtbl = Hashtbl.Make(Int)
 let event_distance_max = 1 lsl 20
-let event_succ_distance non_succ_dist msg_dist_f either_dist_f events (ev : event) (cur: event) =
+let event_succ_distance non_succ_dist msg_dist_f later_dist_f either_dist_f events (ev : event) (cur: event) =
   let preds = event_predecessors ev in
   let preds_cur = event_predecessors cur in
   let succs = event_successors cur in
@@ -153,7 +127,7 @@ let event_succ_distance non_succ_dist msg_dist_f either_dist_f events (ev : even
     if IntHashtbl.find_opt dist ev'.id |> Option.is_none then
     let d = match ev'.source with
     | `Root None -> raise (Except.unknown_error_default "Unexpected root!")
-    | `Later (ev1, ev2) -> max (get_dist ev1) (get_dist ev2)
+    | `Later (ev1, ev2) -> later_dist_f (get_dist ev1) (get_dist ev2)
     | `Seq (ev1, ad) ->
       let d1 = get_dist ev1 in
       (
@@ -183,7 +157,7 @@ let event_succ_distance non_succ_dist msg_dist_f either_dist_f events (ev : even
 let event_slack_graph events ev =
   let n = List.length events in
   let root = List.nth events (n - 1) in
-  let dist = event_succ_distance event_distance_max (fun d -> d) min events root root in
+  let dist = event_succ_distance event_distance_max (fun d -> d) max min events root root in
   (* IntHashtbl.iter (fun ev_id d -> Printf.eprintf "Dist %d = %d\n" ev_id d) dist; *)
   (* Now compute max dist allowed *)
   let max_dists = Array.make n event_distance_max in
@@ -282,38 +256,11 @@ let event_min_among_succ events weights =
   res
 
 let event_min_distance =
-  event_succ_distance event_distance_max (fun d -> d) min
+  event_succ_distance event_distance_max (fun d -> d) min min
 
 let event_max_distance =
-  event_succ_distance event_distance_max (fun _ -> event_distance_max) max
+  event_succ_distance event_distance_max (fun _ -> event_distance_max) max max
 
-let events_are_ordered events e1 e2 =
-  if e1.id = e2.id then
-    false
-  else (
-    let preds1 = event_predecessors e1 in
-    let preds2 = event_predecessors e2 in
-    let n = List.length events in
-    let is_e2_preds = Array.make n false in
-    List.iter (fun e -> is_e2_preds.(e.id) <- true) preds2;
-    let common_pred = List.rev preds1 |> List.find (fun e -> is_e2_preds.(e.id)) in
-    if common_pred.id = e1.id || common_pred.id = e2.id then
-      true
-    else (
-      let find_cond =
-        List.find_opt (fun e ->
-              match e.source with
-              | `Root (Some (pred, _)) -> pred.id = common_pred.id
-              | _ -> false
-        )
-      in
-      let e1_cond_pred = find_cond preds1 in
-      let e2_cond_pred = find_cond preds2 in
-      match e1_cond_pred, e2_cond_pred with
-      | Some _, Some _ -> true
-      | _ -> false
-    )
-  )
 
 let events_visit_backward visitor = List.iter visitor
 let events_visit_forward visitor events = List.rev events |> List.iter visitor
@@ -451,7 +398,7 @@ let events_reachable events ev =
     );
   event_is_reachable
 
-let events_max_dist events ev =
+let events_max_dist events lookup_message ev =
   let n = List.length events in
   let res = Array.make n (-event_distance_max) in
   let pred_min_dist = events_pred_min_dist ev in
@@ -475,9 +422,26 @@ let events_max_dist events ev =
             let gap =
               match d with
               | `Cycles n -> n
-              | `Send _ | `Recv _ | `Sync _ -> event_distance_max (* oo *)
+              | `Send m  ->
+                let msg_def = lookup_message m |> Option.get in
+                (
+                  match msg_def.recv_sync with
+                  | Static _ | Dependent _ -> 0
+                  | _ -> event_distance_max
+                )
+              | `Recv m ->
+                let msg_def = lookup_message m |> Option.get in
+                (
+                  match msg_def.send_sync with
+                  | Static _ | Dependent _ -> 0
+                  | _ -> event_distance_max
+                )
+              | `Sync _ -> event_distance_max (* oo *)
             in
-            res.(e'.id) + gap
+            if res.(e'.id) = -event_distance_max then
+              res.(e'.id)
+            else
+              res.(e'.id) + gap
           )
           | `Later (e1, e2)
           | `Branch (_, {branch_val_true = Some e1; branch_val_false = Some e2; _}) ->
@@ -551,3 +515,48 @@ let events_first_msg events ev msg =
         (event_is_succ.(e.id) && not path_has_msg.(e.id))
       )
     ) events
+
+
+type events_order =
+| Before
+| After
+| BeforeEq
+| AfterEq
+| AlwaysEq
+| Unordered
+| Unreachable
+
+let is_strict_ordered = function
+  | Before | After | Unreachable -> true
+  | _ -> false
+
+let events_get_order events lookup_message e1 e2 =
+  let to_sign v =
+    if v = -event_distance_max then -2
+    else if v < 0 then -1
+    else if v > 0 then 1
+    else 0
+  in
+  let mx_dist1 = (events_max_dist events lookup_message e1).(e2.id) |> to_sign in
+  let mx_dist2 = (events_max_dist events lookup_message e2).(e1.id) |> to_sign in
+  match mx_dist1, mx_dist2 with
+  | -2, _ | _, -2 -> Unreachable
+  | 0, 0 -> AlwaysEq
+  | 1, 1 | -1, -1 -> Unordered
+  | -1, 0 | 0, 1 -> AfterEq
+  | -1, 1 -> After
+  | 1, 0 | 0, -1 -> BeforeEq
+  | 1, -1 -> Before
+  | _ -> Unreachable
+
+let graph_owned_regs g =
+  let res = ref [] in
+  List.iter (fun e ->
+    List.iter (fun ac_span ->
+      match ac_span.d with
+      | RegAssign (lval, _td) ->
+        res := lval.lval_range.subreg_name::!res
+      | _ -> ()
+    ) e.actions
+  ) g.events;
+  !res

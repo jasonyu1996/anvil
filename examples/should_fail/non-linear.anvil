@@ -1,6 +1,8 @@
 proc top() =
-    reg a : logic[10]
+    reg r1 : logic[4]
     loop {
-        ( cycle 1 => set a := 10'd0 );
-        ( cycle 1 => cycle 1 => set a := 10'd1 )
+        set r1 := 4'd12 =>
+            (if (1'b1) then set r1 := 4'd0 else set r1 := 4'd1;
+            set r1 := 4'd2
+        )
     }

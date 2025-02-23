@@ -1,0 +1,15 @@
+/* This is intended to be used for the filament translated pipelines. */
+
+chan Reg_itfc<T : type> = {
+    left input_v : (T@#1) @dyn-@#1,
+    right output : (T@#1) @#data+1-@#data+1
+}
+
+proc Reg<T : type> (endp : left Reg_itfc<T>) =
+    reg r : T
+    loop {
+        let r_val = recv endp.input_v in
+        r_val =>
+        set r := r_val =>
+        send endp.output (*r)
+    }

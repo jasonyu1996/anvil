@@ -93,9 +93,9 @@ loop
         cycle 4
     )
     else (
-        dprint "Producer 1 is blocked in cycle %d" (*cycle_count)
-    );
-    cycle 1
+        dprint "Producer 1 is blocked in cycle %d" (*cycle_count);
+        cycle 1
+    )
 }
 
 loop
@@ -108,9 +108,9 @@ loop
         cycle 4
     )
     else (
-        dprint "Producer 2 is blocked in cycle %d" (*cycle_count)
-    );
-    cycle 1
+        dprint "Producer 2 is blocked in cycle %d" (*cycle_count);
+        cycle 1
+    )
 }
 
 loop
@@ -123,9 +123,9 @@ loop
         cycle 4
     )
     else (
-        dprint "Producer 3 is blocked in cycle %d" (*cycle_count)
-    );
-    cycle 1
+        dprint "Producer 3 is blocked in cycle %d" (*cycle_count);
+        cycle 1
+    )
 }
 loop
 {
@@ -137,9 +137,9 @@ loop
         cycle 4
     )
     else (
-        dprint "Producer 4 is blocked in cycle %d" (*cycle_count)
-    );
-    cycle 1
+        dprint "Producer 4 is blocked in cycle %d" (*cycle_count);
+        cycle 1
+    )
 }
 loop {
     let result = recv ch_in.gnt in

@@ -1,0 +1,138 @@
+type value_8bit = logic[8]
+type value_4bit = logic[4]
+type value_3bit = logic[3]
+type value_10bit = logic[10]
+type dequeue_resp = 
+{
+    data : value_8bit;
+    valid : logic[1]
+}
+chan enqueue_ch = {
+    left enqueue_req: (value_8bit@enqueue_res),
+    right enqueue_res: (logic@enqueue_req)
+}
+chan dequeue_ch = {
+    left dequeue_req: (logic@dequeue_res),
+    right dequeue_res: (value_8bit@#1)
+}
+
+proc Queue_8bit(en_ch : left enqueue_ch, de_ch : left dequeue_ch) =
+    reg queue : value_8bit[8]
+    reg head : value_3bit
+    reg tail : value_3bit
+    reg enqueue_resp : logic[1]
+    reg d_resp : dequeue_resp
+    reg full : logic[1]
+
+    loop {
+        if ((*head == *tail) && (*full == 1'b0)) then ()
+            //dprint "Cant Accept Dequeue Request: Queue Empty" ()
+        else
+        (
+
+            let d_req = recv de_ch.dequeue_req in
+            d_req=>
+            send de_ch.dequeue_res(*queue[*tail])=>
+            set tail := *tail + 3'b001
+        )=>
+        cycle 1
+    }
+
+    loop{
+        if ((*head == *tail) && (*full == 1'b1)) then ()
+            //dprint "Cant Accept Enqueue Request: Queue Full" ()
+        else
+        (
+            let data = recv en_ch.enqueue_req in
+            data=>
+            set queue[*head] :=data;
+            set enqueue_resp := 1'b1;
+            if ((*head + 3'b001) == *tail) then set full := 1'b1
+            else set full := 1'b0=>
+            set head := *head + 3'b001;
+            send en_ch.enqueue_res(*enqueue_resp)
+        )=>
+        cycle 1
+            
+    }
+
+
+proc queue () =
+    chan enqueue_in -- enqueue_out : enqueue_ch
+    chan dequeue_in -- dequeue_out : dequeue_ch
+    spawn Queue_8bit(enqueue_in, dequeue_in)
+    reg data : value_8bit
+    reg cycle_counter : value_10bit
+    reg counter : value_4bit
+    loop {
+        set cycle_counter := *cycle_counter + 10'b0000000001;
+        cycle 1
+    }
+    loop {
+        (
+        (if (*counter == 4'b0000) then
+            set data := 8'b00000001
+        else
+            if (*counter == 4'b0001) then
+                set data := 8'b00000010
+            else
+                if (*counter == 4'b0010) then
+                    set data := 8'b00000011
+                else
+                    if (*counter == 4'b0011) then
+                        set data := 8'b00000100
+                    else
+                        if (*counter == 4'b0100) then
+                            set data := 8'b00000101
+                        else
+                            if (*counter == 4'b0101) then
+                                set data := 8'b00000110
+                            else
+                                if (*counter == 4'b0110) then
+                                    set data := 8'b00000111
+                                else
+                                    if (*counter == 4'b0111) then
+                                        set data := 8'b00001000
+                                    else
+                                        if (*counter == 4'b1000) then
+                                            set data := 8'b00001001
+                                        else
+                                            if (*counter == 4'b1001) then
+                                                set data := 8'b00001010
+                                            else
+                                                if (*counter == 4'b1010) then
+                                                    set data := 8'b00001011
+                                                else
+                                                    if (*counter == 4'b1011) then
+                                                        set data := 8'b00001100
+                                                    else
+                                                        if (*counter == 4'b1100) then
+                                                            set data := 8'b00001101
+                                                        else
+                                                            if (*counter == 4'b1101) then
+                                                                set data := 8'b00001110
+                                                            else
+                                                                if (*counter == 4'b1110) then
+                                                                    set data := 8'b00001111
+                                                                else
+                                                                    if (*counter == 4'b1111) then
+                                                                        dfinish
+                                                                    else
+                                                                        dfinish);cycle 1)=>
+            send enqueue_out.enqueue_req(*data)=>
+            //dprint "Enqueuing %d in cycle %d" (*data, *cycle_counter);
+            let x = recv enqueue_out.enqueue_res in
+            x=>
+            //dprint "Enqueued %d in cycle %d" (*data, *cycle_counter);
+            set counter := *counter + 4'b0001;
+            cycle 1                                      
+    }
+
+loop {
+        //dprint "Dequeue Request Sent in cycle %d" (*cycle_counter);
+        send dequeue_out.dequeue_req(1'b1)=>
+        let x = recv dequeue_out.dequeue_res in
+        x=>
+        //dprint "Dequeued %d in cycle %d" (x, *cycle_counter);
+        cycle 20
+}

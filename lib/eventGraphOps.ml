@@ -78,3 +78,9 @@ let print_dot_graph g out =
         |> print_edge ev' ev
   ) g.events;
   Printf.fprintf out "}\n"
+
+let find_last_event g =
+  List.find (
+    fun e ->
+      e.is_recurse
+  ) g.events

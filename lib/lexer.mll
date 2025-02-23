@@ -95,6 +95,8 @@ rule read =
   | "extern"  { KEYWORD_EXTERN }
   | "int"     { KEYWORD_INT }
   | "generate" { KEYWORD_GENERATE }
+  | "recursive" { KEYWORD_RECURSIVE }
+  | "recurse" { KEYWORD_RECURSE }
   | int       { let n = Lexing.lexeme lexbuf |> int_of_string in INT n }
   | ident     { IDENT (Lexing.lexeme lexbuf) }
   | bit_literal { BIT_LITERAL (Lexing.lexeme lexbuf) }

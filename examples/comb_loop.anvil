@@ -4,7 +4,7 @@ proc comb_loop () =
             ()
         else
             ()
-        );
-        dprint "Dequeue" ();
+        ) =>
+        dprint "Dequeue" () =>
         cycle 1
     }

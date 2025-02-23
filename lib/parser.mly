@@ -75,6 +75,8 @@
 %token KEYWORD_IMPORT       (* import *)
 %token KEYWORD_EXTERN       (* extern *)
 %token KEYWORD_INT          (* int *)
+%token KEYWORD_RECURSIVE    (* recursive *)
+%token KEYWORD_RECURSE      (* recurse *)
 %token <int>INT             (* int literal *)
 %token <string>IDENT        (* identifier *)
 %token <string>BIT_LITERAL  (* bit literal *)
@@ -175,13 +177,20 @@ proc_def_body:
       channels = [];
       spawns = [];
       regs = [];
-      loops = [];
+      threads = [];
       shared_vars = [];
     }
   }
-| KEYWORD_LOOP; LEFT_BRACE thread_prog = node(expr); RIGHT_BRACE; body=proc_def_body //For thread definitions
+| KEYWORD_LOOP; LEFT_BRACE; thread_prog = node(expr); RIGHT_BRACE; body=proc_def_body //For thread definitions
   {
-    let open Lang in {body with loops = thread_prog::(body.loops) }
+    let open Lang in
+    let thread_prog = {thread_prog with d = Wait (thread_prog, dummy_ast_node_of_data Recurse)} in
+    {body with threads = thread_prog::(body.threads) }
+  }
+| KEYWORD_RECURSIVE; LEFT_BRACE; thread_prog = node(expr); RIGHT_BRACE; body = proc_def_body
+  {
+    let open Lang in
+    { body with threads = thread_prog::(body.threads) }
   }
 | KEYWORD_CHAN; chan_def = node(channel_def); body = proc_def_body // For Channel Invocation and interface aquisition
   {
@@ -372,6 +381,8 @@ term:
   { Lang.Literal (Lang.NoLength literal_val)}
 | ident = IDENT
   { Lang.Identifier ident }
+| KEYWORD_RECURSE
+  { Lang.Recurse }
 ;
 //expressions
 expr:
@@ -586,9 +597,21 @@ recv_message_sync_mode_spec:
 ;
 
 message_sync_mode_spec:
-| AT; t = timestamp_chan_local
+| AT; SHARP; n = INT
   {
-    Lang.Dependent t
+    Lang.Static (n - 1, n)
+  }
+| AT; SHARP; o = INT; TILDE; n = INT
+  {
+    Lang.Static (o, n)
+  }
+| AT; SHARP; m = IDENT
+  {
+    Lang.Dependent (m, 0)
+  }
+| AT; SHARP; m = IDENT; PLUS; n = INT
+  {
+    Lang.Dependent (m, n)
   }
 | AT; KEYWORD_DYN
   {
@@ -738,14 +761,18 @@ enum_def:
     {
       { name = name; variants = variants } : Lang.enum_def
     }
+;
+
 macro_def:
   | KEYWORD_USE; id = IDENT; EQUAL; value = INT
     {
       { id = id; value = value } : Lang.macro_def
     }
+;
 
 function_def:
   | KEYWORD_FUNCTION; name = IDENT; LEFT_PAREN; args = separated_list(COMMA, IDENT); RIGHT_PAREN; EQUAL; body = node(expr)
     {
       { name = name; args = args; body = body } : Lang.func_def
     }
+;

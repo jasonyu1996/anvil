@@ -17,3 +17,6 @@ val subreg_ranges_possibly_intersect : EventGraph.subreg_range -> EventGraph.sub
 
 (** Return the first event at the other side of the branch. *)
 val branch_other_side : EventGraph.branch_side_info -> EventGraph.event
+
+(** Find the last event (recurse) in a given event graph. *)
+val find_last_event : EventGraph.event_graph -> EventGraph.event

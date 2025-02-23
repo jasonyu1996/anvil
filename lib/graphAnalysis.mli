@@ -19,11 +19,7 @@ val event_is_successor : EventGraph.event -> EventGraph.event -> bool
 
 val event_is_predecessor : EventGraph.event -> EventGraph.event -> bool
 
-val in_control_set_endps : EventGraph.event -> string -> bool
-val find_controller : string list -> EventGraph.event list -> EventGraph.event option
 val find_first_msg_after : EventGraph.event -> Lang.message_specifier -> bool -> EventGraph.event option
-val event_succ_msg_match_earliest : EventGraph.event -> Lang.message_specifier -> bool -> EventGraph.event option
-val event_succ_msg_match_latest : EventGraph.event -> Lang.message_specifier -> bool -> EventGraph.event option
 val event_distance_max : int
 val event_slack_graph : EventGraph.event list -> EventGraph.event -> int Array.t
 
@@ -37,9 +33,25 @@ val event_min_distance : EventGraph.event list -> EventGraph.event -> EventGraph
 (** Same as {!event_min_distance} but compute the max distances instead. *)
 val event_max_distance : EventGraph.event list -> EventGraph.event -> EventGraph.event -> int Hashtbl.Make(Int).t
 
+(** describes order between two events *)
+type events_order =
+| Before   (** [e1] is always before [e2] *)
+| After    (** [e1] is always after [e2] *)
+| BeforeEq (** [e1] is always no later than [e2] *)
+| AfterEq  (** [e1] is always no earlier than [e2] *)
+| AlwaysEq  (** [e1] is always at the same time as [e2] *)
+| Unordered (** events can occur simultaneously or in undetermined order *)
+| Unreachable (** events can't be reached in one trace *)
+
+val is_strict_ordered : events_order -> bool
+
 (** Check if two events are ordered in all possible traces in which both of them appear (also returns true if
-    they never appear in the same trace as in two branches). *)
-val events_are_ordered : EventGraph.event list -> EventGraph.event -> EventGraph.event -> bool
+    they never appear in the same trace as in two branches).
+    If unordered or can take place simultaneously, return [0].
+    If [e1] is always before [e2], return a negative number.
+    If [e1] is always after [e2], return a positive number. *)
+val events_get_order : EventGraph.event list -> (Lang.message_specifier -> Lang.message_def option)
+                        -> EventGraph.event -> EventGraph.event -> events_order
 
 
 (** Visit events in topologically backward order *)
@@ -77,7 +89,8 @@ val events_pred_min_dist : EventGraph.event -> int Array.t
     handles branches correctly but is more relaxed for graphs
     without branches.
 *)
-val events_max_dist : EventGraph.event list -> EventGraph.event -> int Array.t
+val events_max_dist : EventGraph.event list -> (Lang.message_specifier -> Lang.message_def option)
+                        -> EventGraph.event -> int Array.t
 
 (** Returns all events with a specific message. Those are the {i until} events of messages (when
     send/recv completes). *)
@@ -95,3 +108,6 @@ val events_first_msg : EventGraph.event list -> EventGraph.event -> Lang.message
 
 (** Sort in topological order. *)
 val toposort : EventGraph.event list -> EventGraph.event list
+
+(** Return the list of registers modified in the graph *)
+val graph_owned_regs : EventGraph.event_graph -> Lang.identifier list

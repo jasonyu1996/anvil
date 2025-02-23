@@ -29,8 +29,7 @@ module Typing = struct
   let event_create g source =
     let event_create_inner () =
       let n = {actions = []; sustained_actions = []; source; id = List.length g.events;
-        control_endps = Utils.StringMap.empty;
-        current_endps = Utils.StringMap.empty;
+        is_recurse = false;
         outs = []; graph = g} in
       g.events <- n::g.events;
       n
@@ -187,6 +186,61 @@ let binop_td_td graph (ci:cunit_info) ctx span op td1 td2 =
   let new_dtype = (`Array (`Logic, ParamEnv.Concrete sz')) in
   Typing.merged_data graph (Some wres) new_dtype ctx.current [td1; td2]
 
+let rec recurse_unfold expr_full_node expr_node =
+  let unfold = recurse_unfold expr_full_node in
+  if expr_node.d = Recurse then
+    expr_full_node
+  else
+    let expr' = match expr_node.d with
+    | Literal _ | Identifier _
+    | Cycle _ | Sync _ | EnumRef _
+    | Ready _ | Read _
+    | Debug DebugFinish
+    | Recv _ -> expr_node.d
+    | Call (ident, expr_nodes) ->
+      Call (ident, List.map unfold expr_nodes)
+    | Assign (lval, expr_node') ->
+      Assign (lval, unfold expr_node')
+    | Binop (op, e1, e2) ->
+      Binop (op, unfold e1, unfold e2)
+    | Unop (op, expr_node') ->
+      Unop (op, unfold expr_node')
+    | Tuple expr_nodes ->
+      Tuple (List.map unfold expr_nodes)
+    | LetIn (idents, e1, e2) ->
+      LetIn (idents, unfold e1, unfold e2)
+    | Wait (e1, e2) ->
+      Wait (unfold e1, unfold e2)
+    | IfExpr (e1, e2, e3) ->
+      IfExpr (unfold e1, unfold e2, unfold e3)
+    | Construct (cs, e') ->
+      Construct (cs, Option.map unfold e')
+    | Record (ident, vs) ->
+      Record (ident,
+        List.map (fun (i, e) -> (i, unfold e)) vs
+      )
+    | Index (e', idx) ->
+      Index (unfold e', idx)
+    | Indirect (e', ident) ->
+      Indirect (unfold e', ident)
+    | Concat es ->
+      Concat (List.map unfold es)
+    | Match (e, arms) ->
+      Match (unfold e,
+        List.map (fun (m, eop) -> (m, Option.map unfold eop)) arms
+      )
+    | Debug (DebugPrint (format, es)) ->
+      Debug (DebugPrint (format, List.map unfold es))
+    | Send sp ->
+      Send {sp with send_data = unfold sp.send_data}
+    | SharedAssign (ident, e') ->
+      SharedAssign (ident, unfold e')
+    | List es ->
+      List (List.map unfold es)
+    | Recurse -> failwith "Shouldn't reach here!"
+    in
+    {expr_node with d = expr'}
+
 let rec lvalue_info_of graph (ci:cunit_info) ctx span lval =
   let binop_td_const = binop_td_const graph ci ctx span
   and binop_td_td = binop_td_td graph ci ctx span in
@@ -315,8 +369,8 @@ and visit_expr (graph : event_graph) (ci : cunit_info)
     let ctx' = BuildContext.wait graph ctx td1.lt.live in
     visit_expr graph ci ctx' e2
   | Ready msg_spec ->
-    let msg = MessageCollection.lookup_message graph.messages msg_spec ci.channel_classes
-      |> unwrap_or_err "Invalid message specifier in ready" e.span in
+    (* let msg = MessageCollection.lookup_message graph.messages msg_spec ci.channel_classes
+      |> unwrap_or_err "Invalid message specifier in ready" e.span in *)
     (* if msg.dir <> In then (
       (* mismatching direction *)
       raise (event_graph_error_default "Mismatching message direction!" e.span)
@@ -557,7 +611,35 @@ and visit_expr (graph : event_graph) (ci : cunit_info)
     graph.wires <- wires';
     let td = List.hd tds in
     Typing.merged_data graph (Some new_w) (`Array (td.dtype, ParamEnv.Concrete (List.length tds))) ctx.current tds
+  | Recurse ->
+    ctx.current.is_recurse <- true;
+    Typing.const_data graph None unit_dtype ctx.current
   | _ -> raise (event_graph_error_default "Unimplemented expression!" e.span)
+
+
+module IntHashTbl = Hashtbl.Make(Int)
+
+(* unfold until sufficient for lifetime checks *)
+let recurse_unfold_for_checks ci shared_vars_info graph expr_node =
+  let tmp_graph = {graph with last_event_id = 0} in
+  let td = visit_expr tmp_graph ci
+    (BuildContext.create_empty tmp_graph shared_vars_info true)
+    expr_node in
+  (* now just check the total *)
+  let root = List.find (fun e -> e.source = `Root None) tmp_graph.events in
+  let recurse = List.find (fun e -> e.is_recurse) tmp_graph.events in
+  let dists = GraphAnalysis.event_min_distance tmp_graph.events root root in
+  let full_dist = IntHashTbl.find dists td.lt.live.id in
+  let recurse_dist = IntHashTbl.find dists recurse.id in
+  if recurse_dist = 0 then
+    raise (event_graph_error_default "Recurse delay must be greater than 0!" expr_node.span);
+  (* the number of times to unfold is minimum for the recurse time to first pass the end event *)
+  let unfold_times = full_dist / recurse_dist in
+  let cur_expr = ref expr_node in
+  for _ = 1 to unfold_times do
+    cur_expr := recurse_unfold !cur_expr expr_node
+  done;
+  !cur_expr
 
 (* Builds the graph representation for each process To Do: Add support for commands outside loop (be executed once or continuosly)*)
 let build_proc (config : Config.compile_config) sched module_name param_values
@@ -601,6 +683,7 @@ let build_proc (config : Config.compile_config) sched module_name param_values
           spawns = List.map data_of_ast_node body.spawns;
           regs = List.map data_of_ast_node body.regs;
           last_event_id = 0;
+          is_general_recursive = false;
           thread_codespan = e.span;
         } in
         (* Bruteforce treatment: just run twice *)
@@ -608,8 +691,9 @@ let build_proc (config : Config.compile_config) sched module_name param_values
           let tmp_graph = {graph with last_event_id = 0} in
           let td = visit_expr tmp_graph ci
             (BuildContext.create_empty tmp_graph shared_vars_info true)
-            (dummy_ast_node_of_data (Wait (e, e))) in
-          tmp_graph.last_event_id <- td.lt.live.id;
+            (recurse_unfold_for_checks ci shared_vars_info graph e) in
+          tmp_graph.last_event_id <- (EventGraphOps.find_last_event tmp_graph).id;
+          tmp_graph.is_general_recursive <- tmp_graph.last_event_id <> td.lt.live.id;
           (* Optimisation *)
           let tmp_graph = GraphOpt.optimize config true ci tmp_graph in
           if not config.disable_lt_checks then (
@@ -626,10 +710,11 @@ let build_proc (config : Config.compile_config) sched module_name param_values
             (* discard after type checking *)
             let ctx = (BuildContext.create_empty graph shared_vars_info false) in
             let td = visit_expr graph ci ctx e in
-              graph.last_event_id <- td.lt.live.id;
+            graph.last_event_id <- (EventGraphOps.find_last_event graph).id;
+            graph.is_general_recursive <- graph.last_event_id <> td.lt.live.id;
             GraphOpt.optimize config false ci graph
         )
-      ) body.loops in
+      ) body.threads in
       {name = module_name; extern_module = None;
         threads = proc_threads; shared_vars_info; messages = msg_collection;
         proc_body = proc.body; spawns = List.map (fun (ident, {d; _}) -> (ident, d)) spawns}
@@ -673,12 +758,17 @@ let syntax_tree_precheck (_config : Config.compile_config) cunit =
   List.iter (fun cc ->
     List.iter (fun msg ->
       match msg.send_sync, msg.recv_sync with
-      | Dependent (`Cycles n), Dependent (`Cycles m) ->
-        if n <> m then (* the cycle counts on both sides must be equal *)
+      | Static (o_n, n), Static (o_m, m) ->
+        if n <> m || o_n <> o_m then (* the cycle counts on both sides must be equal *)
           raise (Except.TypeError [Text "Static sync mode must be symmetric!"; Except.codespan_local msg.span])
-      | Dependent (`Cycles _), Dynamic
-      | Dynamic, Dependent (`Cycles _)
-      | Dynamic, Dynamic -> ()
-      | _ -> raise (Except.TypeError [Text "Unsupported sync mode!"; Except.codespan_local msg.span])
+      | Static _, Dependent _
+      | Dependent _, Static _
+      | Dynamic, Dependent _
+      | Dependent _, Dynamic ->
+        raise (Except.TypeError [Text "Dependent sync mode cannot be mixed with other sync mode!"; Except.codespan_local msg.span])
+      | Dependent (msg1, n1), Dependent (msg2, n2) ->
+        if msg1 <> msg2 || n1 <> n2 then
+          raise (Except.TypeError [Text "Dependent sync mode must be symmetric!"; Except.codespan_local msg.span])
+      | _ -> ()
     ) cc.messages
   ) cunit.channel_classes

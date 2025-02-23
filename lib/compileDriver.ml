@@ -137,7 +137,7 @@ let compile out config =
                     (Text "Event graph error:")::msg
                   | Except.UnknownError msg ->
                     (Text "Unknown error:")::msg
-                  | _ -> failwith "Oops, something went wrong!"
+                  | _ -> raise exc
                 in
                 raise_compile_error (Some file_name) msg
               )

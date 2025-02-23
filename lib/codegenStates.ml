@@ -18,9 +18,17 @@ let collect_reg_states g =
     | `Seq (_, d) -> (
       match d with
       | `Cycles n ->
-        let width = Utils.int_log2 (n + 1) in
-        let sn = EventStateFormatter.format_counter g.thread_id e.id in
-        [(Printf.sprintf "logic[%d:0]" (width - 1), sn)]
+        if g.is_general_recursive then (
+          (* split into one-hot single cycles in general recursive case *)
+          let sn = EventStateFormatter.format_counter g.thread_id e.id in
+          Seq.ints 1 |> Seq.take n |> Seq.map (fun i -> ("logic", Printf.sprintf "%s_%d" sn i))
+            |> List.of_seq
+        ) else (
+          (* otherwise, count *)
+          let width = Utils.int_log2 (n + 1) in
+          let sn = EventStateFormatter.format_counter g.thread_id e.id in
+          [(Printf.sprintf "logic[%d:0]" (width - 1), sn)]
+        )
       | `Send _ | `Recv _ | `Sync _ ->
         let sn = EventStateFormatter.format_syncstate g.thread_id e.id in
         [("logic", sn)]
@@ -61,13 +69,24 @@ let codegen_next printer (graphs : EventGraph.event_graph_collection)
         let cn' = EventStateFormatter.format_current g.thread_id e'.id in
         match d with
         | `Cycles n when n >= 1 ->
-          let width = Utils.int_log2 (n + 1) in
-          let sn = EventStateFormatter.format_counter g.thread_id e.id in
-          (* reached when the counter *)
-          [
-            Printf.sprintf "assign %s = %s_q == %d'd%d;" cn sn width n;
-            Printf.sprintf "assign %s_n = %s ? %d'd1 : %s ? '0 : %s_q ? (%s_q + %d'd1) : %s_q;" sn cn' width cn sn sn width sn
-          ] |> print_lines
+          if g.is_general_recursive then (
+            (* we need to split into individual cycles one-hot *)
+            let sn = EventStateFormatter.format_counter g.thread_id e.id in
+            Printf.sprintf "assign %s = %s_%d_q;" cn sn n |> print_line;
+            for i = 2 to n do
+              Printf.sprintf "assign %s_%d_n = %s_%d_q;" sn i sn (i - 1) |> print_line
+            done;
+            Printf.sprintf "assign %s_1_n = %s;" sn cn' |> print_line
+          ) else (
+            (* recurse at the end node *)
+            let width = Utils.int_log2 (n + 1) in
+            let sn = EventStateFormatter.format_counter g.thread_id e.id in
+            (* reached when the counter *)
+            [
+              Printf.sprintf "assign %s = %s_q == %d'd%d;" cn sn width n;
+              Printf.sprintf "assign %s_n = %s ? %d'd1 : %s ? '0 : %s_q ? (%s_q + %d'd1) : %s_q;" sn cn' width cn sn sn width sn
+            ] |> print_lines
+          )
         | `Cycles _ ->
           failwith "Invalid number of cycles"
         | `Send msg ->
@@ -181,29 +200,29 @@ let codegen_actions printer (g : EventGraph.event_graph) =
 
 
 let codegen_transition printer (_graphs : EventGraph.event_graph_collection) (g : EventGraph.event_graph) =
+  let open EventGraph in
   let print_line ?(lvl_delta_pre = 0) ?(lvl_delta_post = 0) =
     CodegenPrinter.print_line printer ~lvl_delta_pre:lvl_delta_pre ~lvl_delta_post:lvl_delta_post in
   let reg_states = collect_reg_states g in
-  let print_reset_states () =
-    List.iter (fun (_, sn) -> Printf.sprintf "%s_q <= '0;" sn |> print_line) reg_states;
-    print_line "_init <= '1;"
-  in
   (* reset states *)
+
+  let owned_regs = GraphAnalysis.graph_owned_regs g |> Utils.StringSet.of_list in
+  let owned_regs = List.filter (fun (r : Lang.reg_def) -> Utils.StringSet.mem r.name owned_regs) g.regs in
+
   Printf.sprintf "always_ff @(posedge clk_i or negedge rst_ni) begin : _thread_%d_st_transition" g.thread_id |> print_line ~lvl_delta_post:1;
   print_line ~lvl_delta_post:1 "if (~rst_ni) begin";
-  print_reset_states ();
   (* register reset *)
   List.iter (
     fun (r : Lang.reg_def) ->
       let open CodegenFormat in
       Printf.sprintf "%s <= '0;" (format_regname_current r.name) |> print_line
-  ) g.regs;
+  ) owned_regs;
+  List.iter (fun (_, sn) -> Printf.sprintf "%s_q <= '0;" sn |> print_line) reg_states;
   print_line ~lvl_delta_pre:(-1) ~lvl_delta_post:1 "end else begin";
   (* actions *)
   codegen_actions printer g;
   (* next states *)
   List.iter (fun (_, sn) -> Printf.sprintf "%s_q <= %s_n;" sn sn |> print_line) reg_states;
-  print_line "_init <= '0;";
   print_line ~lvl_delta_pre:(-1) "end";
   print_line ~lvl_delta_pre:(-1) "end"
 
@@ -275,21 +294,21 @@ let codegen_sustained_actions printer (graphs : EventGraph.event_graph_collectio
     ) else (
       (* if we have more than one site that sends, keep track of which event is the last send (TODO: optimisation) *)
       let width = Utils.int_log2 n in
-      send_data_selectors := (width, w_name, !conds_dw)::!send_data_selectors;
-      let (_, dw, _) = List.hd !conds_dw in
-      List.mapi (fun site_idx (_, _, vw) ->
-        Printf.sprintf "(%s_selector_n == %d'd%d) ? %s : " w_name width site_idx vw
-      ) !conds_dw
-      |> String.concat ""
-      |> Printf.sprintf "assign %s = %s'0;" dw
-      |> print_line
+      send_data_selectors := (width, w_name, !conds_dw)::!send_data_selectors
     )
   ) send_or_assigns;
 
   if !send_data_selectors <> [] then (
     (* generate declarations for selectors *)
-    List.iter (fun (width, name, _) ->
+    List.iter (fun (width, name, conds_dw) ->
       Printf.sprintf "logic[%d:0] %s_selector_q, %s_selector_n;" (width - 1) name name
+      |> print_line;
+      let (_, dw, _) = List.hd conds_dw in
+      List.mapi (fun site_idx (_, _, vw) ->
+        Printf.sprintf "(%s_selector_n == %d'd%d) ? %s : " name width site_idx vw
+      ) conds_dw
+      |> String.concat ""
+      |> Printf.sprintf "assign %s = %s'0;" dw
       |> print_line
     ) !send_data_selectors;
 
@@ -330,4 +349,34 @@ let codegen_states printer
   codegen_next printer graphs pg g;
   codegen_sustained_actions printer graphs pg g;
   codegen_transition printer graphs g
+
+let codegen_proc_states printer proc =
+  let open EventGraph in
+  let g = List.hd proc.threads in
+
+  CodegenPrinter.print_line ~lvl_delta_post:1 printer
+    "always_ff @(posedge clk_i or negedge rst_ni) begin : _proc_transition";
+  CodegenPrinter.print_line ~lvl_delta_post:1 printer "if (~rst_ni) begin";
+  CodegenPrinter.print_line printer "_init <= '1;";
+
+  (* figure out the set of registers not set in any thread *)
+  let owned_regs = ref Utils.StringSet.empty in
+  List.iter (
+    fun graph ->
+      owned_regs := GraphAnalysis.graph_owned_regs graph
+                |> Utils.StringSet.of_list |> Utils.StringSet.union !owned_regs
+  ) proc.threads;
+
+  List.filter (fun (r : Lang.reg_def) -> Utils.StringSet.mem r.name !owned_regs |> not) g.regs
+  |> List.iter (
+    fun (r : Lang.reg_def) ->
+      let open CodegenFormat in
+      Printf.sprintf "%s <= '0;" (format_regname_current r.name)
+        |> CodegenPrinter.print_line printer
+  );
+  CodegenPrinter.print_line ~lvl_delta_pre:(-1) ~lvl_delta_post:1 printer "end else begin";
+  CodegenPrinter.print_line printer "_init <= '0;";
+  CodegenPrinter.print_line ~lvl_delta_pre:(-1) printer "end";
+  CodegenPrinter.print_line ~lvl_delta_pre:(-1) printer "end"
+
 

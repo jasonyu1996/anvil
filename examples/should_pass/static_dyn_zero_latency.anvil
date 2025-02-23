@@ -1,0 +1,38 @@
+/* This test case requires knowing from the specified
+   sync mode that a message receive operation completes
+   immediately. */
+
+
+chan ch = {
+    left req: (logic[8]@#1) @#3~3-@dyn // left end point is dyn, right end point is #3
+}
+
+proc slave2(ep : left ch) =
+    loop {
+        cycle 3 =>
+        let r = recv ep.req in // this we know completes immediately
+        r =>
+        dprint "Value = %d" (r)
+    }
+
+proc slave(ep : left ch) =
+    chan ep2_le -- ep2_ri : ch
+    spawn slave2(ep2_le)
+    loop {
+        cycle 3 =>
+        let r = recv ep.req in // this we know completes immediately
+        r =>
+        dprint "Value = %d" (r);
+        send ep2_ri.req (8'd0)
+    }
+
+proc static_dyn_sync() =
+    chan le -- ri : ch
+    spawn slave(le)
+    reg r : logic[8]
+
+    loop {
+        send ri.req(*r) =>
+        set r := *r + 8'd1
+    }
+
