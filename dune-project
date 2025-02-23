@@ -7,9 +7,9 @@
 (source
  (github jasonyu1996/anvil))
 
-(authors "Jason Yu")
+(authors "Anonymous")
 
-(maintainers "Jason Yu")
+(maintainers "Anonymous")
 
 (license LICENSE)
 

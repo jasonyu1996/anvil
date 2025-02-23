@@ -4,8 +4,8 @@ version: "0.1.0"
 synopsis: "An HDL that helps avoid mistakes"
 description:
   "Anvil is a hardware description language with a type system designed to help the user avoid mistakes."
-maintainer: ["Jason Yu"]
-authors: ["Jason Yu"]
+maintainer: ["Anonymous"]
+authors: ["Anonymous"]
 license: "LICENSE"
 tags: ["hdl" "safety" "fpga"]
 homepage: "https://github.com/jasonyu1996/anvil"
