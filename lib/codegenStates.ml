@@ -191,6 +191,8 @@ let codegen_actions printer (g : EventGraph.event_graph) =
             (CodegenFormat.format_wirename w.thread_id w.id)
             |> print_line
         | PutShared _ -> ()
+        | ImmediateRecv _ -> ()
+        | ImmediateSend _ -> ()
       in
       List.iter print_action e.actions;
       print_line ~lvl_delta_pre:(-1) "end"
@@ -240,35 +242,49 @@ let codegen_sustained_actions printer (graphs : EventGraph.event_graph_collectio
   in
   let lookup_msg_def msg = MessageCollection.lookup_message pg.messages msg graphs.channel_classes in
   let open Lang in
-  let print_sa_event (e : EventGraph.event) =
-    List.iter (fun (sa : EventGraph.sustained_action Lang.ast_node) ->
-      let activated = Printf.sprintf "(%s || %s_q)"
-        (EventStateFormatter.format_current g.thread_id e.id)
-        (EventStateFormatter.format_syncstate g.thread_id sa.d.until.id) in
-      match sa.d.ty with
-      | Send (msg, td) ->
-        let w = Option.get td.w in
-        let msg_def = lookup_msg_def msg |> Option.get in
-        let has_valid_port = CodegenPort.message_has_valid_port msg_def in
-        insert_to send_or_assigns
-          (CodegenFormat.format_msg_valid_signal_name (CodegenFormat.canonicalize_endpoint_name msg.endpoint g) msg.msg)
-          has_valid_port
-          (
-            activated,
-            CodegenFormat.format_msg_data_signal_name (CodegenFormat.canonicalize_endpoint_name msg.endpoint g) msg.msg 0,
-            CodegenFormat.format_wirename w.thread_id w.id
-          )
-      | Recv msg ->
+  let print_send_recv (e : EventGraph.event) =
+    let open EventGraph in
+    let print_recv activated msg =
         let msg_def = lookup_msg_def msg |> Option.get in
         let has_ack_port = CodegenPort.message_has_ack_port msg_def in
         insert_to recv_or_assigns
           (CodegenFormat.format_msg_ack_signal_name (CodegenFormat.canonicalize_endpoint_name msg.endpoint g) msg.msg)
           has_ack_port
           activated
-    ) e.sustained_actions
+    in
+    let print_send activated msg td =
+      let w = Option.get td.w in
+      let msg_def = lookup_msg_def msg |> Option.get in
+      let has_valid_port = CodegenPort.message_has_valid_port msg_def in
+      insert_to send_or_assigns
+        (CodegenFormat.format_msg_valid_signal_name (CodegenFormat.canonicalize_endpoint_name msg.endpoint g) msg.msg)
+        has_valid_port
+        (
+          activated,
+          CodegenFormat.format_msg_data_signal_name (CodegenFormat.canonicalize_endpoint_name msg.endpoint g) msg.msg 0,
+          CodegenFormat.format_wirename w.thread_id w.id
+        )
+    in
+
+    List.iter (fun (sa : EventGraph.sustained_action Lang.ast_node) ->
+      let activated = Printf.sprintf "(%s || %s_q)"
+        (EventStateFormatter.format_current g.thread_id e.id)
+        (EventStateFormatter.format_syncstate g.thread_id sa.d.until.id) in
+      match sa.d.ty with
+      | Send (msg, td) -> print_send activated msg td
+      | Recv msg -> print_recv activated msg
+    ) e.sustained_actions;
+
+    let activated = (EventStateFormatter.format_current g.thread_id e.id) in
+    List.iter (fun (ac : EventGraph.action Lang.ast_node) ->
+      match ac.d with
+      | ImmediateSend (msg, td) -> print_send activated msg td
+      | ImmediateRecv msg -> print_recv activated msg
+      | _ -> ()
+    ) e.actions
   in
   (* assuming reverse topo order, the assign lists will be in topo order *)
-  List.iter print_sa_event g.events;
+  List.iter print_send_recv g.events;
   Hashtbl.iter (fun w_name (has_sync_port, conds) ->
     if has_sync_port then (
       String.concat " || " !conds

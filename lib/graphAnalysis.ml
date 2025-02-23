@@ -455,13 +455,22 @@ let events_max_dist events lookup_message ev =
     );
   res
 
-let events_with_msg events msg =
-  List.filter (fun e ->
-      match e.source with
-      | `Seq (_, `Send msg') | `Seq (_, `Recv msg') ->
-        msg' = msg
-      | _ -> false
-    ) events
+let event_is_msg_end msg e =
+  List.exists (fun ac_span ->
+    match ac_span.d with
+    | ImmediateSend (msg', _)
+    | ImmediateRecv msg' ->
+      msg' = msg
+    | _ -> false
+  ) e.actions
+  ||
+  match e.source with
+  | `Seq (_, `Send msg') | `Seq (_, `Recv msg') ->
+    msg' = msg
+  | _ -> false
+
+
+let events_with_msg events msg = List.filter (event_is_msg_end msg) events
 
 let events_start_msg events msg =
   List.filter (fun e ->
@@ -560,3 +569,6 @@ let graph_owned_regs g =
     ) e.actions
   ) g.events;
   !res
+
+let message_is_immediate msg is_send =
+  (is_send && msg.recv_sync <> Dynamic) || (not is_send && msg.send_sync <> Dynamic)

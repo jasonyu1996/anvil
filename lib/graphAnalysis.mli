@@ -111,3 +111,9 @@ val toposort : EventGraph.event list -> EventGraph.event list
 
 (** Return the list of registers modified in the graph *)
 val graph_owned_regs : EventGraph.event_graph -> Lang.identifier list
+
+
+(** Check if a message send/recv operation is always immediate. *)
+val message_is_immediate : Lang.message_def -> bool -> bool
+
+val event_is_msg_end : Lang.message_specifier -> EventGraph.event -> bool

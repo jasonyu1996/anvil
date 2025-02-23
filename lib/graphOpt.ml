@@ -1,6 +1,11 @@
+open Lang
 open EventGraph
 
-(* Simplifies combinational logic. Removes redundant nodes. *)
+(* Simplifies combinational logic. Removes redundant nodes.
+  This includes:
+    1) merging events belonging to branches that take 0 cycles
+    2) merging events known to take 0 cycles (e.g., send/recv with static/dependent sync modes)
+*)
 module CombSimplPass = struct
   (* Creates a new union-find set. *)
   let create_ufs n = Array.init n (fun i -> i)
@@ -19,7 +24,7 @@ module CombSimplPass = struct
     let f_hi = find_ufs ufs hi in
     ufs.(f_hi) <- lo
 
-  let optimize_pass _config _for_lt_check _ci graph =
+  let optimize_pass _config for_lt_check (ci : EventGraph.cunit_info) graph =
     let event_n = List.length graph.events in
     let event_ufs = create_ufs event_n in
     (* scan all events in reverse order to find simplifable patterns *)
@@ -46,6 +51,21 @@ module CombSimplPass = struct
           )
         | _ -> ()
       )
+      | `Seq (ev', (`Send msg as delay)) | `Seq (ev', (`Recv msg as delay)) ->
+        (* check if this msg takes any bit of time *)
+        if not for_lt_check then (
+          let msg_def = MessageCollection.lookup_message graph.messages msg ci.channel_classes |> Option.get in
+          let immediate =
+            (
+              match delay with
+              | `Send _ -> true
+              | `Recv _ -> false
+            ) |> GraphAnalysis.message_is_immediate msg_def
+          in
+          if immediate then (
+            union_ufs event_ufs ev.id ev'.id
+          )
+        )
       | _ -> ()
     in
     List.rev graph.events |> List.iter check_pattern;
@@ -100,6 +120,8 @@ module CombSimplPass = struct
         | RegAssign (lval_info, td) -> RegAssign (replace_lvalue_info lval_info, replace_timed_data td)
         | PutShared (s, svi, td) -> PutShared (s, svi, replace_timed_data td)
         | DebugFinish -> DebugFinish
+        | ImmediateRecv msg -> ImmediateRecv msg
+        | ImmediateSend (msg, td) -> ImmediateSend (msg, replace_timed_data td)
         in
         {action with d}
       ) ev.actions in
@@ -119,6 +141,16 @@ module CombSimplPass = struct
           branch_val_false = Option.map replace_event br_info.branch_val_false;
         }
       in
+      let f = find_ufs event_ufs old_id in
+      let (immediate_sa, sustained_actions) =
+        List.partition (fun sa_span -> sa_span.d.until.id = event_arr_old.(f).id) sustained_actions in
+      let actions = (
+        List.map (fun sa_span ->
+          match sa_span.d.ty with
+          | Send (msg, td) -> { d = ImmediateSend (msg, td); span = sa_span.span }
+          | Recv msg -> { d = ImmediateRecv msg; span = sa_span.span }
+        ) immediate_sa
+      ) @ actions in
       if to_keep.(old_id) then (
         (* we just need to replace things *)
         ev.actions <- actions;
@@ -140,7 +172,6 @@ module CombSimplPass = struct
         in
         ev.source <- source'
       ) else (
-        let f = find_ufs event_ufs old_id in
         assert (f != old_id);
         let ev_f = event_arr_old.(f) in
         ev_f.actions <- ev_f.actions @ actions;
@@ -148,6 +179,11 @@ module CombSimplPass = struct
       )
     in
     Array.iteri merge_event event_arr_old;
+    List.iter (fun ev ->
+      List.iter (fun sa_span ->
+        assert (ev.id <> sa_span.d.until.id)
+      ) ev.sustained_actions
+    ) !event_list_new;
     {graph with
       events = !event_list_new;
       last_event_id = event_arr_old.(find_ufs event_ufs graph.last_event_id).id

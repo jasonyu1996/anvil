@@ -85,6 +85,8 @@ and action =
   | DebugFinish (** [dfinish] *)
   | RegAssign of lvalue_info * timed_data (** register assignment (technically this is not performed instantly) *)
   | PutShared of string * shared_var_info * timed_data
+  | ImmediateSend of Lang.message_specifier * timed_data
+  | ImmediateRecv of Lang.message_specifier
 
 (** Type of an action that may take multiple cycles. Those
 are basically those that synchronise through message passing. *)
