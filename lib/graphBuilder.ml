@@ -209,7 +209,7 @@ let rec recurse_unfold expr_full_node expr_node =
   else
     let expr' = match expr_node.d with
     | Literal _ | Identifier _
-    | Cycle _ | Sync _ | EnumRef _
+    | Cycle _ | Sync _
     | Ready _ | Read _
     | Debug DebugFinish
     | Recv _ -> expr_node.d
@@ -517,16 +517,6 @@ and visit_expr (graph : event_graph) (ci : cunit_info)
       w = Some new_w;
       dtype = new_dtype
     }
-  | EnumRef (id, variant) ->
-    let enum_variants = List.assoc_opt id ci.enum_mappings
-      |> unwrap_or_err ("Undefined enum type: " ^ id) e.span in
-    let variant_idx = List.find_map (fun (v, idx) -> if v = variant then Some idx else None) enum_variants
-      |> unwrap_or_err ("Invalid enum variant " ^ variant ^ " for enum " ^ id) e.span in
-    let sz = Utils.int_log2 (List.length enum_variants) in
-    let (wires', w) = WireCollection.add_literal graph.thread_id ci.typedefs ci.macro_defs
-      (WithLength (sz, variant_idx)) graph.wires in
-    graph.wires <- wires';
-    Typing.const_data graph (Some w) (`Array (`Logic, ParamEnv.Concrete sz)) ctx.current
   | Index (e', ind) ->
     let td = visit_expr graph ci ctx e' in
     let w = unwrap_or_err "Invalid value in indexing" e'.span td.w in
@@ -763,13 +753,6 @@ let build_proc (config : Config.compile_config) sched module_name param_values
         proc_body = proc.body; spawns = []}
 
 let build (config : Config.compile_config) sched module_name param_values (cunit : compilation_unit) =
-  let enum_mappings = List.map (fun (enum : enum_def) ->
-    let variants_with_indices = List.mapi (fun i variant ->
-      (variant, i)
-    ) enum.variants in
-    (enum.name, variants_with_indices)
-  ) cunit.enum_defs in
-
   let macro_defs = cunit.macro_defs in
   let typedefs = TypedefMap.of_list cunit.type_defs in
   let func_defs = cunit.func_defs in
@@ -777,7 +760,6 @@ let build (config : Config.compile_config) sched module_name param_values (cunit
     file_name = Option.get cunit.cunit_file_name;
     typedefs;
     channel_classes = cunit.channel_classes;
-    enum_mappings;
     macro_defs;
     func_defs
   } in
@@ -788,7 +770,6 @@ let build (config : Config.compile_config) sched module_name param_values (cunit
     macro_defs;
     channel_classes = cunit.channel_classes;
     external_event_graphs = [];
-    enum_mappings;
   }
 
 let syntax_tree_precheck (_config : Config.compile_config) cunit =

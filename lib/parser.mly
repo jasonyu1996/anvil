@@ -13,7 +13,6 @@
 %token KEYWORD_CALL                (* call *)
 %token SHARP                (* # *)
 %token EQUAL                (* = *)
-%token POINT_TO             (* -> *)
 %token COLON_EQ             (* := *)
 %token LEFT_ABRACK          (* < *)
 %token RIGHT_ABRACK         (* > *)
@@ -27,8 +26,6 @@
 %token EQ_GT                (* => *)
 %token DOUBLE_GT            (* >> *)
 %token EXCL_EQ              (* != *)
-%token OR_GT                (* |> *)
-%token EXCL                 (* ! *)
 %token ASTERISK             (* * *)
 %token PLUS                 (* + *)
 %token MINUS                (* - *)
@@ -52,27 +49,21 @@
 %token KEYWORD_IF           (* if *)
 %token KEYWORD_THEN         (* then *)
 %token KEYWORD_ELSE         (* else *)
-%token KEYWORD_WHILE        (* while *)
 %token KEYWORD_LET          (* let *)
 %token KEYWORD_SEND         (* send *)
 %token KEYWORD_RECV         (* recv *)
 %token KEYWORD_ETERNAL      (* eternal *)
-%token KEYWORD_DONE         (* done *)
 %token KEYWORD_TYPE         (* type *)
 %token KEYWORD_OF           (* of *)
 %token KEYWORD_SET          (* set *)
 %token KEYWORD_MATCH        (* match *)
-%token KEYWORD_WITH         (* with *)
 %token KEYWORD_SYNC         (* sync *)
 %token KEYWORD_DYN          (* dyn *)
-%token KEYWORD_WAIT         (* wait *)
 %token KEYWORD_CYCLE        (* cycle *)
 %token KEYWORD_REG          (* reg *)
 %token KEYWORD_SPAWN        (* spawn *)
-%token KEYWORD_TRY          (* try *)
 %token KEYWORD_DPRINT       (* dprint *)
 %token KEYWORD_DFINISH      (* dfinish *)
-%token KEYWORD_ENUM
 %token KEYWORD_IMPORT       (* import *)
 %token KEYWORD_EXTERN       (* extern *)
 %token KEYWORD_INT          (* int *)
@@ -107,8 +98,6 @@ cunit:
   { Lang.cunit_empty }
 | p = proc_def; c = cunit
   { Lang.cunit_add_proc c p }
-| en = enum_def; c = cunit
-  { Lang.cunit_add_enum_def c en }
 | macro  = macro_def;c = cunit
   { Lang.cunit_add_macro_def c macro }
 | func_def = function_def; c = cunit
@@ -385,8 +374,6 @@ term:
 ;
 //expressions
 expr:
-| enum_name = IDENT; DOUBLE_COLON; variant = IDENT
-  { Lang.EnumRef (enum_name, variant) }
 | KEYWORD_SET; lval = lvalue; COLON_EQ; v = node(expr) %prec KEYWORD_SET
   { Lang.Assign (lval, v) }
 | e = term
@@ -425,7 +412,7 @@ expr:
 | v = node(expr); DOUBLE_GT; body = node(expr)
   { Lang.Wait (v, body) }
 | KEYWORD_GENERATE; LEFT_PAREN; i=IDENT; COLON; start = INT; COMMA; end_v = INT; COMMA;
-  offset = INT; RIGHT_PAREN; EQUAL; LEFT_BRACE; body = node(expr); RIGHT_BRACE
+  offset = INT; RIGHT_PAREN; LEFT_BRACE; body = node(expr); RIGHT_BRACE
   { Lang.generate_expr (i,start, end_v, offset, body) }
 | KEYWORD_IF; cond = node(expr); LEFT_BRACE; then_v = node(expr); RIGHT_BRACE;
   else_v = node(else_branch)?
@@ -456,8 +443,8 @@ expr:
   { Lang.generate_match_expression e match_arm_list }
 | ASTERISK; reg_ident = IDENT
   { Lang.Read reg_ident }
-| constructor_spec = constructor_spec; e = ioption(node(expr))
-  { Lang.Construct (constructor_spec, e) } %prec CONSTRUCT
+| constructor_spec = constructor_spec; e = ioption(node(expr_in_parenthese))
+  { Lang.Construct (constructor_spec, e) }
 | record_name = IDENT; DOUBLE_COLON; LEFT_BRACE;
   record_fields = separated_nonempty_list(SEMICOLON, record_field_constr);
   RIGHT_BRACE
@@ -471,6 +458,10 @@ expr:
   { Lang.List li }
 ;
 
+expr_in_parenthese:
+  LEFT_PAREN; e = expr; RIGHT_PAREN
+  { e }
+;
 
 else_branch:
   KEYWORD_ELSE; LEFT_BRACE; else_v = expr; RIGHT_BRACE
@@ -479,7 +470,6 @@ else_branch:
   }
 ;
 
-//To Ask: What does this do
 constructor_spec:
   ty = IDENT; DOUBLE_COLON; variant = IDENT
   { let open Lang in {variant_ty_name = ty; variant} }
@@ -548,7 +538,6 @@ un_expr:
 | OR; e = node(expr)
   { Lang.Unop (Lang.OrAll, e) } %prec UOR
 ;
-//To Ask: Where is this being used
 lvalue:
 | regname = IDENT
   { Lang.Reg regname }
@@ -775,13 +764,6 @@ shared_var_def:
       shared_lifetime = lifetime;
     } : Lang.shared_var_def
   }
-;
-
-enum_def:
-  | KEYWORD_ENUM; name = IDENT; LEFT_BRACE; variants = separated_list(COMMA, IDENT); RIGHT_BRACE
-    {
-      { name = name; variants = variants } : Lang.enum_def
-    }
 ;
 
 macro_def:

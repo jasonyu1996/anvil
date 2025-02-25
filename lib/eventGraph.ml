@@ -16,7 +16,6 @@ type cunit_info = {
   file_name : string;
   typedefs : TypedefMap.t;
   channel_classes : Lang.channel_class_def list;
-  enum_mappings : (string * (string * int) list) list;
   func_defs : Lang.func_def list;
   macro_defs : Lang.macro_def list
 }
@@ -196,7 +195,6 @@ type event_graph_collection = {
   macro_defs : Lang.macro_def list;
   channel_classes : Lang.channel_class_def list;
   external_event_graphs : proc_graph list;
-  enum_mappings : (string * (string * int) list) list;
 }
 
 (** Exception that can be throw during event graph generation *)
