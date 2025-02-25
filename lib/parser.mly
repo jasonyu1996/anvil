@@ -424,11 +424,12 @@ expr:
   { Lang.Recv recv_pack }
 | v = node(expr); DOUBLE_GT; body = node(expr)
   { Lang.Wait (v, body) }
-| KEYWORD_GENERATE; LEFT_PAREN; i=IDENT; COLON; start = INT; COMMA; end_v = INT; COMMA; offset = INT; RIGHT_PAREN; EQUAL; LEFT_BRACE; body = node(expr); RIGHT_BRACE
+| KEYWORD_GENERATE; LEFT_PAREN; i=IDENT; COLON; start = INT; COMMA; end_v = INT; COMMA;
+  offset = INT; RIGHT_PAREN; EQUAL; LEFT_BRACE; body = node(expr); RIGHT_BRACE
   { Lang.generate_expr (i,start, end_v, offset, body) }
 | KEYWORD_IF; cond = node(expr); LEFT_BRACE; then_v = node(expr); RIGHT_BRACE;
-  KEYWORD_ELSE; LEFT_BRACE; else_v = node(expr); RIGHT_BRACE
-  { Lang.IfExpr (cond, then_v, else_v) }
+  else_v = node(else_branch)?
+  { Lang.IfExpr (cond, then_v, Option.value ~default:(Lang.dummy_ast_node_of_data @@ Lang.Tuple []) else_v) }
 | KEYWORD_CALL ; func = IDENT; LEFT_PAREN; args = separated_list(COMMA, node(expr)); RIGHT_PAREN
   { Lang.Call (func, args) }
 // | KEYWORD_TRY; KEYWORD_SEND; send_pack = send_pack; KEYWORD_THEN;
@@ -447,8 +448,10 @@ expr:
   { Lang.Index (e, ind) }
 | e = node(expr); PERIOD; fieldname = IDENT
   { Lang.Indirect (e, fieldname) }
-| LEFT_BRACE; components = separated_list(COMMA, node(expr)); RIGHT_BRACE
+| SHARP; LEFT_BRACE; components = separated_list(COMMA, node(expr)); RIGHT_BRACE
   { Lang.Concat components }
+// | LEFT_BRACE; e = expr; RIGHT_BRACE
+//   { e }
 | KEYWORD_MATCH; e = node(expr); LEFT_BRACE; match_arm_list = separated_list(COMMA, match_arm); RIGHT_BRACE
   { Lang.generate_match_expression e match_arm_list }
 | ASTERISK; reg_ident = IDENT
@@ -466,6 +469,14 @@ expr:
   { Lang.Debug Lang.DebugFinish }
 | LEFT_BRACKET; li = separated_list(COMMA, node(expr)); RIGHT_BRACKET
   { Lang.List li }
+;
+
+
+else_branch:
+  KEYWORD_ELSE; LEFT_BRACE; else_v = expr; RIGHT_BRACE
+  {
+    else_v
+  }
 ;
 
 //To Ask: What does this do
@@ -767,7 +778,7 @@ shared_var_def:
 ;
 
 enum_def:
-  | KEYWORD_ENUM; name = IDENT; EQUAL; LEFT_BRACE; variants = separated_list(COMMA, IDENT); RIGHT_BRACE
+  | KEYWORD_ENUM; name = IDENT; LEFT_BRACE; variants = separated_list(COMMA, IDENT); RIGHT_BRACE
     {
       { name = name; variants = variants } : Lang.enum_def
     }
@@ -781,7 +792,7 @@ macro_def:
 ;
 
 function_def:
-  | KEYWORD_FUNCTION; name = IDENT; LEFT_PAREN; args = separated_list(COMMA, IDENT); RIGHT_PAREN; EQUAL; body = node(expr)
+  | KEYWORD_FUNCTION; name = IDENT; LEFT_PAREN; args = separated_list(COMMA, IDENT); RIGHT_PAREN; LEFT_BRACE; body = node(expr); RIGHT_BRACE
     {
       { name = name; args = args; body = body } : Lang.func_def
     }
