@@ -39,7 +39,6 @@
 %token KEYWORD_LOOP         (* loop *)
 %token KEYWORD_PROC         (* proc *)
 %token KEYWORD_CHAN         (* chan *)
-%token KEYWORD_IN           (* in *)
 %token KEYWORD_LEFT         (* left *)
 %token KEYWORD_RIGHT        (* right *)
 %token KEYWORD_PUT          (* put *)
@@ -47,7 +46,6 @@
 %token KEYWORD_FOREIGN      (* foreign *)
 %token KEYWORD_GENERATE     (* generate *)
 %token KEYWORD_IF           (* if *)
-%token KEYWORD_THEN         (* then *)
 %token KEYWORD_ELSE         (* else *)
 %token KEYWORD_LET          (* let *)
 %token KEYWORD_SEND         (* send *)
@@ -69,6 +67,8 @@
 %token KEYWORD_INT          (* int *)
 %token KEYWORD_RECURSIVE    (* recursive *)
 %token KEYWORD_RECURSE      (* recurse *)
+%token KEYWORD_STRUCT       (* struct *)
+%token KEYWORD_ENUM         (* enum *)
 %token <int>INT             (* int literal *)
 %token <string>IDENT        (* identifier *)
 %token <string>BIT_LITERAL  (* bit literal *)
@@ -82,7 +82,6 @@
 %right EXCL_EQ DOUBLE_EQ
 %right DOUBLE_GT SEMICOLON
 %right KEYWORD_LET KEYWORD_SET KEYWORD_PUT
-%right CONSTRUCT
 %left LEFT_BRACKET XOR AND OR PLUS MINUS
 %left DOUBLE_LEFT_ABRACK DOUBLE_RIGHT_ABRACK
 %left PERIOD
@@ -222,17 +221,46 @@ param_def:
   }
 ;
 
+param_list:
+  LEFT_ABRACK; params = separated_list(COMMA, param_def); RIGHT_ABRACK;
+  { params }
+;
+
 // For defining struct for messages and message types
 type_def:
-| KEYWORD_TYPE; name = IDENT; EQUAL; dtype = data_type
+| KEYWORD_TYPE; name = IDENT; params = param_list?;
+  EQUAL; dtype = data_type; SEMICOLON
   {
-    { name = name; body = dtype; params = [] } : Lang.type_def
+    { name = name; body = dtype; params = Option.value ~default:[] params } : Lang.type_def
   }
-| KEYWORD_TYPE; name = IDENT; LEFT_ABRACK; params = separated_list(COMMA, param_def); RIGHT_ABRACK;
-  EQUAL; dtype = data_type
+| KEYWORD_ENUM; name = IDENT; params = param_list?;
+  LEFT_BRACE; variants = variant_def+; RIGHT_BRACE
   {
-    { name = name; body = dtype; params = params } : Lang.type_def
+    { name = name; body = `Variant variants; params = Option.value ~default:[] params } : Lang.type_def
   }
+| KEYWORD_STRUCT; name = IDENT; params = param_list?;
+  LEFT_BRACE; fields = separated_nonempty_list(COMMA, field_def); RIGHT_BRACE
+  {
+    { name = name; body = `Record (List.rev fields); params = Option.value ~default:[] params } : Lang.type_def
+  }
+;
+
+
+variant_def:
+| name = IDENT; dtype_opt = variant_type_spec?
+  { (name, dtype_opt) }
+;
+
+variant_type_spec:
+| LEFT_PAREN; dtype = data_type; RIGHT_PAREN
+  { dtype }
+| LEFT_PAREN; dtype = data_type; COMMA; more_dtypes = separated_nonempty_list(COMMA, data_type); RIGHT_PAREN
+  { `Tuple (dtype::more_dtypes) }
+;
+
+field_def:
+| name = IDENT; COLON; dtype = data_type
+  { (name, dtype) }
 ;
 
 // For channel declaration for each pair of process
@@ -674,10 +702,6 @@ data_type_no_array:
   { `Named (typename, []) }
 | typename = IDENT; LEFT_ABRACK; compile_params = separated_list(COMMA, param_value); RIGHT_ABRACK;
   { `Named (typename, compile_params) }
-| LEFT_BRACKET; variants = variant_def+; RIGHT_BRACKET
-  { `Variant variants }
-| LEFT_BRACE; fields = separated_nonempty_list(SEMICOLON, field_def); RIGHT_BRACE
-  { `Record (List.rev fields) }
 | LEFT_PAREN; comps = separated_list(COMMA, data_type); RIGHT_PAREN
   { `Tuple comps }
 ;
@@ -691,21 +715,6 @@ data_type:
 | dtype = data_type_no_array; ranges = data_type_array_range*
   { List.fold_right (fun n dtype_c -> `Array (dtype_c, n)) ranges dtype }
   (* We need to reverse the array ranges so logic[3][2] is 3 arrays of length 2 *)
-;
-
-variant_def:
-| OR; name = IDENT; dtype_opt = variant_type_spec?
-  { (name, dtype_opt) }
-;
-
-variant_type_spec:
-| KEYWORD_OF; dtype = data_type
-  { dtype }
-;
-
-field_def:
-| name = IDENT; COLON; dtype = data_type
-  { (name, dtype) }
 ;
 
 lifetime_spec:

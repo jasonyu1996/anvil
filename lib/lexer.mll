@@ -65,7 +65,6 @@ rule read =
   | "foreign" { KEYWORD_FOREIGN }
   | "let"     { KEYWORD_LET }
   | "if"      { KEYWORD_IF }
-  | "then"    { KEYWORD_THEN }
   | "else"    { KEYWORD_ELSE }
   | "send"    { KEYWORD_SEND }
   | "recv"    { KEYWORD_RECV }
@@ -88,6 +87,8 @@ rule read =
   | "generate" { KEYWORD_GENERATE }
   | "recursive" { KEYWORD_RECURSIVE }
   | "recurse" { KEYWORD_RECURSE }
+  | "struct"  { KEYWORD_STRUCT }
+  | "enum"    { KEYWORD_ENUM }
   | int       { let n = Lexing.lexeme lexbuf |> int_of_string in INT n }
   | ident     { IDENT (Lexing.lexeme lexbuf) }
   | bit_literal { BIT_LITERAL (Lexing.lexeme lexbuf) }
