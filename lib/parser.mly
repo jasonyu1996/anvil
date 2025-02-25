@@ -580,9 +580,14 @@ match_arm:
 //Definition of messages: To Do: Doesnt support custom lifetime types, just sync?
 message_def:
   dir = message_direction; ident = IDENT; COLON; LEFT_PAREN; data = separated_list(COMMA, sig_type_chan_local); RIGHT_PAREN;
-  send_sync_mode_opt = message_sync_mode_spec?;
-  recv_sync_mode_opt = recv_message_sync_mode_spec?
+  left_sync_mode_opt = message_sync_mode_spec?;
+  right_sync_mode_opt = recv_message_sync_mode_spec?
   {
+    let (send_sync_mode_opt, recv_sync_mode_opt) =
+      match dir with
+      | Lang.In -> (right_sync_mode_opt, left_sync_mode_opt)
+      | Lang.Out -> (left_sync_mode_opt, right_sync_mode_opt)
+    in
     let send_sync_mode = Option.value ~default:Lang.Dynamic send_sync_mode_opt
     and recv_sync_mode = Option.value ~default:Lang.Dynamic recv_sync_mode_opt in
     {
