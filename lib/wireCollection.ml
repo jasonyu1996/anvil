@@ -142,61 +142,66 @@ end
 
 type wire = Wire.t
 
-type t = wire list
+type t = {
+  wire_li : wire list;
+  wire_last_id : int;
+}
 
-let empty : t = []
+let empty : t = { wire_li = []; wire_last_id = -1 }
+
+let add_wire wc w = { wire_li = w::wc.wire_li; wire_last_id = w.id }
 
 let add_literal thread_id (typedefs : TypedefMap.t) (macro_defs: Lang.macro_def list) (lit : Lang.literal) (wc : t) : t * wire =
-  let id = List.length wc in
+  let id = wc.wire_last_id + 1 in
   let w = Wire.new_literal id thread_id typedefs macro_defs lit in
-  (w::wc, w)
+  (add_wire wc w, w)
 
 let add_binary thread_id (typedefs : TypedefMap.t) (macro_defs: Lang.macro_def list) (op : Lang.binop)
               (w1 : wire) (w2 : wire) (wc : t) : t * wire =
-  let id = List.length wc in
+  let id = wc.wire_last_id + 1 in
   let w = Wire.new_binary id thread_id typedefs macro_defs op w1 w2 in
-  (w::wc, w)
+  (add_wire wc w, w)
 
 let add_unary thread_id (typedefs : TypedefMap.t) (op : Lang.unop)
               (ow : wire) (wc : t) : t * wire =
-  let id = List.length wc in
+  let id = wc.wire_last_id + 1 in
   let w = Wire.new_unary id thread_id typedefs op ow in
-  (w::wc, w)
+  (add_wire wc w, w)
 
 let add_switch thread_id (typedefs : TypedefMap.t) (sw : (wire * wire) list)
               (default : wire) (wc : t) : t * wire =
-  let id = List.length wc in
+  let id = wc.wire_last_id + 1 in
   let w = Wire.new_switch id thread_id typedefs sw default in
-  (w::wc, w)
+  (add_wire wc w, w)
 
 let add_reg_read thread_id (typedefs : TypedefMap.t) (macro_defs: Lang.macro_def list) (r : Lang.reg_def) (wc : t) : t * wire =
-  let id = List.length wc in
+  let id = wc.wire_last_id + 1 in
   let w = Wire.new_reg_read id thread_id typedefs macro_defs r in
-  (w::wc, w)
+  (add_wire wc w, w)
 
 let add_concat thread_id (typedefs : TypedefMap.t) macro_defs (ws : wire list) (wc : t) : t * wire =
-  let id = List.length wc in
+  let id = wc.wire_last_id + 1 in
   let w = Wire.new_concat id thread_id typedefs macro_defs ws in
-  (w::wc, w)
+  (add_wire wc w, w)
 
 let add_msg_port thread_id (typedefs : TypedefMap.t) (macro_defs: Lang.macro_def list)
   (msg_spec : Lang.message_specifier) (idx : int) (msg_def : Lang.message_def) (wc : t) : t * wire =
-  let id = List.length wc in
+  let id = wc.wire_last_id + 1 in
   let w = Wire.new_msg_port id thread_id typedefs macro_defs msg_spec idx msg_def in
-  (w::wc, w)
+  (add_wire wc w, w)
 
 let add_slice thread_id  (w : wire) base_i len (wc : t) : t * wire =
-  let id = List.length wc in
+  let id = wc.wire_last_id + 1 in
   let w = Wire.new_slice id thread_id w base_i len in
-  (w::wc, w)
+  (add_wire wc w, w)
 
 let add_msg_valid_port thread_id (typedefs : TypedefMap.t)
   (msg_spec : Lang.message_specifier) (wc : t) : t * wire =
-  let id = List.length wc in
+  let id = wc.wire_last_id + 1 in
   let w = Wire.new_msg_valid_port id thread_id typedefs msg_spec in
-  (w::wc, w)
+  (add_wire wc w, w)
 
 let add_list thread_id (typedefs : TypedefMap.t) (ws : wire list) (wc : t) : (t * wire) option =
-  let id = List.length wc in
+  let id = wc.wire_last_id + 1 in
   Wire.new_list id thread_id typedefs ws
-  |> Option.map (fun w -> (w::wc, w))
+  |> Option.map (fun w -> (add_wire wc w, w))

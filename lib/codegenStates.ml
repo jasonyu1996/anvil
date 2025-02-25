@@ -209,13 +209,13 @@ let codegen_transition printer (_graphs : EventGraph.event_graph_collection) (g 
   (* reset states *)
 
   let owned_regs = GraphAnalysis.graph_owned_regs g |> Utils.StringSet.of_list in
-  let owned_regs = List.filter (fun (r : Lang.reg_def) -> Utils.StringSet.mem r.name owned_regs) g.regs in
+  let owned_regs = Utils.StringMap.filter (fun name _ -> Utils.StringSet.mem name owned_regs) g.regs in
 
   Printf.sprintf "always_ff @(posedge clk_i or negedge rst_ni) begin : _thread_%d_st_transition" g.thread_id |> print_line ~lvl_delta_post:1;
   print_line ~lvl_delta_post:1 "if (~rst_ni) begin";
   (* register reset *)
-  List.iter (
-    fun (r : Lang.reg_def) ->
+  Utils.StringMap.iter (
+    fun _ (r : Lang.reg_def) ->
       let open CodegenFormat in
       Printf.sprintf "%s <= '0;" (format_regname_current r.name) |> print_line
   ) owned_regs;
@@ -383,9 +383,9 @@ let codegen_proc_states printer proc =
                 |> Utils.StringSet.of_list |> Utils.StringSet.union !owned_regs
   ) proc.threads;
 
-  List.filter (fun (r : Lang.reg_def) -> Utils.StringSet.mem r.name !owned_regs |> not) g.regs
-  |> List.iter (
-    fun (r : Lang.reg_def) ->
+  Utils.StringMap.filter (fun name _ -> Utils.StringSet.mem name !owned_regs |> not) g.regs
+  |> Utils.StringMap.iter (
+    fun _ (r : Lang.reg_def) ->
       let open CodegenFormat in
       Printf.sprintf "%s <= '0;" (format_regname_current r.name)
         |> CodegenPrinter.print_line printer

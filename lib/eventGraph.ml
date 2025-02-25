@@ -122,6 +122,7 @@ and event = {
   mutable source: event_source; (** under what circumstances is this event reached.
                       {i Those are effectively the edges in the event graph} *)
   mutable outs : event list; (** the outbound edges, i.e., the events that directly depend on this event *)
+  preds : Utils.int_set; (** set of predecessors, used for fast reachability query. Only used during the graph building process *)
 }
 
 (** Describes branching information. *)
@@ -169,7 +170,7 @@ and event_graph = {
   messages : MessageCollection.t; (** all messages referenceable from within the process,
             including those through channels passed from outside*)
   spawns : Lang.spawn_def list;
-  regs: Lang.reg_def list;
+  regs: Lang.reg_def Utils.string_map;
   mutable last_event_id: int;
   thread_codespan : Lang.code_span;
   mutable is_general_recursive : bool; (** is this a general recursive graph? *)

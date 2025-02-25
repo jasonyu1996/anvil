@@ -174,8 +174,8 @@ module CombSimplPass = struct
       ) else (
         assert (f != old_id);
         let ev_f = event_arr_old.(f) in
-        ev_f.actions <- ev_f.actions @ actions;
-        ev_f.sustained_actions <- ev_f.sustained_actions @ sustained_actions
+        ev_f.actions <- Utils.list_unordered_join ev_f.actions actions;
+        ev_f.sustained_actions <- Utils.list_unordered_join ev_f.sustained_actions sustained_actions
       )
     in
     Array.iteri merge_event event_arr_old;

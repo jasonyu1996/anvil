@@ -267,7 +267,7 @@ let lifetime_check (config : Config.compile_config) (ci : cunit_info) (g : event
         )
       | DebugPrint (_, tds) ->
         let ns = List.map (fun td -> (td, (ev, `Cycles 0))) tds in
-        td_to_live_until := ns @ !td_to_live_until
+        td_to_live_until := Utils.list_unordered_join ns !td_to_live_until
       | DebugFinish -> ()
       | PutShared (_, si, td) ->
         td_to_live_until := (td, (ev, si.value.glt.e))::!td_to_live_until

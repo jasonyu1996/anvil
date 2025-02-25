@@ -28,18 +28,34 @@ module Typing = struct
 
   let event_create g source =
     let event_create_inner () =
-      let n = {actions = []; sustained_actions = []; source; id = List.length g.events;
+      let parents =
+        match source with
+        | `Root None -> []
+        | `Seq (e, _)
+        | `Root Some (e, _) -> [e]
+        | `Branch (_, { branch_val_true = Some e1; branch_val_false = Some e2; _ })
+        | `Later (e1, e2) -> [e1; e2]
+        | _ -> failwith "Something went wrong!"
+      in
+      let new_preds = List.fold_left
+        (fun preds e -> Utils.IntSet.union preds e.preds)
+        Utils.IntSet.empty
+        parents
+      in
+      let new_preds = Utils.IntSet.add (g.last_event_id + 1) new_preds in
+      let n = {actions = []; sustained_actions = []; source; id = g.last_event_id + 1;
         is_recurse = false;
-        outs = []; graph = g} in
+        outs = []; graph = g; preds = new_preds } in
       g.events <- n::g.events;
+      g.last_event_id <- n.id;
       n
     in
     (
       match source with
       | `Later (e1, e2) -> (
-        if GraphAnalysis.event_is_dominant e2 e1 then
+        if Utils.IntSet.mem e1.id e2.preds then
           e2
-        else if GraphAnalysis.event_is_dominant e1 e2 then
+        else if Utils.IntSet.mem e2.id e1.preds then
           e1
         else
           event_create_inner ()
@@ -51,7 +67,7 @@ module Typing = struct
   let lifetime_intersect g (a : lifetime) (b : lifetime) =
     {
       live = event_create g (`Later (a.live, b.live));
-      dead = a.dead @ b.dead;
+      dead = Utils.list_unordered_join a.dead b.dead;
     }
 
   let cycles_data g (n : int) (current : event) =
@@ -246,7 +262,7 @@ let rec lvalue_info_of graph (ci:cunit_info) ctx span lval =
   and binop_td_td = binop_td_td graph ci ctx span in
   match lval with
   | Reg ident ->
-    let r = List.find_opt (fun (r : reg_def) -> r.name = ident) graph.regs
+    let r = Utils.StringMap.find_opt ident graph.regs
       |> unwrap_or_err ("Undefined register " ^ ident) span in
     let sz = TypedefMap.data_type_size ci.typedefs ci.macro_defs r.dtype in
     {
@@ -401,8 +417,8 @@ and visit_expr (graph : event_graph) (ci : cunit_info)
     br_side_true.branch_event <- Some ctx_br.current;
     br_side_false.branch_event <- Some ctx_br.current;
     let lt = {live = ctx_br.current; (* branch event is reached when either split event is reached *)
-      dead = td1.lt.dead @ td2.lt.dead @td3.lt.dead} in
-    let reg_borrows' = td1.reg_borrows @ td2.reg_borrows @ td3.reg_borrows in
+      dead = Utils.list_unordered_join td1.lt.dead td2.lt.dead |> Utils.list_unordered_join td3.lt.dead} in
+    let reg_borrows' = Utils.list_unordered_join td1.reg_borrows td2.reg_borrows |> Utils.list_unordered_join td3.reg_borrows in
     (
       match td2.w, td3.w with
       | None, None -> {w = None; lt; reg_borrows = reg_borrows'; dtype = unit_dtype}
@@ -421,7 +437,7 @@ and visit_expr (graph : event_graph) (ci : cunit_info)
     let new_dtype = `Array (`Logic, ParamEnv.Concrete w.size) in
     List.map snd tds |> Typing.merged_data graph (Some w) new_dtype ctx.current
   | Read reg_ident ->
-    let r = List.find_opt (fun (r : Lang.reg_def) -> r.name = reg_ident) graph.regs
+    let r = Utils.StringMap.find_opt reg_ident graph.regs
       |> unwrap_or_err ("Undefined register " ^ reg_ident) e.span in
     let (wires', w) = WireCollection.add_reg_read graph.thread_id ci.typedefs ci.macro_defs r graph.wires in
     graph.wires <- wires';
@@ -621,7 +637,7 @@ module IntHashTbl = Hashtbl.Make(Int)
 
 (* unfold until sufficient for lifetime checks *)
 let recurse_unfold_for_checks ci shared_vars_info graph expr_node =
-  let tmp_graph = {graph with last_event_id = 0} in
+  let tmp_graph = {graph with last_event_id = -1} in
   let td = visit_expr tmp_graph ci
     (BuildContext.create_empty tmp_graph shared_vars_info true)
     expr_node in
@@ -681,14 +697,15 @@ let build_proc (config : Config.compile_config) sched module_name param_values
           channels = List.map data_of_ast_node body.channels;
           messages = msg_collection;
           spawns = List.map data_of_ast_node body.spawns;
-          regs = List.map data_of_ast_node body.regs;
-          last_event_id = 0;
+          regs = List.map (fun (reg : Lang.reg_def ast_node) ->
+                (reg.d.name, reg.d)) body.regs |> Utils.StringMap.of_list;
+          last_event_id = -1;
           is_general_recursive = false;
           thread_codespan = e.span;
         } in
         (* Bruteforce treatment: just run twice *)
         let graph_opt = if (not config.disable_lt_checks) || config.two_round_graph then (
-          let tmp_graph = {graph with last_event_id = 0} in
+          let tmp_graph = {graph with last_event_id = -1} in
           let td = visit_expr tmp_graph ci
             (BuildContext.create_empty tmp_graph shared_vars_info true)
             (recurse_unfold_for_checks ci shared_vars_info graph e) in
