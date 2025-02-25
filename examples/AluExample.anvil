@@ -1,24 +1,24 @@
 import "pipeline/Alu.anvil"
 
-proc AluExample () =
-    chan alu_le -- alu_ri : Alu_itfc<logic[4]>
-    spawn Alu<logic[4]>(alu_le)
+proc AluExample () {
+    chan alu_le -- alu_ri : Alu_itfc<logic[4]>;
+    spawn Alu<logic[4]>(alu_le);
 
-    reg clock_counter : logic[8]
+    reg clock_counter : logic[8];
 
     recursive {
-        (
-            send alu_ri.input_l (*clock_counter[0+:4]) =>
-            send alu_ri.input_r (*clock_counter[4+:4]) =>
-            cycle 2 =>
-            send alu_ri.input_op (*clock_counter[3]) =>
-            let res = recv alu_ri.output in
-            res =>
+        {
+            send alu_ri.input_l (*clock_counter[0+:4]) >>
+            send alu_ri.input_r (*clock_counter[4+:4]) >>
+            cycle 2 >>
+            send alu_ri.input_op (*clock_counter[3]) >>
+            let res = recv alu_ri.output >>
             dprint "Result = %d @ %d" (res, *clock_counter)
-        );
-        cycle 1 => recurse
+        };
+        cycle 1 >> recurse
     }
 
     loop {
         set clock_counter := *clock_counter + 8'd1
     }
+}

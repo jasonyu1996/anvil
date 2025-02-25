@@ -3,61 +3,56 @@ import "Add.anvil"
 import "Mux.anvil"
 import "SubtractDelayed.anvil"
 
-chan Alu_itfc<T : type> = {
-    left input_l : (T@#1) @dyn-@#1,
+chan Alu_itfc<T : type> {
+    left input_l : (T@#1) @#1-@dyn,
     left input_r : (T@#1) @#input_l-@#input_l,
     left input_op : (logic@#1) @#input_l+2-@#input_l+2,
     right output : (T@#1) @#input_l+2-@#input_l+2
 }
 
-proc Alu<T : type> (endp : left Alu_itfc<T>) =
-    chan mux_le -- mux_ri : Mux_itfc<T>
-    chan add_le -- add_ri : Add_itfc<T>
-    chan reg0_le -- reg0_ri : Reg_itfc<T>
-    chan reg1_le -- reg1_ri : Reg_itfc<T>
-    chan sub_le -- sub_ri : SubtractDelayed_itfc<T>
-    spawn Add<T> (add_le)
-    spawn Mux<T> (mux_le)
-    spawn Reg<T> (reg0_le)
-    spawn Reg<T> (reg1_le)
-    spawn SubtractDelayed<T> (sub_le)
+proc Alu<T : type> (endp : left Alu_itfc<T>) {
+    chan mux_le -- mux_ri : Mux_itfc<T>;
+    chan add_le -- add_ri : Add_itfc<T>;
+    chan reg0_le -- reg0_ri : Reg_itfc<T>;
+    chan reg1_le -- reg1_ri : Reg_itfc<T>;
+    chan sub_le -- sub_ri : SubtractDelayed_itfc<T>;
+    spawn Add<T> (add_le);
+    spawn Mux<T> (mux_le);
+    spawn Reg<T> (reg0_le);
+    spawn Reg<T> (reg1_le);
+    spawn SubtractDelayed<T> (sub_le);
 
     recursive {
-        let l = recv endp.input_l in
-        l => (
-            (
-                let r = recv endp.input_r in
-                r =>
-                let result = (
+        let l = recv endp.input_l >> {
+            {
+                let r = recv endp.input_r >>
+                let result = {
                     let add_res = (
-                        send add_ri.input_l (l) =>
-                        send add_ri.input_r (r) =>
-                        let res_add = recv add_ri.output in
-                        res_add =>
-                        send reg0_ri.input_v (res_add) =>
-                        cycle 1 =>
-                        let reg0_v = recv reg0_ri.output in
-                        reg0_v => send reg1_ri.input_v (reg0_v) =>
-                        cycle 1 =>
+                        send add_ri.input_l (l) >>
+                        send add_ri.input_r (r) >>
+                        let res_add = recv add_ri.output >>
+                        send reg0_ri.input_v (res_add) >>
+                        cycle 1 >>
+                        let reg0_v = recv reg0_ri.output >>
+                        send reg1_ri.input_v (reg0_v) >>
+                        cycle 1 >>
                         recv reg1_ri.output
-                    ) in
+                    );
                     let sub_res = (
-                        send sub_ri.input_l (l) =>
-                        send sub_ri.input_r (r) =>
-                        cycle 2 => recv sub_ri.output
-                    ) in
-                    add_res => sub_res =>
-                    let op = recv endp.input_op in
-                    op =>
-                    send mux_ri.input_l (add_res) =>
-                    send mux_ri.input_r (sub_res) =>
-                    send mux_ri.input_op (op) =>
+                        send sub_ri.input_l (l) >>
+                        send sub_ri.input_r (r) >>
+                        cycle 2 >> recv sub_ri.output
+                    );
+                    add_res >> sub_res >>
+                    let op = recv endp.input_op >>
+                    send mux_ri.input_l (add_res) >>
+                    send mux_ri.input_r (sub_res) >>
+                    send mux_ri.input_op (op) >>
                     recv mux_ri.output
-                ) in
-                result =>
+                } >>
                 send endp.output (result)
-            );
-            cycle 1 => recurse
-        )
+            };
+            cycle 1 >> recurse
+        }
     }
-
+}

@@ -1,33 +1,35 @@
-chan ch = {
+chan ch {
     left req : (logic[2]@#2)
 }
 
-proc m_receiver(e : left ch) =
+proc m_receiver(e : left ch) {
     loop {
-        let v = recv e.req in
-        v => dprint "Value1 = %d" (v);
-        cycle 1 =>
+        let v = recv e.req >>
         dprint "Value1 = %d" (v);
-        let v = recv e.req in
-        v => dprint "Value2 = %d" (v);
-        cycle 1 =>
+        cycle 1 >>
+        dprint "Value1 = %d" (v);
+        let v = recv e.req >>
+        dprint "Value2 = %d" (v);
+        cycle 1 >>
         dprint "Value2 = %d" (v)
     }
+}
 
-proc multi_send_recv() =
-    chan e_le -- e_ri : ch
-    spawn m_receiver(e_le)
+proc multi_send_recv() {
+    chan e_le -- e_ri : ch;
+    spawn m_receiver(e_le);
     loop {
-        send e_ri.req(2'd0) =>
-        cycle 1 =>
-        cycle 1 =>
-        send e_ri.req(2'd1) =>
-        cycle 1 =>
-        cycle 1 =>
-        send e_ri.req(2'd2) =>
-        cycle 1 =>
-        cycle 1 =>
-        send e_ri.req(2'd3) =>
-        cycle 1 =>
+        send e_ri.req(2'd0) >>
+        cycle 1 >>
+        cycle 1 >>
+        send e_ri.req(2'd1) >>
+        cycle 1 >>
+        cycle 1 >>
+        send e_ri.req(2'd2) >>
+        cycle 1 >>
+        cycle 1 >>
+        send e_ri.req(2'd3) >>
+        cycle 1 >>
         cycle 1
     }
+}

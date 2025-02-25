@@ -1,7 +1,8 @@
-proc latency() =
+proc latency() {
     loop {
         dprint "Hello" ();
-        cycle 1 =>
+        cycle 1 >>
         dprint "HOHO" ();
         cycle 1
     }
+}

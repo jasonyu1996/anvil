@@ -1,6 +1,7 @@
-proc multicycle_counter() =
+proc multicycle_counter() {
     loop {
-        cycle 2 =>
+        cycle 2 >>
         dprint "Hello World*" ();
         cycle 3
     }
+}
