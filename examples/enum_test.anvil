@@ -1,14 +1,14 @@
-enum color = {
+enum color {
     red,
     green,
     yellow
 }
 
 
-Use pi = 39
-proc enum_test() =
-
-    loop{
+const pi = 39;
+proc enum_test() {
+    loop {
         dprint "%d and macro pi = %d" (color::yellow,pi);
         cycle 1
     }
+}

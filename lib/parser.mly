@@ -52,7 +52,6 @@
 %token KEYWORD_RECV         (* recv *)
 %token KEYWORD_ETERNAL      (* eternal *)
 %token KEYWORD_TYPE         (* type *)
-%token KEYWORD_OF           (* of *)
 %token KEYWORD_SET          (* set *)
 %token KEYWORD_MATCH        (* match *)
 %token KEYWORD_SYNC         (* sync *)
@@ -234,7 +233,7 @@ type_def:
     { name = name; body = dtype; params = Option.value ~default:[] params } : Lang.type_def
   }
 | KEYWORD_ENUM; name = IDENT; params = param_list?;
-  LEFT_BRACE; variants = variant_def+; RIGHT_BRACE
+  LEFT_BRACE; variants = separated_nonempty_list(COMMA, variant_def); RIGHT_BRACE
   {
     { name = name; body = `Variant variants; params = Option.value ~default:[] params } : Lang.type_def
   }
@@ -465,8 +464,8 @@ expr:
   { Lang.Indirect (e, fieldname) }
 | SHARP; LEFT_BRACE; components = separated_list(COMMA, node(expr)); RIGHT_BRACE
   { Lang.Concat components }
-// | LEFT_BRACE; e = expr; RIGHT_BRACE
-//   { e }
+| LEFT_BRACE; e = expr; RIGHT_BRACE
+  { e }
 | KEYWORD_MATCH; e = node(expr); LEFT_BRACE; match_arm_list = separated_list(COMMA, match_arm); RIGHT_BRACE
   { Lang.generate_match_expression e match_arm_list }
 | ASTERISK; reg_ident = IDENT

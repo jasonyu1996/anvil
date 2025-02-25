@@ -70,7 +70,6 @@ rule read =
   | "recv"    { KEYWORD_RECV }
   | "eternal" { KEYWORD_ETERNAL }
   | "type"    { KEYWORD_TYPE }
-  | "of"      { KEYWORD_OF }
   | "set"     { KEYWORD_SET }
   | "match"   { KEYWORD_MATCH }
   | "dyn"     { KEYWORD_DYN }

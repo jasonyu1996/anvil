@@ -1,7 +1,8 @@
-proc top() =
-    reg r : logic
+proc top() {
+    reg r : logic;
     loop {
-        set r :=  (
-            if (1'd0) then 1'b1 else 1'b0
+        set r := (
+            if 1'd0 { 1'b1 } else { 1'b0 }
         )
     }
+}

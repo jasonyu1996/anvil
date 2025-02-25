@@ -1,11 +1,12 @@
-proc top() =
-    reg r : logic
+proc top() {
+    reg r : logic;
     loop {
-        if (1'b1) then
+        if 1'b1 {
             set r := 1'b1
-        else (
-            let w = *r in
-            cycle 1 =>
+        } else {
+            let w = *r;
+            cycle 1 >>
             dprint "Value = %d" (w)
-        )
+        }
     }
+}

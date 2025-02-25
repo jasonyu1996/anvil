@@ -1,39 +1,37 @@
-chan ch = {
+chan ch {
     left req: (logic@res),
     right res: (logic@req)
 }
-proc foo(ch1: left ch, ch2: right ch) =
-    loop{
 
-        let x = recv ch1.req in
-        x=>
-        (
-        send ch2.req(x)=>
-        let y = recv ch2.res in
-        y=>
-        cycle 1) =>
-        send ch1.res(1'b1)=>
+proc foo(ch1: left ch, ch2: right ch) {
+    loop {
+        let x = recv ch1.req >>
+        {
+            send ch2.req(x) >>
+            let y = recv ch2.res >>
+            cycle 1
+        } >>
+        send ch1.res(1'b1) >>
         dprint "done" ()
-
-
     }
-proc test_send() =
-    chan ch1_in -- ch1_out : ch
-    chan ch2_in -- ch2_out : ch
-    spawn foo(ch1_in, ch2_out)
-    loop{
-        send ch1_out.req(1'b1)=>
-        let x = recv ch1_out.res in
-        x=>
-        dprint "Received on ch1_out: %d" (x)
-        => cycle 1
+}
+
+proc test_send() {
+    chan ch1_in -- ch1_out : ch;
+    chan ch2_in -- ch2_out : ch;
+    spawn foo(ch1_in, ch2_out);
+    loop {
+        send ch1_out.req(1'b1) >>
+        let x = recv ch1_out.res >>
+        dprint "Received on ch1_out: %d" (x) >>
+        cycle 1
     }
-    loop{
-        let x = recv ch2_in.req in
-        x=>
+    loop {
+        let x = recv ch2_in.req >>
         dprint "Received on ch2_in: %d" (x);
-        cycle 1 =>
-        send ch2_in.res(1'b1)=>
-        dprint "done" ()
-        => cycle 1
+        cycle 1 >>
+        send ch2_in.res(1'b1) >>
+        dprint "done" () >>
+        cycle 1
     }
+}
