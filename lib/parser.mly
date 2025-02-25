@@ -21,10 +21,11 @@
 %token RIGHT_ABRACK_EQ      (* >= *)
 %token DOUBLE_LEFT_ABRACK   (* << *)
 %token DOUBLE_RIGHT_ABRACK  (* << *)
-%token KEYWORD_USE          (* << *)
+%token KEYWORD_CONST        (* const *)
 %token KEYWORD_READY        (* ready *)
 %token DOUBLE_EQ            (* == *)
 %token EQ_GT                (* => *)
+%token DOUBLE_GT            (* >> *)
 %token EXCL_EQ              (* != *)
 %token OR_GT                (* |> *)
 %token EXCL                 (* ! *)
@@ -88,10 +89,8 @@
 %token KEYWORD_BY           (* by *)
 %right LEFT_ABRACK RIGHT_ABRACK LEFT_ABRACK_EQ RIGHT_ABRACK_EQ
 %right EXCL_EQ DOUBLE_EQ
-%right KEYWORD_IN
-%right EQ_GT SEMICOLON
-%right KEYWORD_ELSE
-%right COLON_EQ
+%right DOUBLE_GT SEMICOLON
+%right KEYWORD_LET KEYWORD_SET KEYWORD_PUT
 %right CONSTRUCT
 %left LEFT_BRACKET XOR AND OR PLUS MINUS
 %left DOUBLE_LEFT_ABRACK DOUBLE_RIGHT_ABRACK
@@ -137,7 +136,7 @@ import_directive:
 proc_def:
 | KEYWORD_PROC; ident = IDENT;
   LEFT_PAREN; args = proc_def_arg_list; RIGHT_PAREN;
-  EQUAL; body = proc_def_body
+  LEFT_BRACE; body = proc_def_body; RIGHT_BRACE
   {
     {
       name = ident;
@@ -148,7 +147,7 @@ proc_def:
   }
 | KEYWORD_PROC; ident = IDENT; LEFT_ABRACK; params = separated_list(COMMA, param_def); RIGHT_ABRACK;
   LEFT_PAREN; args = proc_def_arg_list; RIGHT_PAREN;
-  EQUAL; body = proc_def_body
+  LEFT_BRACE; body = proc_def_body; RIGHT_BRACE
   {
     {
       name = ident;
@@ -158,7 +157,7 @@ proc_def:
     } : Lang.proc_def
   }
 | KEYWORD_PROC; ident = IDENT; LEFT_PAREN; args = proc_def_arg_list; RIGHT_PAREN;
-  EQUAL; KEYWORD_EXTERN; LEFT_PAREN; mod_name = STR_LITERAL; RIGHT_PAREN;
+  KEYWORD_EXTERN; LEFT_PAREN; mod_name = STR_LITERAL; RIGHT_PAREN;
   body = proc_def_body_extern
   {
     {
@@ -192,19 +191,19 @@ proc_def_body:
     let open Lang in
     { body with threads = thread_prog::(body.threads) }
   }
-| KEYWORD_CHAN; chan_def = node(channel_def); body = proc_def_body // For Channel Invocation and interface aquisition
+| KEYWORD_CHAN; chan_def = node(channel_def); SEMICOLON; body = proc_def_body // For Channel Invocation and interface aquisition
   {
     let open Lang in {body with channels = chan_def::(body.channels)}
   }
-| KEYWORD_REG; reg_def = node(reg_def); body = proc_def_body // For reg definition
+| KEYWORD_REG; reg_def = node(reg_def); SEMICOLON; body = proc_def_body // For reg definition
   {
     let open Lang in {body with regs = reg_def::(body.regs)}
   }
-| KEYWORD_SPAWN; spawn_def = node(spawn); body = proc_def_body // For instantiating processes
+| KEYWORD_SPAWN; spawn_def = node(spawn); SEMICOLON; body = proc_def_body // For instantiating processes
   {
     let open Lang in {body with spawns = spawn_def::(body.spawns)}
   }
-| shared_var = node(shared_var_def); body = proc_def_body
+| shared_var = node(shared_var_def); SEMICOLON; body = proc_def_body
   {
     let open Lang in {body with shared_vars = shared_var :: body.shared_vars}
   }
@@ -249,7 +248,7 @@ type_def:
 
 // For channel declaration for each pair of process
 channel_class_def:
-| KEYWORD_CHAN; ident = IDENT; EQUAL; LEFT_BRACE; messages = separated_list(COMMA, message_def); RIGHT_BRACE
+| KEYWORD_CHAN; ident = IDENT; LEFT_BRACE; messages = separated_list(COMMA, message_def); RIGHT_BRACE
   {
     {
       name = ident;
@@ -259,7 +258,7 @@ channel_class_def:
     } : Lang.channel_class_def
   }
 | KEYWORD_CHAN; ident = IDENT; LEFT_ABRACK; params = separated_list(COMMA, param_def); RIGHT_ABRACK;
-  EQUAL; LEFT_BRACE; messages = separated_list(COMMA, message_def); RIGHT_BRACE
+  LEFT_BRACE; messages = separated_list(COMMA, message_def); RIGHT_BRACE
   {
     {
       name = ident;
@@ -388,7 +387,7 @@ term:
 expr:
 | enum_name = IDENT; DOUBLE_COLON; variant = IDENT
   { Lang.EnumRef (enum_name, variant) }
-| KEYWORD_SET; lval = lvalue; COLON_EQ; v = node(expr) //To Ask: Where are we using set
+| KEYWORD_SET; lval = lvalue; COLON_EQ; v = node(expr) %prec KEYWORD_SET
   { Lang.Assign (lval, v) }
 | e = term
   { e }
@@ -406,23 +405,29 @@ expr:
   { Lang.Sync ident }
 | KEYWORD_READY; msg_spec = message_specifier
   { Lang.Ready msg_spec }
-| KEYWORD_PUT; ident = IDENT; COLON_EQ; v = node(expr)
+| KEYWORD_PUT; ident = IDENT; COLON_EQ; v = node(expr) %prec KEYWORD_PUT
   { Lang.SharedAssign (ident, v) }
-| KEYWORD_LET; binding = IDENT; EQUAL; v = node(expr); KEYWORD_IN; body = node(expr)
-  { Lang.LetIn ([binding], v, body) }
-| KEYWORD_LET; LEFT_PAREN; bindings = separated_list(COMMA, IDENT); RIGHT_PAREN; EQUAL; v = node(expr); KEYWORD_IN; body = node(expr)
-  { Lang.LetIn (bindings, v, body) }
+| KEYWORD_LET; binding = IDENT; EQUAL; v = node(expr) %prec KEYWORD_LET
+  { Lang.Let ([binding], v) }
+// | KEYWORD_LET; binding = IDENT; EQUAL; v = node(expr); EQ_GT; body = node(expr)
+//   {
+//     let open Lang in
+//     LetIn ([binding], v, {d = Wait ({d = Identifier binding; span = body.span}, body); span = body.span})
+//   }
+// | KEYWORD_LET; LEFT_PAREN; bindings = separated_list(COMMA, IDENT); RIGHT_PAREN; EQUAL; v = node(expr)
+//   { Lang.Let (bindings, v) }
 | v = node(expr); SEMICOLON; body = node(expr)
-  { Lang.LetIn ([], v, body) }
+  { Lang.Join (v, body) }
 | KEYWORD_SEND; send_pack = send_pack
   { Lang.Send send_pack }
 | KEYWORD_RECV; recv_pack = recv_pack
   { Lang.Recv recv_pack }
-| v = node(expr); EQ_GT; body = node(expr)
+| v = node(expr); DOUBLE_GT; body = node(expr)
   { Lang.Wait (v, body) }
 | KEYWORD_GENERATE; LEFT_PAREN; i=IDENT; COLON; start = INT; COMMA; end_v = INT; COMMA; offset = INT; RIGHT_PAREN; EQUAL; LEFT_BRACE; body = node(expr); RIGHT_BRACE
   { Lang.generate_expr (i,start, end_v, offset, body) }
-| KEYWORD_IF; cond = node(expr); KEYWORD_THEN; then_v = node(expr); KEYWORD_ELSE; else_v = node(expr)
+| KEYWORD_IF; cond = node(expr); LEFT_BRACE; then_v = node(expr); RIGHT_BRACE;
+  KEYWORD_ELSE; LEFT_BRACE; else_v = node(expr); RIGHT_BRACE
   { Lang.IfExpr (cond, then_v, else_v) }
 | KEYWORD_CALL ; func = IDENT; LEFT_PAREN; args = separated_list(COMMA, node(expr)); RIGHT_PAREN
   { Lang.Call (func, args) }
@@ -444,7 +449,7 @@ expr:
   { Lang.Indirect (e, fieldname) }
 | LEFT_BRACE; components = separated_list(COMMA, node(expr)); RIGHT_BRACE
   { Lang.Concat components }
-| KEYWORD_MATCH; e = node(expr); KEYWORD_WITH; COLON; match_arm_list = match_arm+;KEYWORD_DONE
+| KEYWORD_MATCH; e = node(expr); LEFT_BRACE; match_arm_list = separated_list(COMMA, match_arm); RIGHT_BRACE
   { Lang.generate_match_expression e match_arm_list }
 | ASTERISK; reg_ident = IDENT
   { Lang.Read reg_ident }
@@ -552,8 +557,8 @@ index:
 ;
 
 match_arm:
-| OR_GT; pattern = expr; POINT_TO body_opt = expr?
-  { (pattern, body_opt) }
+| pattern = expr; EQ_GT body_opt = expr
+  { (pattern, Some body_opt) }
 ;
 
 // match_arm:
@@ -764,7 +769,7 @@ enum_def:
 ;
 
 macro_def:
-  | KEYWORD_USE; id = IDENT; EQUAL; value = INT
+  | KEYWORD_CONST; id = IDENT; EQUAL; value = INT; SEMICOLON
     {
       { id = id; value = value } : Lang.macro_def
     }

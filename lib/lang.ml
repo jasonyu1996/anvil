@@ -373,7 +373,8 @@ and expr =
   | Binop of binop * expr_node * expr_node
   | Unop of unop * expr_node
   | Tuple of expr_node list
-  | LetIn of identifier list * expr_node * expr_node
+  | Let of identifier list * expr_node
+  | Join of expr_node * expr_node (** [a; b] *)
   | Wait of expr_node * expr_node (** [a => b] *)
   | Cycle of int
   | Sync of identifier (** synchronise on a shared value *)
@@ -544,7 +545,7 @@ let rec string_of_expr (e : expr) : string =
   match e with
   | Literal lit -> "Literal " ^ string_of_literal lit
   | Identifier id -> "Identifier " ^ id
-  | LetIn (ids, e1, e2) -> "LetIn (" ^ String.concat ", " ids ^ ", " ^ string_of_expr e1.d ^ ", " ^ string_of_expr e2.d ^ ")"
+  | Let (ids, e) -> "Let (" ^ String.concat ", " ids ^ ", " ^ string_of_expr e.d ^ ")"
   | Assign (lv, n) -> "Assign (" ^ string_of_lvalue lv ^ ", " ^ string_of_expr n.d ^ ")"
   | _ -> "..."
 
@@ -599,9 +600,9 @@ let rec substitute_expr_identifier (id: identifier) (value: expr_node) (expr: ex
   let new_expr = match expr.d with
   | Identifier name when name = id ->
       value.d
-  | LetIn (ids, e1, e2) ->
+  | Let (ids, e) ->
       if List.mem id ids then expr.d
-      else LetIn (ids, substitute_expr_identifier id value e1, substitute_expr_identifier id value e2)
+      else Let (ids, substitute_expr_identifier id value e)
   | Record (name, fields) ->
       Record (name, List.map (fun (field_name, field_expr) ->
         (field_name, substitute_expr_identifier id value field_expr)
@@ -676,7 +677,7 @@ let generate_expr (id, start, end_v, offset, body) =
       | [single] -> single.d
       | hd::tl ->
           List.fold_left
-            (fun acc expr -> LetIn ([], expr, dummy_ast_node_of_data acc))
+            (fun acc expr -> Join (expr, dummy_ast_node_of_data acc))
             hd.d
             tl
     else

@@ -223,8 +223,10 @@ let rec recurse_unfold expr_full_node expr_node =
       Unop (op, unfold expr_node')
     | Tuple expr_nodes ->
       Tuple (List.map unfold expr_nodes)
-    | LetIn (idents, e1, e2) ->
-      LetIn (idents, unfold e1, unfold e2)
+    | Let (idents, e) ->
+      Let (idents, unfold e)
+    | Join (e1, e2) ->
+      Join (unfold e1, unfold e2)
     | Wait (e1, e2) ->
       Wait (unfold e1, unfold e2)
     | IfExpr (e1, e2, e3) ->
@@ -361,29 +363,48 @@ and visit_expr (graph : event_graph) (ci : cunit_info)
     graph.wires <- wires';
     Typing.derived_data (Some w) td
   | Tuple [] -> Typing.const_data graph None (unit_dtype) ctx.current
-  | LetIn (idents, e1, e2) ->
+  | Let (_idents, e) -> visit_expr graph ci ctx e
+  | Join (e1, e2) ->
     let td1 = visit_expr graph ci ctx e1 in
     (
-      match idents, td1.w with
-      | [], None | ["_"], _ ->
+      match e1.d with
+      | Let (["_"], _)
+      | Let ([], _) ->
         let td = visit_expr graph ci ctx e2 in
         let lt = Typing.lifetime_intersect graph td1.lt td.lt in
         {td with lt} (* forcing the bound value to be awaited *)
-      | [ident], _ ->
-        let ctx' = BuildContext.add_binding ctx ident td1 in
-        let td = visit_expr graph ci ctx' e2 in
-        (* check if the binding is used *)
-        let binding = Typing.context_lookup ctx'.typing_ctx ident |> Option.get in
-        if not binding.binding_used then (
-          raise (event_graph_error_default "Unused value!" e1.span)
-        );
-        td
-      | _ -> raise (event_graph_error_default "Discarding expression results!" e.span)
+      | Let ([ident], _) ->
+          let ctx' = BuildContext.add_binding ctx ident td1 in
+          let td = visit_expr graph ci ctx' e2 in
+          (* check if the binding is used *)
+          let binding = Typing.context_lookup ctx'.typing_ctx ident |> Option.get in
+          if not binding.binding_used then (
+            raise (event_graph_error_default "Unused value!" e1.span)
+          );
+          td
+      | Let _ -> raise (event_graph_error_default "Discarding expression results!" e.span)
+      | _ ->
+        let td = visit_expr graph ci ctx e2 in
+        let lt = Typing.lifetime_intersect graph td1.lt td.lt in
+        {td with lt} (* forcing the bound value to be awaited *)
     )
   | Wait (e1, e2) ->
     let td1 = visit_expr graph ci ctx e1 in
-    let ctx' = BuildContext.wait graph ctx td1.lt.live in
-    visit_expr graph ci ctx' e2
+    (
+      match e1.d with
+      | Let (["_"], _)
+      | Let ([], _) ->
+        let ctx' = BuildContext.wait graph ctx td1.lt.live in
+        visit_expr graph ci ctx' e2
+      | Let ([ident], _) ->
+        let ctx' = BuildContext.wait graph ctx td1.lt.live in
+        let ctx' = BuildContext.add_binding ctx' ident td1 in
+        visit_expr graph ci ctx' e2
+      | Let _ -> raise (event_graph_error_default "Discarding expression results!" e.span)
+      | _ ->
+        let ctx' = BuildContext.wait graph ctx td1.lt.live in
+        visit_expr graph ci ctx' e2
+    )
   | Ready msg_spec ->
     (* let msg = MessageCollection.lookup_message graph.messages msg_spec ci.channel_classes
       |> unwrap_or_err "Invalid message specifier in ready" e.span in *)

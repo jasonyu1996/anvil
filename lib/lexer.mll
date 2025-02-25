@@ -45,6 +45,7 @@ rule read =
   | "<="      { LEFT_ABRACK_EQ }
   | ">="      { RIGHT_ABRACK_EQ }
   | "=>"      { EQ_GT }
+  | ">>"      { DOUBLE_GT }
   | "<<"      { DOUBLE_LEFT_ABRACK }
   | ">>"      { DOUBLE_RIGHT_ABRACK }
   | "=="      { DOUBLE_EQ }
@@ -86,7 +87,7 @@ rule read =
   | "wait"    { KEYWORD_WAIT }
   | "cycle"   { KEYWORD_CYCLE }
   | "reg"     { KEYWORD_REG }
-  | "Use"     { KEYWORD_USE }
+  | "const"   { KEYWORD_CONST }
   | "spawn"   { KEYWORD_SPAWN }
   | "try"     { KEYWORD_TRY }
   | "dprint"  { KEYWORD_DPRINT }
