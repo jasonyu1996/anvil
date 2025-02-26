@@ -663,16 +663,16 @@ message_direction:
   { Lang.Out }
 ;
 
-sig_type:
-  dtype = data_type; AT; lifetime_opt = lifetime_spec?
-  {
-    let lifetime = Option.value ~default:Lang.sig_lifetime_this_cycle lifetime_opt in
-    {
-      dtype = dtype;
-      lifetime = lifetime;
-    } : Lang.sig_type
-  }
-;
+// sig_type:
+//   dtype = data_type; AT; lifetime_opt = lifetime_spec?
+//   {
+//     let lifetime = Option.value ~default:Lang.sig_lifetime_this_cycle lifetime_opt in
+//     {
+//       dtype = dtype;
+//       lifetime = lifetime;
+//     } : Lang.sig_type
+//   }
+// ;
 
 sig_type_chan_local:
   dtype = data_type; AT; lifetime_opt = lifetime_spec_chan_local?
