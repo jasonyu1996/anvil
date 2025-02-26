@@ -1,5 +1,6 @@
-proc main() =
-    spawn child ()
+proc main() {
+    spawn child ();
     loop {
         cycle 1
     }
+}

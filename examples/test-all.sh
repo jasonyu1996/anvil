@@ -40,6 +40,8 @@ TESTS=(
     static_sync
     simple_usereg_pipeline
     AluExample
+    general_recurse_assign
+    general_recurse_simple
 )
 
 passed=0

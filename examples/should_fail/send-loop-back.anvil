@@ -1,17 +1,21 @@
-chan ch = {
+chan ch {
     left req : (logic[8]@req),
     right res : (logic[8]@res)
 }
 
-proc foo (ch: left ch) =
-reg r : logic[1]
+proc foo (ch: left ch) {
+    reg r : logic[1];
     loop {
-        let x = recv ch.req in
-        x =>
-        ((if 1'b1 then
-            set r := x
-        else
-            dprint "Never Happens" ());cycle 1)=>
-        send ch.res(*r)=>
+        let x = recv ch.req >>
+        {
+            if 1'b1 {
+                set r := x
+            } else {
+                dprint "Never Happens" ()
+            };
+            cycle 1
+        } >>
+        send ch.res(*r) >>
         cycle 1
     }
+}

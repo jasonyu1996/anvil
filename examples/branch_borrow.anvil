@@ -1,12 +1,12 @@
-proc branch_borrow() =
-    reg a : logic[2]
+proc branch_borrow() {
+    reg a : logic[2];
 
     loop {
-        if (1'b1) then (
+        if 1'b1 {
             set a := 2'b10
-        )
-        else (
+        } else {
             dprint "a = %d" (*a);
             cycle 1
-        )
+        }
     }
+}

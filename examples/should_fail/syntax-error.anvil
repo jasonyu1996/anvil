@@ -1,8 +1,9 @@
-proc concurrent() =
-    reg r : logic;
+proc concurrent() {
+    reg r : logic
     loop {
-        set r := 1'b1 =>
-        set r := 1'b0 =>
-        let rv = *r in
+        set r := 1'b1 >>
+        set r := 1'b0 >>
+        let rv = *r;
         dprint "Value = %d" (rv)
     }
+}

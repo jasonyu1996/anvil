@@ -1,4 +1,5 @@
-proc top() =
+proc top() {
     loop {
-        cycle 1 => send ch.req (1'b0)
+        cycle 1 >> send ch.req (1'b0)
     }
+}

@@ -1,28 +1,28 @@
-chan ch = {
+chan ch {
     left req: (logic[8]@#1)
 }
 
-proc receiver(ch : left ch) =
+proc receiver(ch : left ch) {
     loop {
-        (
-            if (ready ch.req) then
-               (
-                let in1 = recv ch.req in
-                in1 =>
-                dprint "Received: %d" (in1)) =>
-                cycle 1
-            else (
-                dprint "Not ready" () => cycle 1
-            )
-        )
+        if ready ch.req {
+            {
+                let in1 = recv ch.req >>
+                dprint "Received: %d" (in1)
+            } >>
+            cycle 1
+        } else {
+            dprint "Not ready" () >> cycle 1
+        }
     }
+}
 
-proc test_ready () =
-    chan ch_input -- ch_output : ch
-    spawn receiver(ch_input)
+proc test_ready () {
+    chan ch_input -- ch_output : ch;
+    spawn receiver(ch_input);
     loop {
-        send ch_output.req(8'b00000111)=>
-        cycle 1=>
-        cycle 1=>
+        send ch_output.req(8'b00000111) >>
+        cycle 1 >>
+        cycle 1 >>
         dprint "sent " (8'b00000111)
     }
+}

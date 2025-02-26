@@ -1,4 +1,5 @@
-proc main(endp : left ch) =
+proc main(endp : left ch) {
     loop {
         cycle 1
     }
+}
