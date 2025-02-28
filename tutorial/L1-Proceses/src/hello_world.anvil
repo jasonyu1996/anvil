@@ -1,0 +1,12 @@
+
+
+
+proc hello_world(){
+    reg counter : logic[8];
+    loop {
+        set counter := *counter + 1;
+        dprint "[Cycle %d] Hello World in Anvil!" (*counter)
+    }
+}
+
+
