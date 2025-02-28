@@ -1,0 +1,38 @@
+{
+	"name": "AnvilHDL",
+	"version": "0.1",
+	"fileTypes": [
+		"anvil"
+	],
+	"scopeName": "source.anvil",
+
+	"foldingStartMarker": "\\{\\s*$",
+	"foldingStopMarker": "^\\s*\\}",
+	"patterns": [
+
+	],
+	"repository": {
+		"comments-block": {
+			"patterns": [
+				{
+					"name": "comment.block.anvil",
+					"begin": "/\\*",
+					"end": "\\*/",
+					"patterns": [
+						{
+							"include": "#comments-block"
+						}
+					]
+				}
+			]
+		},
+		"constants": {
+			"patterns": [
+				{
+					"name": "constant.language.anvil",
+					"match": "\\b[0-9]+'[bdh][0-9]+\\b"
+				}
+			]
+		}
+	}
+}
