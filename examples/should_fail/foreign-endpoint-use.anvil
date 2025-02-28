@@ -1,22 +1,23 @@
-chan ch = {
+chan ch {
     left req: (logic@res),
     right res: (logic@req)
 }
 
-proc foo(ep : left ch) =
+proc foo(ep : left ch) {
     loop {
         cycle 1
     }
+}
 
-proc test1() =
-    chan ch_in -- ch_out : ch
-    spawn foo(ch_in)
-    reg x : logic
-    loop{
-        send ch_in.res(*x)=>
-        let y = recv ch_out.res in
-        y =>
+proc test1() {
+    chan ch_in -- ch_out : ch;
+    spawn foo(ch_in);
+    reg x : logic;
+    loop {
+        send ch_in.res(*x) >>
+        let y = recv ch_out.res >>
         set x := 1'b1;
         dprint "y: %d" (y);
         cycle 1
     }
+}

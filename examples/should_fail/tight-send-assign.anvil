@@ -1,10 +1,11 @@
-chan ch = {
+chan ch {
     left req : (logic@req)
 }
 
-proc top(e : right ch) =
-    reg r : logic
+proc top(e : right ch) {
+    reg r : logic;
     loop {
-        set r := 1'b1 =>
+        set r := 1'b1 >>
         send e.req (*r)
     }
+}

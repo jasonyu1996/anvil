@@ -1,25 +1,27 @@
-chan ch = {
+chan ch {
     left req: (logic[8]@#1) @#3-@#3
 }
 
-proc slave(ep : left ch) =
+proc slave(ep : left ch) {
     loop {
-        let r = recv ep.req in
-        r =>
+        let r = recv ep.req >>
         dprint "Value = %d" (r);
         cycle 3
     }
+}
 
-proc static_sync() =
-    chan le -- ri : ch
-    spawn slave(le)
-    reg r : logic[8]
+proc static_sync() {
+    chan le -- ri : ch;
+    spawn slave(le);
+    reg r : logic[8];
 
     loop {
-        send ri.req(*r) =>
-        if 1'b1 then
+        send ri.req(*r) >>
+        if 1'b1 {
             set r := *r + 8'd1
-        else
+        } else {
             cycle 3
+        }
     }
+}
 

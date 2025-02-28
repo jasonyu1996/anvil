@@ -1,268 +1,168 @@
-type value_4bit = logic[4]
-type value_2bit = logic[2]
-type value_3bit = logic[3]
-type value_8bit = logic[8]
+type value_4bit = logic[4];
+type value_2bit = logic[2];
+type value_3bit = logic[3];
+type value_8bit = logic[8];
 
-type memory_map =
-{
-    address : logic[8];
+struct memory_map {
+    address : logic[8],
     data : logic[8]
 }
 
-chan cache_read = {
+chan cache_read {
     left req : (logic[8]@res),
     right res : (logic[8]@req)
 }
 
-chan memory_read = {
+chan memory_read {
     left req : (logic[8]@res),
     right res : (logic[8]@req)
 }
 
-chan memory_write = {
+chan memory_write {
     left req : (memory_map@res),
     right res : (logic@res)
 }
 
-proc FIFO_Cache(ch : left cache_read, ch_mem : right memory_read) =
-    reg cache :value_8bit[4][4]
-    reg tag :value_4bit[4][4]
-    reg head :value_2bit[4]
-    reg tail :value_2bit[4]
-    reg count :value_3bit[4]
-    reg senddata :logic[8]
-    reg cache_hit :logic[2]
-    reg head_overflow :logic[1]
-    reg valid :logic[4][4]
-    reg cycle_counter :logic[4]
+proc FIFO_Cache(ch : left cache_read, ch_mem : right memory_read) {
+    reg cache :value_8bit[4][4];
+    reg tag :value_4bit[4][4];
+    reg head :value_2bit[4];
+    reg tail :value_2bit[4];
+    reg count :value_3bit[4];
+    reg senddata :logic[8];
+    reg cache_hit :logic[2];
+    reg head_overflow :logic[1];
+    reg valid :logic[4][4];
+    reg cycle_counter :logic[4];
     loop {
-        set cycle_counter := *cycle_counter + 4'b0001;
-        cycle 1
+        set cycle_counter := *cycle_counter + 4'b0001
     }
     loop {
             dprint "(FIFO_Cache) Cycle %d" (*cycle_counter);
-            let address = recv ch.req in
-            address =>
-            (
+            let address = recv ch.req >>
+            {
                 cycle 1;
                 dprint "(FIFO_Cache) Cache Request recieved for address %d in cycle %d" (address, *cycle_counter);
-                let tag_bits = address[4+:4] in
-                (
-                    let set_index = address[2+:2] in
-                    (
-                        if  ((*valid[set_index][0] == 1'b1) & (*tag[set_index][0] == tag_bits)) then
-                        (
-                            set senddata := *cache[set_index][0];
-                            dprint "Cache Hit in cycle %d" (*cycle_counter)
-                        )
-                        else
-                        (
-                            if (*valid[set_index][1] == 1'b1) & (*tag[set_index][1] == tag_bits) then
-                            (
-                                set senddata := *cache[set_index][1];
-                                dprint "Cache Hit in cycle %d" (*cycle_counter)
-                            )
-                            else
-                            (
-                                if (*valid[set_index][2] == 1'b1) & (*tag[set_index][2] == tag_bits) then
-                                (
-                                    set senddata := *cache[set_index][2];
-                                    dprint "Cache Hit in cycle %d" (*cycle_counter)
-                                )
-                                else
-                                (
-                                    if (*valid[set_index][3] == 1'b1) & (*tag[set_index][3] == tag_bits) then
-                                    (
-                                        set senddata := *cache[set_index][3];
-                                        dprint "Cache Hit in cycle %d" (*cycle_counter)
-                                    )
-                                    else
-                                    (
-                                        dprint "Cache Miss in cycle %d" (*cycle_counter);
-                                        send ch_mem.req(address)=>
-                                        let data = recv ch_mem.res in
-                                        data =>
-                                        (
-                                            set senddata := data;
-                                            dprint "Data from memory for address %b: %b" (address, data);
-                                            if *count[set_index] < 3'b100 then
-                                            (
-                                                (
-                                                    let tail_index = *tail[set_index] in
-                                                    (
-                                                        set cache[set_index][tail_index] := data;
-                                                        set tag[set_index][tail_index] := tag_bits;
-                                                        set count[set_index] := *count[set_index]+3'b001;
-                                                        set valid[set_index][tail_index] := 1'b1
-                                                    )
-                                                )=>
-                                                set tail[set_index] := *tail[set_index]+2'b01
-                                            )
-                                            else
-                                            (
-                                                let head_index = *head[set_index] in
-                                                (
-                                                    set cache[set_index][head_index] := data;
-                                                    set tag[set_index][head_index] := tag_bits;
-                                                    set valid[set_index][head_index] := 1'b1
-                                                )=>
-                                                set head[set_index] := *head[set_index]+2'b01
-                                            )
-                                        )
-                                    )
-                                )
-                            )
-                        )
-                    )
-                )
-
-        )=>
-        send ch.res(*senddata)=>
+                let tag_bits = address[4+:4];
+                let set_index = address[2+:2];
+                if (*valid[set_index][0] == 1'b1) & (*tag[set_index][0] == tag_bits) {
+                    set senddata := *cache[set_index][0];
+                    dprint "Cache Hit in cycle %d" (*cycle_counter)
+                } else if (*valid[set_index][1] == 1'b1) & (*tag[set_index][1] == tag_bits) {
+                    set senddata := *cache[set_index][1];
+                    dprint "Cache Hit in cycle %d" (*cycle_counter)
+                } else if (*valid[set_index][2] == 1'b1) & (*tag[set_index][2] == tag_bits) {
+                    set senddata := *cache[set_index][2];
+                    dprint "Cache Hit in cycle %d" (*cycle_counter)
+                } else if (*valid[set_index][3] == 1'b1) & (*tag[set_index][3] == tag_bits) {
+                    set senddata := *cache[set_index][3];
+                    dprint "Cache Hit in cycle %d" (*cycle_counter)
+                } else {
+                    dprint "Cache Miss in cycle %d" (*cycle_counter);
+                    send ch_mem.req(address) >>
+                    let data = recv ch_mem.res >>
+                    set senddata := data;
+                    dprint "Data from memory for address %b: %b" (address, data);
+                    if *count[set_index] < 3'b100 {
+                        let tail_index = *tail[set_index];
+                        {
+                            set cache[set_index][tail_index] := data;
+                            set tag[set_index][tail_index] := tag_bits;
+                            set count[set_index] := *count[set_index]+3'b001;
+                            set valid[set_index][tail_index] := 1'b1
+                        } >>
+                        set tail[set_index] := *tail[set_index]+2'b01
+                    } else {
+                        let head_index = *head[set_index];
+                        {
+                            set cache[set_index][head_index] := data;
+                            set tag[set_index][head_index] := tag_bits;
+                            set valid[set_index][head_index] := 1'b1
+                        } >>
+                        set head[set_index] := *head[set_index]+2'b01
+                    }
+                }
+        } >>
+        send ch.res(*senddata) >>
         dprint "(FIFO_Cache) Cache Response sent in cycle %d" (*cycle_counter);
         cycle 1
     }
+}
 
 
 
-proc Main_Memory(ch : left memory_read, write_ch : left memory_write) =
-    reg memory :value_8bit[256]
-    reg cycle_counter :logic[4]
-    reg result :logic[8]
+proc Main_Memory(ch : left memory_read, write_ch : left memory_write) {
+    reg memory : value_8bit[256];
+    reg cycle_counter : logic[4];
+    reg result : logic[8];
     loop {
-        set cycle_counter := *cycle_counter + 4'b0001;
-        cycle 1
+        set cycle_counter := *cycle_counter + 4'b0001
     }
     loop {
-        let address = recv ch.req in
-        address =>
+        let address = recv ch.req >>
         dprint "(Main Memory) Memory Read Request for address %d in cycle %d" (address, *cycle_counter);
-        (set result := *memory[address];
-        cycle 1)=>
-        send ch.res(*result)=>
+        set result := *memory[address] >>
+        send ch.res(*result) >>
         dprint "(Main Memory) Memory Read Response sent in cycle %d" (*cycle_counter);
         cycle 1
     }
-    loop
-    {
-        let x = recv write_ch.req in
-        x=>
-        (
-            (set memory[x.address] := x.data;
-            cycle 1)=>
-            send write_ch.res(1'b1);
-            cycle 1
-
-        )
-    }
-
-
-proc cache ()=
-    chan cache_input -- cache_output : cache_read
-    chan memory_input -- memory_output : memory_read
-    chan memory_write_input -- memory_write_output : memory_write
-    spawn FIFO_Cache(cache_input, memory_output)
-    spawn Main_Memory(memory_input, memory_write_input)
-    reg count : logic[4]
-    reg address : logic[8]
-    reg data : logic[8]
-    reg cycle_counter : logic[4]
     loop {
-        set cycle_counter := *cycle_counter + 4'b0001;
+        let x = recv write_ch.req >>
+        set memory[x.address] := x.data >>
+        send write_ch.res(1'b1);
         cycle 1
     }
+}
+
+
+proc cache () {
+    chan cache_input -- cache_output : cache_read;
+    chan memory_input -- memory_output : memory_read;
+    chan memory_write_input -- memory_write_output : memory_write;
+    spawn FIFO_Cache(cache_input, memory_output);
+    spawn Main_Memory(memory_input, memory_write_input);
+    reg count : logic[4];
+    reg address : logic[8];
+    reg data : logic[8];
+    reg cycle_counter : logic[4];
     loop {
-    (
-        if *count == 4'b0000 then
-        (
+        set cycle_counter := *cycle_counter + 4'b0001
+    }
+    loop {
+        if *count == 4'b0000 {
             set address := 8'b00000000;
             set data := 8'b01010101
-
-        )
-        else (
-            if *count == 4'b0001 then
-            (
-                set address := 8'b00010000;
-                set data := 8'b10101110
-
-            )
-            else (
-                if *count == 4'b0010 then
-                (
-                    set address := 8'b00100000;
-                    set data := 8'b11011001
-
-                )
-                else
-                (
-                    if *count == 4'b0011 then
-                    (
-                        set address := 8'b00110000;
-                        set data := 8'b11111111
-
-                    )
-
-                    else
-                    (
-                        if *count == 4'b0100 then
-                        (
-                            set address := 8'b00000000
-
-                        )
-
-                        else
-                        (
-                            if *count == 4'b0101 then
-                            (
-                                set address := 8'b00010000
-
-                            )
-                            else
-                            (
-                                if *count == 4'b0110 then
-                                (
-                                    set address := 8'b00100000
-                                )
-                                else
-                                (
-                                    if *count == 4'b0111 then
-                                    (
-
-                                        set address := 8'b00110000
-                                    )
-                                    else
-                                    (
-
-                                        set address := 8'b00000000
-
-                                    )
-                                )
-                            )
-                        )
-                    )
-                )
-            )
-        )
-    )=>
-    (
-        if *count <= 4'b0011 then
-        (
-
-            send memory_write_output.req(memory_map::{address=*address; data=*data}) =>
-            let y = recv memory_write_output.res in
-            y =>
+        } else if *count == 4'b0001 {
+            set address := 8'b00010000;
+            set data := 8'b10101110
+        } else if *count == 4'b0010 {
+            set address := 8'b00100000;
+            set data := 8'b11011001
+        } else if *count == 4'b0011 {
+            set address := 8'b00110000;
+            set data := 8'b11111111
+        } else if *count == 4'b0100 {
+            set address := 8'b00000000
+        } else if *count == 4'b0101 {
+            set address := 8'b00010000
+        } else if *count == 4'b0110 {
+            set address := 8'b00100000
+        } else if *count == 4'b0111 {
+            set address := 8'b00110000
+        } else {
+            set address := 8'b00000000
+        } >>
+        if *count <= 4'b0011 {
+            send memory_write_output.req(memory_map::{address=*address; data=*data}) >>
+            let y = recv memory_write_output.res >>
             dprint "(Top) Memory Write (%d) Complete in address %d: %d in cycle %d\n" (*count, *address, *data, *cycle_counter);
             set count := *count + 4'b0001
-
-        )
-        else
-        (
+        } else {
             dprint "(Top) Cache Request(%d) sent in cycle %d\n" (*count-4'b0100, *cycle_counter);
-            send cache_output.req(*address)=>
-            let z = recv cache_output.res in
-            z =>
+            send cache_output.req(*address) >>
+            let z = recv cache_output.res >>
             dprint "(Top) Cache Request(%d) Output Received in cycle %d for address (%d) Output: %d\n" (*count-4'b0100, *cycle_counter, *address, z);
             set count := *count + 4'b0001
-        )
-    );
-    cycle 1
+        }
     }
+}

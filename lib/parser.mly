@@ -145,7 +145,7 @@ proc_def:
   }
 | KEYWORD_PROC; ident = IDENT; LEFT_PAREN; args = proc_def_arg_list; RIGHT_PAREN;
   KEYWORD_EXTERN; LEFT_PAREN; mod_name = STR_LITERAL; RIGHT_PAREN;
-  body = proc_def_body_extern
+  LEFT_BRACE; body = proc_def_body_extern; RIGHT_BRACE
   {
     {
       name = ident;
@@ -198,12 +198,12 @@ proc_def_body:
 
 proc_def_body_extern:
 | { let open Lang in {named_ports = []; msg_ports = []} }
-| name = IDENT; LEFT_PAREN; s = STR_LITERAL; RIGHT_PAREN; body = proc_def_body_extern
+| name = IDENT; LEFT_PAREN; s = STR_LITERAL; RIGHT_PAREN; SEMICOLON; body = proc_def_body_extern
   {
     let open Lang in {body with named_ports = (name, s)::body.named_ports}
   }
 | msg = message_specifier; LEFT_PAREN; s0 = STR_LITERAL?; COLON;
-  s1 = STR_LITERAL?; COLON; s2 = STR_LITERAL?; RIGHT_PAREN; body = proc_def_body_extern
+  s1 = STR_LITERAL?; COLON; s2 = STR_LITERAL?; RIGHT_PAREN; SEMICOLON; body = proc_def_body_extern
   {
     let open Lang in {body with msg_ports = (msg, s0, s1, s2)::body.msg_ports}
   }
@@ -441,9 +441,8 @@ expr:
 | KEYWORD_GENERATE; LEFT_PAREN; i=IDENT; COLON; start = INT; COMMA; end_v = INT; COMMA;
   offset = INT; RIGHT_PAREN; LEFT_BRACE; body = node(expr); RIGHT_BRACE
   { Lang.generate_expr (i,start, end_v, offset, body) }
-| KEYWORD_IF; cond = node(expr); LEFT_BRACE; then_v = node(expr); RIGHT_BRACE;
-  else_v = node(else_branch)?
-  { Lang.IfExpr (cond, then_v, Option.value ~default:(Lang.dummy_ast_node_of_data @@ Lang.Tuple []) else_v) }
+| e = if_branch
+  { e }
 | KEYWORD_CALL ; func = IDENT; LEFT_PAREN; args = separated_list(COMMA, node(expr)); RIGHT_PAREN
   { Lang.Call (func, args) }
 // | KEYWORD_TRY; KEYWORD_SEND; send_pack = send_pack; KEYWORD_THEN;
@@ -490,10 +489,20 @@ expr_in_parenthese:
   { e }
 ;
 
+if_branch:
+  KEYWORD_IF; cond = node(expr); LEFT_BRACE; then_v = node(expr); RIGHT_BRACE;
+  else_v = node(else_branch)?
+  { Lang.IfExpr (cond, then_v, Option.value ~default:(Lang.dummy_ast_node_of_data @@ Lang.Tuple []) else_v) }
+;
+
 else_branch:
-  KEYWORD_ELSE; LEFT_BRACE; else_v = expr; RIGHT_BRACE
+| KEYWORD_ELSE; LEFT_BRACE; else_v = expr; RIGHT_BRACE
   {
     else_v
+  }
+| KEYWORD_ELSE; e = if_branch
+  {
+    e
   }
 ;
 

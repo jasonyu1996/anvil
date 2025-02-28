@@ -1,16 +1,20 @@
-proc if_comb() =
+proc if_comb() {
     loop {
-        let g = if 1'b1 then
-            1'b0
-        else if 1'b1 then
-            1'b0
-        else if 1'b0 then
-            1'b1
-        else if 1'b0 then
-            1'b1
-        else
-            1'b0
-        in
+        let g =
+            if 1'b1 {
+                1'b0
+            } else if 1'b1 {
+                1'b0
+            } else if 1'b0 {
+                1'b1
+            } else if 1'b0 {
+                1'b1
+            } else if 1'b0 {
+                1'b1
+            } else {
+                1'b1
+            };
         dprint "Val = %d" (g);
         cycle 1
     }
+}

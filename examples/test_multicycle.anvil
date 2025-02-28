@@ -1,10 +1,12 @@
-type value_5bit = logic[5]
-proc test_multicycle() =
-    reg cycle_counter : value_5bit
+type value_5bit = logic[5];
+
+proc test_multicycle() {
+    reg cycle_counter : value_5bit;
     loop {
-        cycle 20 =>
+        cycle 20 >>
         dprint "Hello Anvil* Cycle Counter = %d" (*cycle_counter)
     }
     loop {
         set cycle_counter := *cycle_counter + 5'b00001
     }
+}

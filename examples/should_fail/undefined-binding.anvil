@@ -1,4 +1,5 @@
-proc top() =
+proc top() {
     loop {
         a
     }
+}

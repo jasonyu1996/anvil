@@ -1,59 +1,53 @@
-chan ch = {
+chan ch {
     left req: (logic@res),
     right res: (logic@req)
 }
 
-func state0() = 
-(
+func state0() {
     send ch.res(1'd1);
     set state := 2'd1
-)
-
-func state1() = 
-(
-    let x = recv ch.req in 
-    x=>
-    dprint "recv  x = %d" (x);
-    set state := 2'd2
-)
-func state2() = 
-(
-    send ch.res(1'd1);
-    set state := 2'd3
-)
-func state3() = 
-(
-    let x = recv ch.req in 
-    x=>
-    dprint "Finally recv  x = %d" (x);
-    set state := 2'd0
-)
-
-
-proc foo(ch : left ch) = 
-reg state : logic[2]
-loop{
-    
-    (match *state with:
-    |> 2'd0 -> call state0()
-    |> 2'd1 -> call state1()
-    |> 2'd2 -> call state2()
-    |> _ -> call state3()
-    done); 
-    cycle 1
-    
 }
 
-proc test_match_endpoint()=
-chan ch_le -- ch_ri : ch
-spawn foo(ch_le)
-loop{
-    
-    (
-        let x = recv ch_ri.res in
-        x=>
-        dprint "recv  x = %d" (x)
-        send ch_ri.req(1'd1)
-    );
-    cycle 1
+func state1() {
+    let x = recv ch.req >>
+    dprint "recv  x = %d" (x);
+    set state := 2'd2
+}
+
+func state2() {
+    send ch.res(1'd1);
+    set state := 2'd3
+}
+
+func state3() {
+    let x = recv ch.req >>
+    dprint "Finally recv  x = %d" (x);
+    set state := 2'd0
+}
+
+proc foo(ch : left ch) {
+    reg state : logic[2];
+
+    loop {
+        match *state {
+            2'd0 => call state0(),
+            2'd1 => call state1(),
+            2'd2 => call state2(),
+            _ => call state3()
+        } >>
+        cycle 1
+    }
+}
+
+proc test_match_endpoint() {
+    chan ch_le -- ch_ri : ch;
+    spawn foo(ch_le);
+    loop {
+        {
+            let x = recv ch_ri.res >>
+            dprint "recv  x = %d" (x);
+            send ch_ri.req(1'd1)
+        };
+        cycle 1
+    }
 }

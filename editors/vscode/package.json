@@ -1,0 +1,41 @@
+{
+	"name": "anvil-hdl",
+	"displayName": "AnvilHDL",
+	"description": "AnvilHDL support for Visual Studio Code.",
+	"version": "0.1.0",
+	"publisher": "AnvilHDL",
+	"engines": {
+		"vscode": "^1.22.0"
+	},
+	"extensionKind": [
+		"workspace"
+	],
+	"categories": [
+		"Programming Languages"
+	],
+	"keywords": [
+		"anvilhdl",
+        "hdl"
+	],
+	"contributes": {
+		"languages": [
+			{
+				"id": "anvil",
+				"extensions": [
+					".anvil"
+				],
+				"aliases": [
+					"AnvilHDL"
+				],
+				"configuration": "./language.config.json"
+			}
+		],
+		"grammars": [
+			{
+				"language": "anvil",
+				"scopeName": "source.anvil",
+				"path": "./grammar.json"
+			}
+		]
+    }
+}

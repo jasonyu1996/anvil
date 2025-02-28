@@ -1,0 +1,338 @@
+{
+	"name": "AnvilHDL",
+	"version": "0.1",
+	"fileTypes": [
+		"anvil"
+	],
+	"scopeName": "source.anvil",
+
+	"foldingStartMarker": "\\{\\s*$",
+	"foldingStopMarker": "^\\s*\\}",
+	"patterns": [
+		{
+			"include":"#comments"
+		},
+		{
+			"include": "#types"
+		},
+		{
+			"match": "\\b(struct)\\s+([a-zA-Z_][a-zA-Z0-9_]*)\\b",
+			"captures": {
+				"1": {
+					"name": "keyword.declaration.struct.anvil storage.type.anvil"
+				},
+				"2": {
+					"name": "entity.name.type.struct.anvil"
+				}
+			}
+		},
+		{
+			"match": "\\b(enum)\\s+([a-zA-Z_][a-zA-Z0-9_]*)\\b",
+			"captures": {
+				"1": {
+					"name": "keyword.declaration.enum.anvil storage.type.anvil"
+				},
+				"2": {
+					"name": "entity.name.type.enum.anvil"
+				}
+			}
+		},
+		{
+			"match": "\\b(proc)\\s+([a-zA-Z_][a-zA-Z0-9_]*)\\b",
+			"captures": {
+				"1": {
+					"name": "keyword.declaration.proc.anvil"
+				},
+				"2": {
+					"name": "entity.name.type.proc.anvil"
+				}
+			}
+		},
+		{
+			"match": "\\b(chan)\\s+([a-zA-Z_][a-zA-Z0-9_]*)\\s*(--)\\s*([a-zA-Z_][a-zA-Z0-9_]*)\\b",
+			"captures": {
+				"1": {
+					"name": "keyword.other.anvil storage.type.anvil"
+				},
+				"2": {
+					"name": "variable.other.anvil"
+				},
+				"3": {
+					"name": "keyword.operator.connect.anvil"
+				},
+				"4": {
+					"name": "variable.other.anvil"
+				}
+			}
+
+		},
+		{
+			"match": "\\b(chan)\\s+([a-zA-Z_][a-zA-Z0-9_]*)\\b",
+			"captures": {
+				"1": {
+					"name": "keyword.declaration.chan.anvil"
+				},
+				"2": {
+					"name": "entity.name.type.chan.anvil"
+				}
+			}
+		},
+		{
+			"match": "\\b(spawn)\\s+([a-zA-Z_][a-zA-Z0-9_]*)\\b",
+			"captures": {
+				"1": {
+					"name": "keyword.other.anvil storage.type.anvil"
+				},
+				"2": {
+					"name": "entity.name.type.proc.anvil"
+				}
+			}
+		},
+		{
+			"match": "\\b(reg)\\s+([a-zA-Z_][a-zA-Z0-9_]*)\\b",
+			"captures": {
+				"1": {
+					"name": "keyword.other.anvil storage.type.anvil"
+				},
+				"2": {
+					"name": "variable.other.anvil"
+				}
+			}
+		},
+		{
+			"match": "\\b(type)\\s+([a-zA-Z_][a-zA-Z0-9_]*)\\b",
+			"captures": {
+				"1": {
+					"name": "keyword.declaration.type.anvil"
+				},
+				"2": {
+					"name": "entity.name.type.other.anvil"
+				}
+			}
+		},
+		{
+			"match": "\\b(func)\\s+([a-zA-Z_][a-zA-Z0-9_]*)\\b",
+			"captures": {
+				"1": {
+					"name": "keyword.declaration.function.anvil"
+				},
+				"2": {
+					"name": "entity.name.function.anvil"
+				}
+			}
+		},
+		{
+			"match": "\\b(const)\\s+([a-zA-Z_][a-zA-Z0-9_]*)\\b",
+			"captures": {
+				"1": {
+					"name": "keyword.declaration.constant.anvil"
+				},
+				"2": {
+					"name": "entity.name.constant.anvil"
+				}
+			}
+		},
+		{
+			"include": "#keywords"
+		},
+		{
+			"include": "#expressions"
+		}
+	],
+	"repository": {
+		"comments": {
+			"patterns": [
+				{
+					"include": "#comments-block"
+				},
+				{
+					"include": "#comments-inline"
+				}
+			]
+		},
+		"comments-block": {
+			"patterns": [
+				{
+					"name": "comment.block.anvil",
+					"begin": "/\\*",
+					"end": "\\*/",
+					"patterns": [
+						{
+							"include": "#comments-block"
+						}
+					]
+				}
+			]
+		},
+		"comments-inline": {
+			"patterns": [
+				{
+					"match": "((//).*)$",
+					"captures": {
+						"1": {
+							"name": "comment.line.double-slash.anvil"
+						}
+					}
+				}
+			]
+		},
+		"constants": {
+			"patterns": [
+				{
+					"name": "constant.numeric.anvil",
+					"match": "\\b(([0-9]+'[bdh][0-9]+)|([0-9]+(?!')))\\b"
+				}
+			]
+		},
+		"variables": {
+			"patterns": [
+				{
+					"name": "variable.other.anvil",
+					"match": "\\b[a-zA-Z_][a-zA-Z0-9_]*\\b"
+				}
+			]
+		},
+		"strings": {
+			"patterns": [
+				{
+					"name": "string.quoted.double.anvil",
+					"begin": "(\")",
+					"beginCaptures": {
+						"1": {
+							"name": "punctuation.definition.string.anvil"
+						}
+					},
+					"end": "(\")",
+					"endCaptures": {
+						"1": {
+							"name": "punctuation.definition.string.anvil"
+						}
+					}
+				}
+			]
+		},
+		"expressions": {
+			"patterns": [
+				{
+					"include": "#constants"
+				},
+				{
+					"match": "\\b([a-zA-Z_][a-zA-Z0-9_]*)\\s*(::)\\s*([a-zA-Z_][a-zA-Z0-9_]*)\\b",
+					"captures": {
+						"1": {
+							"name": "entity.name.type.enum.anvil"
+						},
+						"2": {
+							"name": "keyword.operator.namespace.anvil"
+						},
+						"3": {
+							"name": "entity.name.type.variant.anvil"
+						}
+					}
+				},
+				{
+					"match": "\\s+(:)\\s*(left|right)\\s+([a-zA-Z_][a-zA-Z0-9_]*)\\b",
+					"captures": {
+						"1": {
+							"name": "keyword.operator.type.anvil"
+						},
+						"2": {
+							"name": "storage.modifier.anvil"
+						},
+						"3": {
+							"name": "entity.name.type.other.anvil"
+						}
+					}
+				},
+				{
+					"match": "\\s+(:)\\s*([a-zA-Z_][a-zA-Z0-9_]*)\\b",
+					"captures": {
+						"1": {
+							"name": "keyword.operator.type.anvil"
+						},
+						"2": {
+							"name": "entity.name.type.other.anvil"
+						}
+					}
+				},
+				{
+					"match": "\\b([a-zA-Z_][a-zA-Z0-9_]*)\\s*(::)\\s*{\\b",
+					"captures": {
+						"1": {
+							"name": "entity.name.type.enum.anvil"
+						},
+						"2": {
+							"name": "keyword.operator.namespace.anvil"
+						}
+					}
+				},
+				{
+					"include": "#variables"
+				},
+				{
+					"include": "#strings"
+				}
+			]
+		},
+		"types": {
+			"patterns": [
+				{
+					"name": "entity.name.type.numeric.anvil",
+					"match": "\\b(logic|int)\\b"
+				},
+				{
+					"name": "storage.modifier.anvil",
+					"match": "\\b(left|right|extern)\\b"
+				},
+				{
+					"name": "keyword.other.anvil storage.type.anvil",
+					"match": "\\b(shared)\\b"
+				},
+				{
+					"name": "keyword.other.anvil",
+					"match": "\\b(assigned\\s+by)\\b"
+				},
+				{
+					"name": "keyword.other.anvil",
+					"match": "\\b(import|generate)\\b"
+				},
+				{
+					"name": "entity.name.type.timing.anvil",
+					"match": "\\bdyn\\b"
+				}
+			]
+		},
+		"keywords": {
+			"patterns": [
+				{
+                    "name": "punctuation.comma.anvil",
+                    "match": ","
+                },
+				{
+                    "name": "punctuation.semi.anvil",
+                    "match": ";"
+				},
+				{
+					"name": "keyword.control.anvil",
+					"match": "(?<!\\$)\\b(call|loop|recursive|if|else|recurse|recv|send|dprint|dfinish|set|cycle|sync|match|put|ready)\\b(?!\\$)"
+				},
+				{
+					"name": "keyword.other.anvil storage.type.anvil",
+					"match": "\\b(let)\\b"
+				},
+				{
+                    "name": "keyword.operator.assignment.anvil",
+                    "match": "(:=|=)"
+				},
+				{
+					"name": "punctuation.wait.anvil",
+					"match": "(?<!\\>)\\>\\>(?!\\>)"
+				},
+				{
+					"name": "keyword.operator.access.dot.anvil",
+					"match": "\\.(?!\\.)"
+				}
+			]
+		}
+	}
+}
