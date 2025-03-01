@@ -22,6 +22,8 @@ reg-read-expression ::= *$identifier
 The expression `*r` evaluates immediately to the current value of the register `r`.
 The value is available until the next write to `r`.
 
+Upon reset, the initial value of a register is all zero.
+
 ##### Register Write
 
 A register can be written through the set expression.
