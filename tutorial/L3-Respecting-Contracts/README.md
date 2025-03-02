@@ -108,7 +108,7 @@ The checker indicates that `*mem[addr]` cannot be guaranteed to be live until th
 Now, the issue arises because the value of `addr` is only stable for one cycle, as dictated by the contract of `read_req`:  
 
 ```rust
-left read_req : (logic[8]@#1) @#2 - @dyn;
+left read_req : (logic[8]@#1) @#0~2 - @dyn;
 ```  
 
 This means `addr` could change in the next cycle, potentially leading to an incorrect memory read. To ensure stability, we need to register the value of `addr` so that it remains unchanged until the next `read_req` message arrives.  

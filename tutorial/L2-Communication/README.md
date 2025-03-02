@@ -36,7 +36,7 @@ struct address_data_pair
 }
 
 chan memory_ch {
-    left read_req : (logic[8]@#1) @#2 - @dyn,
+    left read_req : (logic[8]@#1) @#0~2 - @dyn,
     right read_resp : (logic[8]@read_req) @#read_req+1 - @#read_req+1,
     left write_req :  (address_data_pair@#1),
     right write_resp : (logic[1]@#1) @#write_req+2 - @#write_req+2
@@ -66,7 +66,11 @@ Each message in a channel comes with a contract specifying:
 2. **Synchronization Pattern (`@left-pat - @right-pat`)**  
    Specifies a static agreement between the `left` and `right` endpoint on the frequency of message exchange.  
 
-   - A time pattern can be a **constant** number of clock cycles (e.g., `@#1`) or a **variable** clock cycle (e.g., `@#msg_id`, where `msg_id` corresponds to the reception of a specific message in the channel).  
+   - A time pattern can be a **constant** number of clock cycles (e.g., `@#1`) or a **variable** clock cycle (e.g., `@#msg_id`, where `msg_id` corresponds to the reception of a specific message in the channel).   
+
+   - In the time pattern `@#N`, where `N` is constant, `(I~N)` defines the initial delay. This delay applies **only to the first occurrence** of the message. For example, in the case of a `read_req` message, the pattern `#0~2` means the left endpoint is ready to receive a message every 2 cycles. However, the first message can be received immediately after reset.  
+      - This initial offset is optional when it is not mentioned it means `N~N`, where the first message is also recieved after `N` cycles after reset.
+   - A time pattern can be **dynamic** (`@dyn`), indicating that the corresponding endpoint doesnt agree to a fixed frequency of message exchange.
 
 In Anvil, a message contract is implicitly handled by generating control signals for a two-way handshake. However, in cases where the sender and receiver are already synchronized on the message exchange frequency, explicit valid/acknowledgment signals are not needed for synchronization.  
 
@@ -113,12 +117,12 @@ Now lets see if we can understand each of the message contracts in the above cha
 **For  `read_req`**  
 
 ```rust
-left read_req : (logic[8]@#1) @#2 - @dyn;
+left read_req : (logic[8]@#1) @#0~2 - @dyn;
 ```
 
 - This message is recieved by the `left` endpoint (memory module).
 - The value (semantically the lookup address) is valid for 1 cycle after being recieved.  
-- The sender (right endpoint) can send the message at any time (`@dyn`) however the reciever `left` endpoint is ready to recieve at interval of `#2` clock cycles from the previous message reciept.
+- The sender (right endpoint) can send the message at any time (`@dyn`) however the reciever `left` endpoint is ready to recieve at interval of `#2` clock cycles from the previous message reciept. The first message can be recieved immediately after reset.
 - Since the sender is dynamic(`dyn`) but reciever has a fixed pattern, a valid signal is required to indicate when the message is available for the reciever. However, an acknowledgment signal is not needed, as the sender already knows the reciever will be ready after 2 cycles. (Line 2 from the table above)
 
 
