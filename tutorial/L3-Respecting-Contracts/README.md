@@ -183,7 +183,7 @@ memory_safe.anvil:21:23:
   21|             let addr = recv endp.read_req >>
 ```
 
-This is because the read thread (loop) waits 1 cycle before looping back to the next cycle hence, the gap between `read_req` and `read_res` is 1 cycle and therefore the gap between `read_req` and next `read_req` will be 1+1 = 2 cycles. This violates the contract of the channel. This will be fixed by removing the 1 cycle delay in the read thread. 
+This is because the read thread (loop) waits 1 cycle before looping back to the next cycle hence, the gap between `read_req` and `read_res` is 1 cycle and therefore the gap between `read_req` and next `read_req` will be 1+1 = 2 cycles. This violates the contract of the channel. This will be fixed by removing the 1 cycle delay in the read thread at the end.
 
 This is already happening in the write thread as the write thread is ready to receive every cycle.
 </details>

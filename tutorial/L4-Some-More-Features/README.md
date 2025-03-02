@@ -154,5 +154,21 @@ func decrypt(data, key) {
 - The decrypted data is decrypted and compared with `local_mem` copy.
 - If all 256 addresses have been read, the process terminates using `dfinish`.
 - Note that everything from receiving the read_resp until the end of the loop starts concurrently and executes in parallel. The next iteration begins only after the `read_address` register update is complete. Since the register update takes one cycle and we waited one cycle to receive `read_resp`, the interval between two consecutive `read_req` operations is 2 cycles, aligning with the sync pattern.
+- The `cycle 1` in the else block is used so that next iteration of loop is in the next cycle else it will keep on iterating without the clock cycle changing, when the write is not complete.
 
+
+
+## Key Takeaways
+
+- Anvil provides a `generate` construct to generate expressions with indexing, kind of for loop in software programming, however, the expressions are executed in parallel.
+- Functions are a primitive feature to avoid repetitive expressions.
+- The `call` keyword is used to invoke a function.
+- The concatenation operator `#{}` is used to concatenate multiple values.
+- The `dprint` and `dfinish` functions are used for debugging purposes.
+- The `identifier::{field1=value1;field2=value2...}` syntax is used to create a struct of a specific type with field values.
+- Similarly Anvil provides other language construct such as `match`, `recursive` expressions for pipeline behaviour and parametrization of types, channels, processes etc. Check out the language reference for more details.
+
+
+
+<!-- ## Some Questions to think about: -->
 
