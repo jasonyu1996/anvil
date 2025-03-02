@@ -224,17 +224,6 @@ let event_min_among_succ events weights =
       if v < v' then
         res.(e'.id) <- v
     in
-    (* handle forward branches *)
-    let (branch_v, has_branch) = List.fold_left (fun (mx, has) ev_succ ->
-      match ev_succ.source with
-      | `Root (Some _) ->
-        (Int.max mx res.(ev_succ.id), true)
-      | _ ->
-        (mx, has)
-    ) (0, false) ev'.outs in
-    if has_branch then (
-      update_res ev' branch_v
-    );
     let v = res.(ev'.id) in
     match ev'.source with
     | `Root None -> ()
@@ -242,12 +231,16 @@ let event_min_among_succ events weights =
     | `Branch (_, {branch_val_true = Some e1; branch_val_false = Some e2; _}) ->
       update_res e1 v;
       update_res e2 v
-    | `Seq (e, _)
-    | `Root (Some (e, _)) ->
+    | `Seq (e, _) ->
       update_res e v
-    | `Branch (_e, _) -> ()
-      (* FIXME: this handling is rough; we handle this at
-      forward edges instead *)
+    | `Root (Some (e, br_side)) ->
+      (* false side is visited first *)
+      if br_side.branch_side_sel then (
+        let other_side = Option.get br_side.owner_branch.branch_to_false in
+        Int.max res.(other_side.id) v |> update_res e
+      )
+      (* we handle this at forward edges instead *)
+    | `Branch _ -> ()
   ) events;
   res
 
