@@ -5,7 +5,7 @@ struct address_data_pair
 }
 
 chan memory_ch {
-    left read_req : (logic[8]@#1) @#1 - @dyn,
+    left read_req : (logic[8]@#1) @#0~2 - @dyn,
     right read_resp : (logic[8]@read_req) @#read_req+1 - @#read_req+1,
     left write_req :  (address_data_pair@#1),
     right write_resp : (logic[1]@#1) @#write_req+1 - @#write_req+1  
