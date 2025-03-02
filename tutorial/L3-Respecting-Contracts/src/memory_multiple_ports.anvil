@@ -1,0 +1,51 @@
+
+struct address_data_pair
+{
+    addr : logic[8],
+    data : logic[8]
+}
+
+chan memory_ch {
+    left read_req : (logic[8]@#1) @#2 - @dyn,
+    right read_resp : (logic[8]@read_req) @#read_req+1 - @#read_req+1,
+    left write_req :  (address_data_pair@#1),
+    right write_resp : (logic[1]@#1) @#write_req+1 - @#write_req+1  
+}
+
+type byte = logic[8];
+
+
+proc memory_multiple_ports(endp1: left memory_ch, endp2: left memory_ch) {
+    reg mem : byte[256];
+    reg rd_data1 : byte;
+    reg rd_data2 : byte;
+    loop {
+            let addr = recv endp1.read_req >>
+            set rd_data1 := *mem[addr];
+            cycle 1 >>
+            send endp1.read_resp(*rd_data1)>>
+            cycle 1
+    }
+    loop {
+            let addr = recv endp2.read_req >>
+            set rd_data2 := *mem[addr];
+            cycle 1 >>
+            send endp2.read_resp(*rd_data2)>>
+            cycle 1
+    }
+    loop{
+      if (ready endp1.write_req) {
+            let addr_data = recv endp1.write_req>>
+            set mem[addr_data.addr] := addr_data.data >> 
+            send endp1.write_resp(1)
+      }
+      else{
+          if (ready endp2.write_req) {
+                let addr_data = recv endp2.write_req>>
+                set mem[addr_data.addr] := addr_data.data >> 
+                send endp2.write_resp(1)
+          }
+          else {cycle 1}      
+      } 
+    }
+}

@@ -1,0 +1,35 @@
+struct address_data_pair
+{
+    addr : logic[8],
+    data : logic[8]
+}
+
+chan memory_ch {
+    left read_req : (logic[8]@#1) @#1 - @dyn,
+    right read_resp : (logic[8]@read_req) @#read_req+1 - @#read_req+1,
+    left write_req :  (address_data_pair@#1),
+    right write_resp : (logic[1]@#1) @#write_req+1 - @#write_req+1  
+}
+
+type byte = logic[8];
+
+proc memory_safe(endp: left memory_ch) {
+    reg mem : byte[256];
+    reg rd_data : byte;
+    loop {
+            
+            let addr = recv endp.read_req >>
+            set rd_data := *mem[addr];
+            cycle 1 >>
+            send endp.read_resp(*rd_data) >>
+            cycle 1
+    }
+
+    loop {
+        let addr_data = recv endp.write_req>>
+        set mem[addr_data.addr] := addr_data.data >> 
+        send endp.write_resp(1)
+    }
+    
+
+}

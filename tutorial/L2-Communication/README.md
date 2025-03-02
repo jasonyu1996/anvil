@@ -92,8 +92,7 @@ For example in the case of sync pattern (`@dyn - @#N`):
 
 **2. `@#N - @#N`**  
 
-Both sender and receiver agree on a fixed message exchange frequency (`N`).  
-- Since they are already synchronized, **no valid or acknowledgment signals are needed**.
+Both sender and receiver agree on a fixed message exchange frequency (`N`). Since they are already synchronized, **no valid or acknowledgment signals are needed**.
 
 
 

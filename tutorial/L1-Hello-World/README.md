@@ -118,7 +118,7 @@ endmodule
 The `always_ff` block executes on the positive edge of the clock or the negative edge of the reset signal. While the specific details of these signals aren't important right now, it's essential to understand that hardware timing is discrete, meaning all expressions inside this block are evaluated concurrently, starting at the begining of each clock cycle.The variable temp is assigned the value of counter + 1 through a continuous assignment, meaning its value updates whenever counter + 1 changes.
 
 
-### Key Takeaways  
+## Key Takeaways  
 
 - Hardware components in Anvil are modeled as processes.  
 - Hardware processes run indefinitely unless explicitly stopped.  
