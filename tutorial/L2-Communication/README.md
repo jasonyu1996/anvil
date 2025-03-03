@@ -117,7 +117,7 @@ Now lets see if we can understand each of the message contracts in the above cha
 **For  `read_req`**  
 
 ```rust
-left read_req : (logic[8]@#1) @#0~2 - @dyn;
+left read_req : (logic[8]@#1) @#0~2 - @dyn
 ```
 
 - This message is recieved by the `left` endpoint (memory module).
@@ -130,7 +130,7 @@ left read_req : (logic[8]@#1) @#0~2 - @dyn;
 **For `read_resp`**
 
 ```rust
-right read_resp : (logic[8]@#read_req) @read_req+1 - @read_req+1;
+right read_resp : (logic[8]@#read_req) @read_req+1 - @read_req+1
 ```
 - This message is recieved by the `right` endpoint (top module).
 - The response value (data at the lookup address) is valid from the time of being recieved till the next `read_req` message is sent.  
@@ -142,7 +142,7 @@ right read_resp : (logic[8]@#read_req) @read_req+1 - @read_req+1;
 **For `write_req`**
 
 ```rust
-left write_req : (address_data_pair@#1);
+left write_req : (address_data_pair@#1)
 ```
 
 - The message is recieved by the `left` endpoint (memory module).
@@ -154,7 +154,7 @@ left write_req : (address_data_pair@#1);
 **For `write_resp`**
 
 ```rust
-right write_resp : (logic[1]@#1) @#write_req+1 - @#write_req+1;
+right write_resp : (logic[1]@#1) @#write_req+1 - @#write_req+1
 ```
 
 - The message is recieved by the `right` endpoint (top module).
@@ -220,7 +220,7 @@ Since we want to check address against configuration, we have to assume that the
 
 ```rust
 chan arbiter_ch{
-  left arbiter_req : (logic[1]@#2), @dyn - @#2,
+  left arbiter_req : (logic[1]@#2), @dyn - @#2
 }
 ```
 Considering arbiter is the `left` endpoint, now the consumer has a static pattern, now for consumer to know it request is granted, arbiter has to just acknowledge the request, and since it will send again in 2 cycles, the value should not be used post 2 cycles hence the lifetime is #2.

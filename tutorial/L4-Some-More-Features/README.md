@@ -1,4 +1,4 @@
-# Some More Features
+# Lesson 4 Some More Features
 
 We have covered the primary features of the language. However, Anvil is intended to be a general-purpose HDL, and therefore, it includes some accessibility features that can be useful for designers. In this lesson, we will explore these features.
 
@@ -67,7 +67,7 @@ proc top(){
     reg write_address : byte;
     reg write_complete : logic;
 ```
-- The module first creates an instance of the `memory_ch` channel, generating two endpoints: `le_mem` and `ri_mem`, corresponding to the left and right endpoints of the channel.
+- This process first creates an instance of the `memory_ch` channel, generating two endpoints: `le_mem` and `ri_mem`, corresponding to the left and right endpoints of the channel.
 - It then instantiates the `memory_safe` process, passing the `le_mem` endpoint to it.
 - The necessary register declarations follow:
   - `local_mem` serves as local storage.

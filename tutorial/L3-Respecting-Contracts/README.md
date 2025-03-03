@@ -74,7 +74,7 @@ memory.anvil:20:12:
 Now this implies that the `read_resp` is sent in the same cycle as the `read_req` is received, which violates the contract.
 
 ```rust
-right read_resp : (logic[8]@#read_req) @read_req+1 - @read_req+1;
+right read_resp : (logic[8]@#read_req) @read_req+1 - @read_req+1
 ```  
 
 The `read_resp` should be sent one cycle after the `read_req` is received.
