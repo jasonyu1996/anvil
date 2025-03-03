@@ -43,3 +43,7 @@ loop-thread ::= loop { $expression }
 recursive-thread ::= recursive { $expression }
 ```
 
+#### External Process
+
+A process can also be defined to wrap an external module, i.e., implemented in
+non-AnvilHDL code. See [this](systemverilog.md) for detail.
