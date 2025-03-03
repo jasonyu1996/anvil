@@ -398,52 +398,104 @@ let events_max_dist events lookup_message ev =
   let is_pred e' = e'.id < pred_min_dist_mxn && pred_min_dist.(e'.id) >= 0 in
   let reachable = events_reachable events ev in
   let update_dist e v =
-    if res.(e.id) < v then
+    if res.(e.id) > v then
       res.(e.id) <- v
   in
+  let get_max_delay =
+    function
+    | `Cycles n -> n
+    | `Send m  ->
+      let msg_def = lookup_message m |> Option.get in
+      (
+        match msg_def.recv_sync with
+        | Static _ | Dependent _ -> 0
+        | _ -> event_distance_max
+      )
+    | `Recv m ->
+      let msg_def = lookup_message m |> Option.get in
+      (
+        match msg_def.send_sync with
+        | Static _ | Dependent _ -> 0
+        | _ -> event_distance_max
+      )
+    | `Sync _ -> event_distance_max (* oo *)
+  in
+  let get_min_delay =
+    function
+    | `Cycles n -> n
+    | `Send _ | `Recv _ | `Sync _ -> 0
+  in
+  let min3_outs = Array.make n
+    ((event_distance_max, 0), (event_distance_max, 0), (event_distance_max, 0))
+  in
+  let update_min3_outs v e' e =
+    let ((m0, i0), (m1, i1), (m2, i2)) = min3_outs.(e.id) in
+    let r =
+      if v < m0 then
+        ((v, e'.id), (m0, i0), (m1, i1))
+      else if v < m1 then
+        ((m0, i0), (v, e'.id), (m1, i1))
+      else if v < m2 then
+        ((m0, i0), (m1, i1), (v, e'.id))
+      else
+        ((m0, i0), (m1, i1), (m2, i2))
+    in
+    min3_outs.(e.id) <- r
+  in
+  let pick_filter_out ((m0, i0), (m1, i1), (m2, _i2)) i =
+    if i0 <> i then m0
+    else if i1 <> i then m1
+    else m2
+  in
+  let pick_filter_out2 ((m0, i0), (m1, i1), (m2, _i2)) ix iy =
+    if i0 <> ix && i0 <> iy then m0
+    else if i1 <> ix && i1 <> iy then m1
+    else m2
+  in
+  List.iter (fun e ->
+    if is_pred e then (
+      match e.source with
+      | `Seq (e', d') ->
+        update_min3_outs (-(pred_min_dist.(e.id) + (get_min_delay d'))) e e'
+      | `Root (Some (e', _)) ->
+        update_min3_outs (-pred_min_dist.(e.id)) e e'
+      | _ -> ()
+    )
+  ) events;
   List.rev events
     |> List.iter (fun e ->
-      let v =
-        if is_pred e then -pred_min_dist.(e.id)
-        else if not reachable.(e.id) then -event_distance_max
-        else (
+      if reachable.(e.id) then (
+        let pred = is_pred e in
+        if pred then res.(e.id) <- -pred_min_dist.(e.id)
+        else res.(e.id) <- event_distance_max;
+        (
           (* propagate *)
           match e.source with
-          | `Root None -> -event_distance_max
+          | `Root None -> ()
           | `Seq (e', d) -> (
-            let gap =
-              match d with
-              | `Cycles n -> n
-              | `Send m  ->
-                let msg_def = lookup_message m |> Option.get in
-                (
-                  match msg_def.recv_sync with
-                  | Static _ | Dependent _ -> 0
-                  | _ -> event_distance_max
-                )
-              | `Recv m ->
-                let msg_def = lookup_message m |> Option.get in
-                (
-                  match msg_def.send_sync with
-                  | Static _ | Dependent _ -> 0
-                  | _ -> event_distance_max
-                )
-              | `Sync _ -> event_distance_max (* oo *)
-            in
+            let gap = get_max_delay d in
             if res.(e'.id) = -event_distance_max then
-              res.(e'.id)
-            else
-              res.(e'.id) + gap
+              update_dist e @@ -event_distance_max
+            else (
+              update_dist e @@ res.(e'.id) + gap;
+              (* we can look at other paths *)
+              let other_path = pick_filter_out min3_outs.(e'.id) e.id in
+              if other_path <> -event_distance_max then
+                update_dist e @@ other_path + gap
+            )
           )
-          | `Later (e1, e2)
+          | `Later (e1, e2) ->
+            if not pred then
+              update_dist e @@ Int.max (res.(e1.id)) (res.(e2.id))
           | `Branch (_, {branch_val_true = Some e1; branch_val_false = Some e2; _}) ->
-            Int.max (res.(e1.id)) (res.(e2.id))
-          | `Root (Some (e', _)) ->
-            res.(e'.id)
+            update_dist e @@ Int.max (res.(e1.id)) (res.(e2.id))
+          | `Root (Some (e', br_side)) ->
+            update_dist e res.(e'.id);
+            pick_filter_out2 min3_outs.(e'.id) e.id (EventGraphOps.branch_other_side br_side).id
+            |> update_dist e
           | _ -> raise (Except.unknown_error_default "Unexpected event source!")
         )
-      in
-      update_dist e v
+      )
     );
   res
 
