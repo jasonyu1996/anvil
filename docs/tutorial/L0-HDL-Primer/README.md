@@ -18,7 +18,6 @@ At first glance, this SystemVerilog code might look like a regular software prog
 
 In software, you invoke a function using a call primitive, transferring control flow to it. In hardware description, however, module instantiation does **not** mean transferring control. Instead, it follows a **communication paradigm**—modules interact through signals (wires).  
 
-### Continuous Assignment and Combinational Logic  
 
 The signals are always connected and can be read anytime. The `assign` statement in the example above represents **continuous assignment**—meaning the value of `sum` is always the sum of `a` and `b`. There is no delay; the computation happens **immediately**. This is what is known as **combinational logic** in hardware.  
 
