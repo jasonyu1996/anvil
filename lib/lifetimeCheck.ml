@@ -427,7 +427,7 @@ let lifetime_check (config : Config.compile_config) (ci : cunit_info) (g : event
     Config.debug_println config "Messages requiring sync mode checks below:";
     Utils.StringMap.iter
       (fun m (o, relative_msg, n, self_check, other_check) ->
-        Printf.sprintf "Message %s with init offset %d, gap %d, relative to %s(<=: %b, >=: %b)\n"
+        Printf.sprintf "Message %s with init offset %d, gap %d, relative to %s(<=: %b, >=: %b)"
             m o n relative_msg self_check other_check
         |> Config.debug_println config)
     !msg_to_check
@@ -435,6 +435,9 @@ let lifetime_check (config : Config.compile_config) (ci : cunit_info) (g : event
   (* Check per message *)
   let check_msg_sync_mode msg (init_offset, relative_msg, gap, self_check, other_check) =
     (* if msg is an action at this event, obtain until *)
+    if config.verbose then (
+      Printf.eprintf "Checking sync mode %s %s %b %b\n" msg relative_msg self_check other_check
+    );
 
     let has_msg msg ev =
       let res = List.find_map (fun ac_span ->
@@ -484,11 +487,10 @@ let lifetime_check (config : Config.compile_config) (ci : cunit_info) (g : event
                   if has_msg msg ev' |> Option.is_none then
                     slacks.(ev'.id) <- GraphAnalysis.event_distance_max
                 ) g.events;
-                if config.verbose then (
-                  Array.iteri (fun idx sl -> Printf.eprintf "Sl %d = %d\n" idx sl) slacks
-                );
                 let min_weights = GraphAnalysis.event_min_among_succ g.events slacks in
                 if config.verbose then (
+                  Printf.eprintf "Relative to %d:\n" sa.d.until.id;
+                  Array.iteri (fun idx sl -> Printf.eprintf "Sl %d = %d\n" idx sl) slacks;
                   Array.iteri (fun idx sl -> Printf.eprintf "Mw %d = %d\n" idx sl) min_weights
                 );
                 if min_weights.(sa.d.until.id) > gap then (
