@@ -1,4 +1,4 @@
-# Lesson 4 Some More Features
+# Lesson 4: Some More Features
 
 We have covered the primary features of the language. However, Anvil is intended to be a general-purpose HDL, and therefore, it includes some accessibility features that can be useful for designers. In this lesson, we will explore these features.
 
