@@ -18,6 +18,14 @@ Anvil has the following design goals:
     It thus allows the designer to retain low-level control and
     is suitable for general purposes.
 
+### Status
+
+Currently, AnvilHDL is _experimental._
+
+- Many aspects of the language might change in
+  the future. Use at your own risk.
+- Seen something you don't like? Feel free to contribute your ideas or code!
+
 ### Dependencies
 
 Development: OCaml 5.2.0
@@ -31,8 +39,8 @@ dune exec anvil -- [-verbose] [-disable-lt-checks] [-two-round] <anvil-source-fi
 ```
 
 NOTE: To disable lifetime-related checks, pass `-disable-lt-checks`. The `-two-round` flag
-generates code for two rounds of each thread to work around some combinational loop issues
-codegen currently has (see https://github.com/jasonyu1996/anvil/issues/33).
+generates code for two rounds of each thread (previously used to
+work around some [combinational loop issues](https://github.com/jasonyu1996/anvil/issues/33) codegen had, now no more useful).
 
 ### Examples
 
@@ -72,9 +80,22 @@ sh typecheck-test.sh
 bash test-all.sh
 ```
 
+### Editor Support
+
+#### Visual Studio Code
+
+We have an extension for Visual Studio Code that provides syntax highlighting.
+See how to install [here](editors/vscode/README.md).
+
 ### Documentations
 
-To build the documentations,
+#### User Documentation
+
+* [Language reference manual](docs/langref/README.md)
+
+#### API Documentation
+
+The API documentation of the compiler can be built with
 ```
 dune build @doc
 ```
