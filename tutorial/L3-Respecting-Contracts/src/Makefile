@@ -15,7 +15,7 @@ else
 endif
 
 $(MODULE_NAME).sv: $(MODULE_NAME).anvil
-	anvil -verbose $(ANVIL_FLAGS) $< > $@
+	dune anvil $(ANVIL_FLAGS) $< > $@
 
 obj_dir/V$(MODULE_NAME): $(MODULE_NAME)_driver.cpp $(MODULE_NAME).sv
 	verilator -unroll-count 6000 --cc --exe --build $(VERILATOR_FLAGS) $^
