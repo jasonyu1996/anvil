@@ -24,7 +24,9 @@ The short answer: we need extra control signals to indicate when a value on a po
 
 ## Channels in Anvil
 
-In Anvil, we abstract communication using channels. Channels facilitate value exchange between processes. Instead of requiring explicit control signals, channels encode the necessary timing constraints directly into the interface handling the control signals implicitly.
+In Anvil, communication is abstracted using channels, which facilitate value exchange between processes. Channels in Anvil are bidirectional, allowing processes to send and receive values concurrently within the same clock cycle. They act as abstractions for multiple signals bundled into a single wire, providing amessage-like transmit and receive interface.
+
+As discussed, current HDL interfaces lack crucial information and require explicit control signals to be handled by the designers to ensure proper communication without timing violations. In contrast, Anvil’s channels encode a contract between interfacing modules. Anvil implicitly manages the involved control signals, reducing the designer’s burden and ensures proper communication between modules without any latency overhead.
 
 Consider the following channel definition in Anvil for the same memory module:  
 
@@ -227,3 +229,8 @@ Considering arbiter is the `left` endpoint, now the consumer has a static patter
 
 This is the way to generate minimum signals possible, however the arbiter has to be ready to accept the request at least at an interval of #2 cycles, can't be less than that.
 </details>
+
+---
+
+[L3: Respecting Contracts =>](../L3-Respecting-Contracts/README.md)\
+[<= L1: Hello World](../L1-Hello-World/README.md)

@@ -39,23 +39,39 @@ You will see the following output:
 [Cycle   0] Hello World in Anvil!
 ```
 
-This program runs indefinitely, which might feel strange if you're new to hardware programming. Unlike software, hardware processes are concurrent and do not terminate unless explicitly stopped. The `loop` keyword describes a concurrent process, meaning the behavior defined inside it repeats when all expressions inside it have finished evaluation.
+This program runs indefinitely, which might feel strange if you're new to hardware programming. Unlike software, hardware processes are highly concurrent and do not terminate unless explicitly stopped. The `loop` keyword describes a the process behaviour.The behavior defined inside it repeats when all expressions inside it have finished evaluation.
 
 ### Common Questions
 
-**1. Are the expressions evaluated sequentially?** \
-No. In Anvil, expressions separated by `;` are evaluated concurrently. This means that the register increment and the print statement start in the same clock cycle.  
+**1. Are the expressions evaluated sequentially?** 
+<details>
+<summary>Answer</summary>
+
+No. In Anvil, expressions separated by `;` are evaluated concurrently. This means that the register increment and the print statement start in the same clock cycle. However register evaluation takes one cycle while the print statement is immediate. Anvil also provides the `wait` primitive, discussed in later lessons, to introduce sequential behavior.
+
+</details>
 
 **2. How long does each iteration of the loop take?** \
+
+<details>
+<summary>Answer</summary>
+
 A loop iteration completes when all expressions in the loop body have finished executing. In this case:  
 - The register update takes one cycle to complete (related to actual semantics of RTL).
 - The evalutation of `dprint` statement completes immediately.
 
 Thus, the iteration time is determined by the longest operation, which is one cycle in this case.
 
-**3. Are the registers initialized to 0?** \
-Yes all the registers are by default initialized to zero. 
+</details>
 
+**3. Are the registers initialized to 0?** \
+
+<details>
+<summary>Answer</summary>
+
+Yes all the registers are by default initialized to zero. This is analogous to the `rst` logic in previous lesson, where every register is initialized to zero at the start of the simulation.
+
+</details>
 
 
 
@@ -128,3 +144,8 @@ The `always_ff` block executes on the positive edge of the clock or the negative
 - Each loop iteration takes as long as the longest operation inside it.  
 - Registers persist unless modified, while imediate values (`let`) update within the same cycle and are semantically meaningful for one iteration of the loop.
 - Lastly we learned about the syntax to declare registers and intermediate values in Anvil, along with debug printing statements.
+
+---
+
+[L2: Communication =>](../L2-Intermediate-Concepts/README.md)\
+[<= L0: The HDL Primer](../L0-HDL-Primer/README.md) 

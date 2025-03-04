@@ -77,7 +77,9 @@ proc top(){
 ## Process Body
 This process contains three concurrent loops, each handling a specific operation.
 
-### 1. Updating Local Storage with Complementary Values
+**1. Updating Local Storage with Complementary Values***
+
+
 ```rust
     loop{
         generate (i : 0,255,1) {
@@ -88,7 +90,7 @@ This process contains three concurrent loops, each handling a specific operation
 - The `generate (id : start, end, step){expr[i]}` construct allows concurrent execution of expressions over a range of values, i.e the semantic of this operation is expr[id];expr[id+1]; expr[id+2]...expr[end]
 - This means all assignments to `local_mem` occur in parallel.
 
-### 2. Writing to Memory
+**2. Writing to Memory**
 ```rust
     loop{
         let key = 8'b11101001;
@@ -125,7 +127,7 @@ func decrypt(data, key) {
 - The `call` keyword is used to invoke a function.
 - The concatenation operator `#{}` is used to concatenate multiple values.
 
-### 3. Reading from Memory
+**3. Reading from Memory**
 ```rust
     loop{
         if (*write_complete == 1'd1) {
@@ -168,7 +170,8 @@ func decrypt(data, key) {
 - The `identifier::{field1=value1;field2=value2...}` syntax is used to create a struct of a specific type with field values.
 - Similarly Anvil provides other language construct such as `match`, `recursive` expressions for pipeline behaviour and parametrization of types, channels, processes etc. Check out the language reference for more details.
 
-
-
+---
+[Practice Problems =>](../Self-Practice/)\
+[<= L3: Respecting Contracts](../L3-Respecting-Contracts/)
 <!-- ## Some Questions to think about: -->
 

@@ -237,3 +237,7 @@ proc memory_multiple_ports(endp1: left memory_ch, endp2: left memory_ch) {
 Anvil Provides the `ready` construct to check if the endpoint has a valid message. In this case we are checking if either of the endpoints has a valid message to process. 
 </details>
 
+---
+
+[L4: Some More Features =>](../L4-Some-More-Features/README.md)\
+[<= L2: Communication](../L2-Channel-Contracts/README.md)
