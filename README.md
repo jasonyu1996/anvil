@@ -92,6 +92,7 @@ See how to install [here](editors/vscode/README.md).
 #### User Documentation
 
 * [Language reference manual](docs/langref/README.md)
+* [Code examples](examples/README.md)
 
 #### API Documentation
 

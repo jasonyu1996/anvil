@@ -19,3 +19,4 @@ To start learning Anvil as a beginner, please consult the tutorial.
 * [Interfacing with SystemVerilog](systemverilog.md)
 * [Compiler](compiler.md)
 
+TODO: add `generate`, `ready`, and parameters
