@@ -240,4 +240,4 @@ Anvil Provides the `ready` construct to check if the endpoint has a valid messag
 ---
 
 [L4: Some More Features =>](../L4-Some-More-Features/README.md)\
-[<= L2: Communication](../L2-Channel-Contracts/README.md)
+[<= L2: Communication](../L2-Communication/README.md)

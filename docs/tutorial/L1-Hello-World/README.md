@@ -147,5 +147,5 @@ The `always_ff` block executes on the positive edge of the clock or the negative
 
 ---
 
-[L2: Communication =>](../L2-Intermediate-Concepts/README.md)\
+[L2: Communication =>](../L2-Communication/README.md)\
 [<= L0: The HDL Primer](../L0-HDL-Primer/README.md) 

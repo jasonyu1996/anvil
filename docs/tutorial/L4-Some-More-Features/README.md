@@ -172,6 +172,6 @@ func decrypt(data, key) {
 
 ---
 [Practice Problems =>](../Self-Practice/)\
-[<= L3: Respecting Contracts](../L3-Respecting-Contracts/)
+[<= L3: Respecting Contracts](../L3-Respecting-Contracts/README.md)
 <!-- ## Some Questions to think about: -->
 
