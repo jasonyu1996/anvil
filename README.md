@@ -105,3 +105,10 @@ To host them locally through Python's embedded web server:
 ```
 sh host-docs.sh
 ```
+
+### Contributing
+
+We welcome anyone to
+**report bugs, propose new ideas, and request features**
+using [Github Issues](https://github.com/jasonyu1996/anvil/issues).
+Also feel free to submit your code contribution [here](https://github.com/jasonyu1996/anvil/compare).
