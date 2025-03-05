@@ -17,7 +17,7 @@ proc memory(endp: left memory_ch) {
     reg rd_addr : byte;
     loop {
             let addr = recv endp.read_req >>
-            send endp.read_resp(*mem[*rd_addr])>>
+            send endp.read_resp(*mem[addr])>>
             cycle 1
     }
     loop{

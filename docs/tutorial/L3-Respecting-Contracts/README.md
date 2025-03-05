@@ -11,7 +11,7 @@ proc memory(endp: left memory_ch) {
     reg rd_addr : byte;
     loop {
             let addr = recv endp.read_req >>
-            send endp.read_resp(*mem[*rd_addr])>>
+            send endp.read_resp(*mem[addr])>>
             cycle 1
     }
     loop{
@@ -66,17 +66,33 @@ make MODULE_NAME=memory
 You should receive the following error message:  
 
 ```bash
-Static sync mode mismatch (actual gap = 0 < expected gap 1)!
+Value not live long enough in message send!
 memory.anvil:20:12:
-     20|             send endp.read_resp(*mem[*rd_addr])>>
+     20|             send endp.read_resp(*mem[addr])>>
 ```  
 
-Now this implies that the `read_resp` is sent in the same cycle as the `read_req` is received, which violates the contract.
+Now this implies that the `read_resp` is sent in the same cycle as the `read_req` is received.
+
+The checker indicates that `*mem[addr]` cannot be guaranteed to be live until the next `read_req` message is received, which is at least 2 cycles away.  
+
+Now, the issue arises because the value of `addr` is only stable for one cycle, as dictated by the contract of `read_req`:  
 
 ```rust
-right read_resp : (logic[8]@#read_req) @read_req+1 - @read_req+1
+left read_req : (logic[8]@#1) @#0~2 - @dyn,
+right read_resp : (logic[8]@#read_req) @read_req+1 - @read_req+1,
 ```  
 
+This means `addr` could change in the next cycle, potentially leading to an incorrect memory read. To ensure stability, we need to register the value of `addr` so that it remains unchanged until the next `read_req` message arrives. 
+
+```rust
+        let addr = recv endp.read_req >>
+        set rd_addr := addr;
+        send endp.read_resp(*mem[rd_addr])>>
+        cycle 1
+```
+
+
+<!-- 
 The `read_resp` should be sent one cycle after the `read_req` is received.
 
 
@@ -85,9 +101,10 @@ To fix this, we introduce a `cycle 1` after the `send` statement:
 ```rust
             recv endp.read_req >>
             cycle 1 >>
-            send endp.read_resp(*mem[*rd_addr])>>
+            send endp.read_resp(*mem[addr])>>
             
-```
+``` -->
+
 
 
 Now when we run the program again:  
@@ -99,19 +116,20 @@ make MODULE_NAME=memory_fix_1
 we would see the following error:
 
 ```bash
-Value not live long enough in message send!
-memory_fix1.anvil:21:12:
-     21|             send endp.read_resp(*mem[addr])>>
+Attempted assignment to a borrowed register!
+memory_fix_1.anvil:20:12:
+     20|             set rd_addr := addr;
+       |             ^^^^^^^^^^^^^^^^^^^
+Borrowed at:
+memory_fix_1.anvil:21:37:
+     21|             send endp.read_resp(*mem[*rd_addr])>>
 ```
-The checker indicates that `*mem[addr]` cannot be guaranteed to be live until the next `read_req` message is received, which is at least 2 cycles away.  
 
-Now, the issue arises because the value of `addr` is only stable for one cycle, as dictated by the contract of `read_req`:  
 
-```rust
-left read_req : (logic[8]@#1) @#0~2 - @dyn;
-```  
+This error indicates that the value of `rd_addr` is borrowed by the send operation of `read_resp`, which is expected to remain constant from this cycle until the next `read_req` (as required by the contract of `read_resp`). However, since register assignment takes one cycle to complete, the value of the register will change in the following cycle, violating the contract.  
 
-This means `addr` could change in the next cycle, potentially leading to an incorrect memory read. To ensure stability, we need to register the value of `addr` so that it remains unchanged until the next `read_req` message arrives.  
+To fix this, we need to introduce a cycle delay or wait for the register assignment to complete (an equivalent operation) before sending the `read_resp` message. Notably, this adjustment ensures synchronization with the contract of `read_resp`, where both sides agree to exchange one cycle after receiving the `read_req` message (`@read_req+1`). This means `read_resp` should be sent in the cycle immediately following the reception of `read_req`.  
+
 
 ```rust
             let addr = recv endp.read_req >>

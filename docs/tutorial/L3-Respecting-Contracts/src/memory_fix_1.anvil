@@ -14,10 +14,11 @@ chan memory_ch {
 type byte = logic[8];
 proc memory_fix_1(endp: left memory_ch) {
     reg mem : byte[256];
+    reg rd_addr : byte;
     loop {
             let addr = recv endp.read_req >>
-            cycle 1 >>
-            send endp.read_resp(*mem[addr])>>
+            set rd_addr := addr;
+            send endp.read_resp(*mem[*rd_addr])>>
             cycle 1
     }
     loop{
