@@ -51,8 +51,7 @@ No. In Anvil, expressions separated by `;` are evaluated concurrently. This mean
 
 </details>
 
-**2. How long does each iteration of the loop take?** \
-
+**2. How long does each iteration of the loop take?** 
 <details>
 <summary>Answer</summary>
 
@@ -64,8 +63,7 @@ Thus, the iteration time is determined by the longest operation, which is one cy
 
 </details>
 
-**3. Are the registers initialized to 0?** \
-
+**3. Are the registers initialized to 0?** 
 <details>
 <summary>Answer</summary>
 
@@ -147,5 +145,8 @@ The `always_ff` block executes on the positive edge of the clock or the negative
 
 ---
 
-[L2: Communication =>](../L2-Communication/README.md)\
-[<= L0: The HDL Primer](../L0-HDL-Primer/README.md) 
+<div style="display: flex; justify-content: space-between;">
+  <a href="../L0-HDL-Primer/README.md">⬅ L0: The HDL Primer</a>
+  <a href="../L2-Communication/README.md">L2: Communication ➡</a>
+</div>
+ 

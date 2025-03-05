@@ -6,3 +6,5 @@
 .DS_Store
 **/*.cpp
 !sim_main.cpp
+**/obj_dir/
+**/logs/

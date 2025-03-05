@@ -257,5 +257,7 @@ Anvil Provides the `ready` construct to check if the endpoint has a valid messag
 
 ---
 
-[L4: Some More Features =>](../L4-Some-More-Features/README.md)\
-[<= L2: Communication](../L2-Communication/README.md)
+<div style="display: flex; justify-content: space-between;">
+  <a href="../L2-Communication/README.md">⬅ L2: Communication</a>
+  <a href="../L4-Some-More-Features/README.md">L4: Some More Features ➡</a>
+</div>

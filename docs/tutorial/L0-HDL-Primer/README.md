@@ -145,4 +145,7 @@ This results in unintended behavior across modules.
 **Anvil** is designed to simplify writing RTL programs by providing higher-level language primitives that lift control to a more abstract level. At the same time, it still allows precise control over clock cycle latency in the circuit and **steps** in a state machine. Its type system ensures that your program both **conveys** and **respects** the intended behavior between interfacing components, reducing the risk of timing violations and unintended interactions.
 
 ---
-[L1: Hello-World =>](../L1-Hello-World/README.md)
+
+<div style="text-align: right;">
+  <a href="../L1-Hello-World/README.md">L1: Hello World ➡</a>
+</div>

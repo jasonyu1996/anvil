@@ -106,7 +106,7 @@ Both sender and receiver agree on a fixed message exchange frequency (`N`). Sinc
 
 | Synchronization Pattern | Valid Signal Needed? | Acknowledgment Needed? |  
 |-------------------------|----------------------|------------------------|  
-| (No sync pattern mentioned)| ✅ No | ✅ No |
+| (No sync pattern mentioned)| ✅ Yes | ✅ Yes |
 | (Sender = `@dyn`, Receiver = `@#N`) | ✅ Yes | ❌ No |  
 | (Sender = `@#N`, Receiver = `@dyn`) | ❌ No | ✅ Yes |  
 | `@#N - @#N` (Both synchronized) | ❌ No | ❌ No |  
@@ -232,5 +232,8 @@ This is the way to generate minimum signals possible, however the arbiter has to
 
 ---
 
-[L3: Respecting Contracts =>](../L3-Respecting-Contracts/README.md)\
-[<= L1: Hello World](../L1-Hello-World/README.md)
+<div style="display: flex; justify-content: space-between;">
+  <a href="../L1-Hello-World/README.md">⬅ L1: Hello World</a>
+  <a href="../L3-Respecting-Contracts/README.md">L3: Respecting Contracts ➡</a>
+</div>
+

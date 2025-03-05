@@ -171,7 +171,8 @@ func decrypt(data, key) {
 - Similarly Anvil provides other language construct such as `match`, `recursive` expressions for pipeline behaviour and parametrization of types, channels, processes etc. Check out the language reference for more details.
 
 ---
-[Practice Problems =>](../Self-Practice/)\
-[<= L3: Respecting Contracts](../L3-Respecting-Contracts/README.md)
-<!-- ## Some Questions to think about: -->
 
+<div style="display: flex; justify-content: space-between;">
+  <a href="../L3-Respecting-Contracts/README.md">⬅ L2: Respecting Contracts</a>
+  <a href="../Self-Practice/README.md">Practice Problems ➡</a>
+</div>
