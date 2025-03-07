@@ -604,6 +604,8 @@ let rec substitute_expr_identifier (id: identifier) (value: expr_node) (expr: ex
       Unop (op, substitute_expr_identifier id value e)
   | Tuple exprs ->
       Tuple (List.map (substitute_expr_identifier id value) exprs)
+  | Join (e1, e2) ->
+      Join (substitute_expr_identifier id value e1, substitute_expr_identifier id value e2)
   | Wait (e1, e2) ->
       Wait (substitute_expr_identifier id value e1, substitute_expr_identifier id value e2)
   | Index (arr, idx) ->
