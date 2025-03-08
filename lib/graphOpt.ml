@@ -24,12 +24,9 @@ module CombSimplPass = struct
     let f_hi = find_ufs ufs hi in
     ufs.(f_hi) <- lo
 
-  let optimize_pass _config for_lt_check (ci : EventGraph.cunit_info) graph =
-    let event_n = List.length graph.events in
-    let event_ufs = create_ufs event_n in
-    (* scan all events in reverse order to find simplifable patterns *)
-    let event_arr_old = List.rev graph.events |> Array.of_list in
-    let check_pattern ev =
+  let merge_pass_simpl_comb _config for_lt_check (ci : cunit_info) (graph : event_graph) event_ufs event_arr_old =
+    List.rev graph.events
+    |> List.iter (fun ev ->
       match ev.source with
       | `Branch (ev', br_info) -> (
         let ev1 = Option.get br_info.branch_val_true
@@ -67,8 +64,52 @@ module CombSimplPass = struct
           )
         )
       | _ -> ()
+    )
+
+  module IntMap = Map.Make(Int)
+  let merge_pass_isomorphic _config _for_lt_check (_ci : cunit_info) (graph : event_graph) event_ufs _event_arr_old =
+    let n = List.length graph.events in
+    let merged_edges = Array.make n IntMap.empty in
+    let lookup_edge ev n = (* look an edge from ev to n *)
+      let ev'_id = find_ufs event_ufs ev.id in
+      IntMap.find_opt n merged_edges.(ev'_id)
     in
-    List.rev graph.events |> List.iter check_pattern;
+    let add_edge ev n cur_ev =
+      let ev'_id = find_ufs event_ufs ev.id in
+      merged_edges.(ev'_id) <- IntMap.add n cur_ev.id merged_edges.(ev'_id)
+    in
+    List.rev graph.events
+    |> List.iter (fun ev ->
+      match ev.source with
+      | `Seq (ev', `Cycles n) -> (
+        match lookup_edge ev' n with
+        | None -> add_edge ev' n ev
+        | Some ev_m_id ->
+          (* merge *)
+          union_ufs event_ufs ev.id ev_m_id
+      )
+      | _ -> ()
+    )
+
+  (* merge later to the same nodes *)
+  let merge_pass_joint _config _for_lt_check (_ci : cunit_info) (graph : event_graph) event_ufs _event_arr_old =
+    List.rev graph.events
+    |> List.iter (fun ev ->
+      match ev.source with
+      | `Later (e1, e2) ->
+        let e1'_id = find_ufs event_ufs e1.id
+        and e2'_id = find_ufs event_ufs e2.id in
+        if e1'_id = e2'_id then
+          union_ufs event_ufs ev.id e1'_id
+      | _ -> ()
+    )
+
+  let optimize_pass_merge merge_pass config for_lt_check (ci : EventGraph.cunit_info) graph =
+    let event_n = List.length graph.events in
+    let event_ufs = create_ufs event_n in
+    (* scan all events in reverse order to find simplifable patterns *)
+    let event_arr_old = List.rev graph.events |> Array.of_list in
+    merge_pass config for_lt_check ci graph event_ufs event_arr_old;
     let to_keep = Array.init event_n (fun i -> find_ufs event_ufs i = i) in
     (* Array.iteri (fun idx k -> Printf.eprintf "Keep %d = %b\n" idx k) to_keep; *)
     (* replace events *)
@@ -188,6 +229,11 @@ module CombSimplPass = struct
       events = !event_list_new;
       last_event_id = event_arr_old.(find_ufs event_ufs graph.last_event_id).id
     }
+
+  let optimize_pass config for_lt_check ci graph =
+    optimize_pass_merge merge_pass_simpl_comb config for_lt_check ci graph
+    |> optimize_pass_merge merge_pass_isomorphic config for_lt_check ci
+    |> optimize_pass_merge merge_pass_joint config for_lt_check ci
 end
 
 let optimize config for_lt_check ci graph =
