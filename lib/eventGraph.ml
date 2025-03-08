@@ -131,7 +131,7 @@ and branch_cond =
 (** Describes branching information. *)
 and branch_info = {
   branch_cond_v : timed_data; (** the value used to decide branch *)
-  branch_cond : branch_cond; (** conditions *)
+  mutable branch_cond : branch_cond; (** conditions *)
   branch_count : int;
   mutable branches_to : event list;
   mutable branches_val : event list;

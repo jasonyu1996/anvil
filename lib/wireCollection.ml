@@ -15,12 +15,14 @@ module Wire = struct
     thread_id: int;
     size: int;
     source: wire_source;
+    is_const: bool;
   }
   and wire_source =
     | Literal of Lang.literal
     | Binary of Lang.binop * t * t
     | Unary of Lang.unop * t
     | Switch of (t * t) list * t (* (cond, val) list, default *)
+    | Cases of t * (t * t) list * t (* (cond v, case pat, val) list, default *)
     | RegRead of Lang.identifier
     | MessagePort of Lang.message_specifier * int (* index of the port *)
     | MessageValidPort of Lang.message_specifier (* New wire source for message valid port *)
@@ -33,7 +35,8 @@ module Wire = struct
       thread_id;
       source = Literal lit;
       size = (Lang.dtype_of_literal lit :> Lang.data_type)
-        |> TypedefMap.data_type_size typedefs macro_defs
+        |> TypedefMap.data_type_size typedefs macro_defs;
+      is_const = true;
     }
 
   (* TODO: error handling *)
@@ -53,7 +56,8 @@ module Wire = struct
       id;
       thread_id;
       source = Binary (binop, w1, w2);
-      size = Option.get sz
+      size = Option.get sz;
+      is_const = w1.is_const && w2.is_const;
     }
 
   let new_unary id thread_id _typedefs unop ow =
@@ -61,15 +65,29 @@ module Wire = struct
       id;
       thread_id;
       source = Unary (unop, ow);
-      size = ow.size
+      size = ow.size;
+      is_const = ow.is_const;
     }
 
   let new_switch id thread_id _typedefs sw def =
+    let is_const =
+      List.for_all (fun (c, v) -> c.is_const && v.is_const) sw
+      && def.is_const in
     {
       id;
       thread_id;
       source = Switch (sw, def);
-      size = def.size
+      size = def.size;
+      is_const;
+    }
+
+  let new_cases id thread_id _typedefs v sw def =
+    {
+      id;
+      thread_id;
+      source = Cases (v, sw, def);
+      size = def.size;
+      is_const = false;
     }
 
   let new_reg_read id thread_id typedefs (macro_defs: Lang.macro_def list) (r : Lang.reg_def) =
@@ -77,16 +95,19 @@ module Wire = struct
       id;
       thread_id;
       source = RegRead r.name;
-      size = TypedefMap.data_type_size typedefs macro_defs r.dtype
+      size = TypedefMap.data_type_size typedefs macro_defs r.dtype;
+      is_const = false;
     }
 
   let new_concat id thread_id _typedefs _macro_defs ws =
     let sz = List.fold_left (fun sum w -> sum + w.size) 0 ws in
+    let is_const = List.for_all (fun w -> w.is_const) ws in
     {
       id;
       thread_id;
       source = Concat ws;
-      size = sz
+      size = sz;
+      is_const;
     }
 
   let new_list id thread_id _typedefs ws =
@@ -94,12 +115,14 @@ module Wire = struct
       None (* empty list not allowed *)
     else (
       let hw = List.hd ws in
+      let is_const = List.for_all (fun w -> w.is_const) ws in
       if List.for_all (fun w -> w.size = hw.size) (List.tl ws) then (
         Some {
           id;
           thread_id;
           source = Concat (List.rev ws);
-          size = hw.size * (List.length ws)
+          size = hw.size * (List.length ws);
+          is_const;
         }
       ) else
         None
@@ -113,22 +136,23 @@ module Wire = struct
       thread_id;
       source = MessagePort (msg_spec, idx);
       size = TypedefMap.data_type_size typedefs macro_defs t.dtype;
+      is_const = false;
     }
 
   let new_slice id thread_id w base_i len =
+    let is_const =
+      w.is_const
+      &&
+        match base_i with
+        | MaybeConst.Const _ -> true
+        | MaybeConst.NonConst _ -> false
+    in
     {
       id;
       thread_id;
       source = Slice (w, base_i, len);
-      size = len
-    }
-
-  let _new_msg_valid_port id thread_id _typedefs msg_spec =
-    {
-      id;
-      thread_id;
-      source = MessageValidPort msg_spec;
-      size = 1
+      size = len;
+      is_const;
     }
 
   let new_msg_valid_port id thread_id _typedefs msg_spec =
@@ -136,7 +160,8 @@ module Wire = struct
       id;
       thread_id;
       source = MessageValidPort msg_spec;
-      size = 1
+      size = 1;
+      is_const = false;
     }
 end
 
@@ -172,6 +197,12 @@ let add_switch thread_id (typedefs : TypedefMap.t) (sw : (wire * wire) list)
               (default : wire) (wc : t) : t * wire =
   let id = wc.wire_last_id + 1 in
   let w = Wire.new_switch id thread_id typedefs sw default in
+  (add_wire wc w, w)
+
+let add_cases thread_id (typedefs : TypedefMap.t) (v : wire) (sw : (wire * wire) list)
+              (default : wire) (wc : t) : t * wire =
+  let id = wc.wire_last_id + 1 in
+  let w = Wire.new_cases id thread_id typedefs v sw default in
   (add_wire wc w, w)
 
 let add_reg_read thread_id (typedefs : TypedefMap.t) (macro_defs: Lang.macro_def list) (r : Lang.reg_def) (wc : t) : t * wire =

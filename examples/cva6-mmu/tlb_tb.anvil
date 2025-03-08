@@ -348,117 +348,86 @@ proc anvil_tlb(lu_ch : left tlb_lookup_ch,
         } else if (ready update_ch.req && ((*lu_hit_o==1'd0)||(ready lu_ch.hit == 1'd0))) {
             let update = recv update_ch.req >>
             // //dprint "[Cycle %d] Update TLB: vpn=%x, content = %x" (*cyc, update.vpn, update.content);
-            match 1'd1 {
-                ((~*PLRUtree[0])&(~*PLRUtree[1])&(~*PLRUtree[3])&(~*PLRUtree[7])) => {
-                    set tag_q[0] := tag::{asid = update.asid; vpn=#{update.vpn[18+:9],update.vpn[9+:9],update.vpn[0+:9]};
-                                        is_page = update.is_page; v_st_enable = update.v_st_enable; valid = 1'd1};
-                    set content_q[0] := update.content
-                    //dprint "[Cycle %d] Updated tag and content for index 0" (*cyc)
-                },
-                ((~*PLRUtree[0])&(~*PLRUtree[1])&(~*PLRUtree[3])&(*PLRUtree[7])) => {
-                    set tag_q[1] := tag::{asid = update.asid; vpn=#{update.vpn[18+:9],update.vpn[9+:9],update.vpn[0+:9]};
-                                        is_page = update.is_page; v_st_enable = update.v_st_enable; valid = 1'd1};
-                    set content_q[1] := update.content
-                    //dprint "[Cycle %d] Updated tag and content for index 1" (*cyc)
-                },
-                ((~*PLRUtree[0])&(~*PLRUtree[1])&(*PLRUtree[3])&(~*PLRUtree[8])) => {
-                    set tag_q[2] := tag::{asid = update.asid; vpn=#{update.vpn[18+:9],update.vpn[9+:9],update.vpn[0+:9]};
-                                        is_page = update.is_page; v_st_enable = update.v_st_enable; valid = 1'd1};
-                    set content_q[2] := update.content
-                },
-                ((~*PLRUtree[0])&(~*PLRUtree[1])&(*PLRUtree[3])&(*PLRUtree[8])) => {
-                    set tag_q[3] := tag::{asid = update.asid; vpn=#{update.vpn[18+:9],update.vpn[9+:9],update.vpn[0+:9]};
-                                        is_page = update.is_page; v_st_enable = update.v_st_enable; valid = 1'd1};
-                    set content_q[3] := update.content
-                    //dprint "[Cycle %d] Updated tag and content for index 3" (*cyc)
-
-                },
-                ((~*PLRUtree[0])&(*PLRUtree[1])&(~*PLRUtree[4])&(~*PLRUtree[9])) => {
-                    set tag_q[4] := tag::{asid = update.asid; vpn=#{update.vpn[18+:9],update.vpn[9+:9],update.vpn[0+:9]};
-                                        is_page = update.is_page; v_st_enable = update.v_st_enable; valid = 1'd1};
-                    set content_q[4] := update.content
-                    //dprint "[Cycle %d] Updated tag and content for index 4" (*cyc)
-
-                },
-                ((~*PLRUtree[0])&(*PLRUtree[1])&(~*PLRUtree[4])&(*PLRUtree[9])) => {
-                    set tag_q[5] := tag::{asid = update.asid; vpn=#{update.vpn[18+:9],update.vpn[9+:9],update.vpn[0+:9]};
-                                        is_page = update.is_page; v_st_enable = update.v_st_enable; valid = 1'd1};
-                    set content_q[5] := update.content
-                //dprint "[Cycle %d] Updated tag and content for index 5" (*cyc)
-
-                },
-                ((~*PLRUtree[0])&(*PLRUtree[1])&(*PLRUtree[4])&(~*PLRUtree[10])) => {
-                    set tag_q[6] := tag::{asid = update.asid; vpn=#{update.vpn[18+:9],update.vpn[9+:9],update.vpn[0+:9]};
-                                        is_page = update.is_page; v_st_enable = update.v_st_enable; valid = 1'd1};
-                    set content_q[6] := update.content
-                    //dprint "[Cycle %d] Updated tag and content for index 6" (*cyc)
-
-                },
-                ((~*PLRUtree[0])&(*PLRUtree[1])&(*PLRUtree[4])&(*PLRUtree[10])) => {
-                    set tag_q[7] := tag::{asid = update.asid; vpn=#{update.vpn[18+:9],update.vpn[9+:9],update.vpn[0+:9]};
-                                        is_page = update.is_page; v_st_enable = update.v_st_enable; valid = 1'd1};
-                    set content_q[7] := update.content
-                    //dprint "[Cycle %d] Updated tag and content for index 7" (*cyc)
-
-                },
-                ((*PLRUtree[0])&(~*PLRUtree[2])&(~*PLRUtree[5])&(~*PLRUtree[11])) => {
-                    set tag_q[8] := tag::{asid = update.asid; vpn=#{update.vpn[18+:9],update.vpn[9+:9],update.vpn[0+:9]};
-                                        is_page = update.is_page; v_st_enable = update.v_st_enable; valid = 1'd1};
-                    set content_q[8] := update.content
-                    //dprint "[Cycle %d] Updated tag and content for index 8" (*cyc)
-
-                },
-                ((*PLRUtree[0])&(~*PLRUtree[2])&(~*PLRUtree[5])&(*PLRUtree[11])) => {
-                    set tag_q[9] := tag::{asid = update.asid; vpn=#{update.vpn[18+:9],update.vpn[9+:9],update.vpn[0+:9]};
-                                        is_page = update.is_page; v_st_enable = update.v_st_enable; valid = 1'd1};
-                    set content_q[9] := update.content
-                    //dprint "[Cycle %d] Updated tag and content for index 9" (*cyc)
-
-                },
-                ((*PLRUtree[0])&(~*PLRUtree[2])&(*PLRUtree[5])&(~*PLRUtree[12])) => {
-                    set tag_q[10] := tag::{asid = update.asid; vpn=#{update.vpn[18+:9],update.vpn[9+:9],update.vpn[0+:9]};
-                                        is_page = update.is_page; v_st_enable = update.v_st_enable; valid = 1'd1};
-                    set content_q[10] := update.content
-                    //dprint "[Cycle %d] Updated tag and content for index 10" (*cyc)
-
-                },
-                ((*PLRUtree[0])&(~*PLRUtree[2])&(*PLRUtree[5])&(*PLRUtree[12])) => {
-                    set tag_q[11] := tag::{asid = update.asid; vpn=#{update.vpn[18+:9],update.vpn[9+:9],update.vpn[0+:9]};
-                                        is_page = update.is_page; v_st_enable = update.v_st_enable; valid = 1'd1};
-                    set content_q[11] := update.content
-                    //dprint "[Cycle %d] Updated tag and content for index 11" (*cyc)
-
-                },
-                ((*PLRUtree[0])&(*PLRUtree[2])&(~*PLRUtree[6])&(~*PLRUtree[13])) => {
-                    set tag_q[12] := tag::{asid = update.asid; vpn=#{update.vpn[18+:9],update.vpn[9+:9],update.vpn[0+:9]};
-                                        is_page = update.is_page; v_st_enable = update.v_st_enable; valid = 1'd1};
-                    set content_q[12] := update.content
-                    //dprint "[Cycle %d] Updated tag and content for index 12" (*cyc)
-
-                },
-                ((*PLRUtree[0])&(*PLRUtree[2])&(~*PLRUtree[6])&(*PLRUtree[13])) => {
-                    set tag_q[13] := tag::{asid = update.asid; vpn=#{update.vpn[18+:9],update.vpn[9+:9],update.vpn[0+:9]};
-                                        is_page = update.is_page; v_st_enable = update.v_st_enable; valid = 1'd1};
-                    set content_q[13] := update.content
-                    //dprint "[Cycle %d] Updated tag and content for index 13" (*cyc)
-
-                },
-                ((*PLRUtree[0])&(*PLRUtree[2])&(*PLRUtree[6])&(~*PLRUtree[14])) => {
-                    set tag_q[14] := tag::{asid = update.asid; vpn=#{update.vpn[18+:9],update.vpn[9+:9],update.vpn[0+:9]};
-                                        is_page = update.is_page; v_st_enable = update.v_st_enable; valid = 1'd1};
-                    set content_q[14] := update.content
-                    //dprint "[Cycle %d] Updated tag and content for index 14" (*cyc)
-
-                },
-                ((*PLRUtree[0])&(*PLRUtree[2])&(*PLRUtree[6])&(*PLRUtree[14])) => {
-                    set tag_q[15] := tag::{asid = update.asid; vpn=#{update.vpn[18+:9],update.vpn[9+:9],update.vpn[0+:9]};
-                                        is_page = update.is_page; v_st_enable = update.v_st_enable; valid = 1'd1};
-                    set content_q[15] := update.content
-                    //dprint "[Cycle %d] Updated tag and content for index 15" (*cyc)
-
-                },
-                _ => cycle 1 //dprint "[Update Logic] Unreachable State Reached" ()
-            }
+            if ((~*PLRUtree[0])&(~*PLRUtree[1])&(~*PLRUtree[3])&(~*PLRUtree[7])) {
+                set tag_q[0] := tag::{asid = update.asid; vpn=#{update.vpn[18+:9],update.vpn[9+:9],update.vpn[0+:9]};
+                                    is_page = update.is_page; v_st_enable = update.v_st_enable; valid = 1'd1};
+                set content_q[0] := update.content
+            } else { cycle 1 };
+            if ((~*PLRUtree[0])&(~*PLRUtree[1])&(~*PLRUtree[3])&(*PLRUtree[7])) {
+                set tag_q[1] := tag::{asid = update.asid; vpn=#{update.vpn[18+:9],update.vpn[9+:9],update.vpn[0+:9]};
+                                    is_page = update.is_page; v_st_enable = update.v_st_enable; valid = 1'd1};
+                set content_q[1] := update.content
+            } else { cycle 1 };
+            if ((~*PLRUtree[0])&(~*PLRUtree[1])&(*PLRUtree[3])&(~*PLRUtree[8])) {
+                set tag_q[2] := tag::{asid = update.asid; vpn=#{update.vpn[18+:9],update.vpn[9+:9],update.vpn[0+:9]};
+                                    is_page = update.is_page; v_st_enable = update.v_st_enable; valid = 1'd1};
+                set content_q[2] := update.content
+            } else { cycle 1 };
+            if ((~*PLRUtree[0])&(~*PLRUtree[1])&(*PLRUtree[3])&(*PLRUtree[8])) {
+                set tag_q[3] := tag::{asid = update.asid; vpn=#{update.vpn[18+:9],update.vpn[9+:9],update.vpn[0+:9]};
+                                    is_page = update.is_page; v_st_enable = update.v_st_enable; valid = 1'd1};
+                set content_q[3] := update.content
+            } else { cycle 1 };
+            if ((~*PLRUtree[0])&(*PLRUtree[1])&(~*PLRUtree[4])&(~*PLRUtree[9])) {
+                set tag_q[4] := tag::{asid = update.asid; vpn=#{update.vpn[18+:9],update.vpn[9+:9],update.vpn[0+:9]};
+                                    is_page = update.is_page; v_st_enable = update.v_st_enable; valid = 1'd1};
+                set content_q[4] := update.content
+            } else { cycle 1 };
+            if ((~*PLRUtree[0])&(*PLRUtree[1])&(~*PLRUtree[4])&(*PLRUtree[9])) {
+                set tag_q[5] := tag::{asid = update.asid; vpn=#{update.vpn[18+:9],update.vpn[9+:9],update.vpn[0+:9]};
+                                    is_page = update.is_page; v_st_enable = update.v_st_enable; valid = 1'd1};
+                set content_q[5] := update.content
+            } else { cycle 1 };
+            if ((~*PLRUtree[0])&(*PLRUtree[1])&(*PLRUtree[4])&(~*PLRUtree[10])) {
+                set tag_q[6] := tag::{asid = update.asid; vpn=#{update.vpn[18+:9],update.vpn[9+:9],update.vpn[0+:9]};
+                                    is_page = update.is_page; v_st_enable = update.v_st_enable; valid = 1'd1};
+                set content_q[6] := update.content
+            } else { cycle 1 };
+            if ((~*PLRUtree[0])&(*PLRUtree[1])&(*PLRUtree[4])&(*PLRUtree[10])) {
+                set tag_q[7] := tag::{asid = update.asid; vpn=#{update.vpn[18+:9],update.vpn[9+:9],update.vpn[0+:9]};
+                                    is_page = update.is_page; v_st_enable = update.v_st_enable; valid = 1'd1};
+                set content_q[7] := update.content
+            } else { cycle 1 };
+            if ((*PLRUtree[0])&(~*PLRUtree[2])&(~*PLRUtree[5])&(~*PLRUtree[11])) {
+                set tag_q[8] := tag::{asid = update.asid; vpn=#{update.vpn[18+:9],update.vpn[9+:9],update.vpn[0+:9]};
+                                    is_page = update.is_page; v_st_enable = update.v_st_enable; valid = 1'd1};
+                set content_q[8] := update.content
+            } else { cycle 1 };
+            if ((*PLRUtree[0])&(~*PLRUtree[2])&(~*PLRUtree[5])&(*PLRUtree[11])) {
+                set tag_q[9] := tag::{asid = update.asid; vpn=#{update.vpn[18+:9],update.vpn[9+:9],update.vpn[0+:9]};
+                                    is_page = update.is_page; v_st_enable = update.v_st_enable; valid = 1'd1};
+                set content_q[9] := update.content
+            } else { cycle 1 };
+            if ((*PLRUtree[0])&(~*PLRUtree[2])&(*PLRUtree[5])&(~*PLRUtree[12])) {
+                set tag_q[10] := tag::{asid = update.asid; vpn=#{update.vpn[18+:9],update.vpn[9+:9],update.vpn[0+:9]};
+                                    is_page = update.is_page; v_st_enable = update.v_st_enable; valid = 1'd1};
+                set content_q[10] := update.content
+            } else { cycle 1 };
+            if ((*PLRUtree[0])&(~*PLRUtree[2])&(*PLRUtree[5])&(*PLRUtree[12])) {
+                set tag_q[11] := tag::{asid = update.asid; vpn=#{update.vpn[18+:9],update.vpn[9+:9],update.vpn[0+:9]};
+                                    is_page = update.is_page; v_st_enable = update.v_st_enable; valid = 1'd1};
+                set content_q[11] := update.content
+            } else { cycle 1 };
+            if ((*PLRUtree[0])&(*PLRUtree[2])&(~*PLRUtree[6])&(~*PLRUtree[13])) {
+                set tag_q[12] := tag::{asid = update.asid; vpn=#{update.vpn[18+:9],update.vpn[9+:9],update.vpn[0+:9]};
+                                    is_page = update.is_page; v_st_enable = update.v_st_enable; valid = 1'd1};
+                set content_q[12] := update.content
+            } else { cycle 1 };
+            if ((*PLRUtree[0])&(*PLRUtree[2])&(~*PLRUtree[6])&(*PLRUtree[13])) {
+                set tag_q[13] := tag::{asid = update.asid; vpn=#{update.vpn[18+:9],update.vpn[9+:9],update.vpn[0+:9]};
+                                    is_page = update.is_page; v_st_enable = update.v_st_enable; valid = 1'd1};
+                set content_q[13] := update.content
+            } else { cycle 1 };
+            if ((*PLRUtree[0])&(*PLRUtree[2])&(*PLRUtree[6])&(~*PLRUtree[14])) {
+                set tag_q[14] := tag::{asid = update.asid; vpn=#{update.vpn[18+:9],update.vpn[9+:9],update.vpn[0+:9]};
+                                    is_page = update.is_page; v_st_enable = update.v_st_enable; valid = 1'd1};
+                set content_q[14] := update.content
+            } else { cycle 1 };
+            if ((*PLRUtree[0])&(*PLRUtree[2])&(*PLRUtree[6])&(*PLRUtree[14])) {
+                set tag_q[15] := tag::{asid = update.asid; vpn=#{update.vpn[18+:9],update.vpn[9+:9],update.vpn[0+:9]};
+                                    is_page = update.is_page; v_st_enable = update.v_st_enable; valid = 1'd1};
+                set content_q[15] := update.content
+            } else { cycle 1 }
         // //dprint "[Cycle %d] Update dummy node testing" (*cyc)
         } else {
             cycle 1

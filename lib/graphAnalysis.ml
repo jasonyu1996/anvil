@@ -357,40 +357,47 @@ let events_max_dist events lookup_message ev =
     | `Cycles n -> n
     | `Send _ | `Recv _ | `Sync _ -> 0
   in
-  let min3_outs = Array.make n
-    ((event_distance_max, 0), (event_distance_max, 0), (event_distance_max, 0))
+  let min2_outs = Array.make n
+    ((event_distance_max, 0), (event_distance_max, 0))
   in
-  let update_min3_outs v e' e =
-    let ((m0, i0), (m1, i1), (m2, i2)) = min3_outs.(e.id) in
+  let update_min2_outs v e' e =
+    let ((m0, i0), (m1, i1)) = min2_outs.(e.id) in
     let r =
       if v < m0 then
-        ((v, e'.id), (m0, i0), (m1, i1))
+        ((v, e'.id), (m0, i0))
       else if v < m1 then
-        ((m0, i0), (v, e'.id), (m1, i1))
-      else if v < m2 then
-        ((m0, i0), (m1, i1), (v, e'.id))
+        ((m0, i0), (v, e'.id))
       else
-        ((m0, i0), (m1, i1), (m2, i2))
+        ((m0, i0), (m1, i1))
     in
-    min3_outs.(e.id) <- r
+    min2_outs.(e.id) <- r
   in
-  let pick_filter_out ((m0, i0), (m1, i1), (m2, _i2)) i =
+  let pick_filter_out ((m0, i0), (m1, _i1)) i =
     if i0 <> i then m0
-    else if i1 <> i then m1
-    else m2
-  in
-  let pick_filter_out2 ((m0, i0), (m1, i1), (m2, _i2)) ix iy =
-    if i0 <> ix && i0 <> iy then m0
-    else if i1 <> ix && i1 <> iy then m1
-    else m2
+    else m1
   in
   List.iter (fun e ->
     if is_pred e then (
       match e.source with
       | `Seq (e', d') ->
-        update_min3_outs (-(pred_min_dist.(e.id) + (get_min_delay d'))) e e'
-      | `Root (Some (e', _)) ->
-        update_min3_outs (-pred_min_dist.(e.id)) e e'
+        update_min2_outs (-(pred_min_dist.(e.id) + (get_min_delay d'))) e e'
+      | `Root (Some (e', br_side)) ->
+        let other_side =
+          if br_side.branch_side_sel = 0 then 1 else 0
+        in
+        let other_side = List.nth br_side.owner_branch.branches_to other_side in
+        if not (is_pred other_side) || br_side.branch_side_sel = 0 then (
+          let m =
+            List.fold_left (fun v e ->
+              if is_pred e then
+                Int.min v (-pred_min_dist.(e.id))
+              else
+                v
+            ) event_distance_max br_side.owner_branch.branches_to
+          in
+          let e = List.hd br_side.owner_branch.branches_to in
+          update_min2_outs m e e'
+        )
       | _ -> ()
     )
   ) events;
@@ -411,7 +418,7 @@ let events_max_dist events lookup_message ev =
             else (
               update_dist e @@ res.(e'.id) + gap;
               (* we can look at other paths *)
-              let other_path = pick_filter_out min3_outs.(e'.id) e.id in
+              let other_path = pick_filter_out min2_outs.(e'.id) e.id in
               if other_path <> -event_distance_max then
                 update_dist e @@ other_path + gap
             )
@@ -427,13 +434,8 @@ let events_max_dist events lookup_message ev =
                 (-event_distance_max) branches_val
           | `Root (Some (e', br_side)) ->
             update_dist e res.(e'.id);
-            (
-              match br_side.owner_branch.branches_to with
-              | [e1; e2] ->
-                pick_filter_out2 min3_outs.(e'.id) e1.id e2.id
-              | _ -> failwith "Unimplemented!" (* FIXME: need to change when there are k > 2 branches *)
-            )
-            |> update_dist e
+            let first_br_to = List.hd br_side.owner_branch.branches_to in
+            update_dist e @@ pick_filter_out min2_outs.(e'.id) first_br_to.id
         )
       )
     );

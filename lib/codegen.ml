@@ -69,53 +69,80 @@ let codegen_endpoints printer (graphs : event_graph_collection) (g : event_graph
   List.iter print_port_signal_decl
 
 let codegen_wire_assignment printer (g : event_graph) (w : WireCollection.wire) =
-  let expr =
-    match w.source with
-    | Literal lit -> Format.format_literal lit
-
-    | Binary (binop, w1, w2) ->
-      Printf.sprintf "%s %s %s"
-        (Format.format_wirename w1.thread_id w1.id)
-        (Format.format_binop binop)
-        (Format.format_wirename w2.thread_id w2.id)
-    | Unary (unop, w') ->
-      Printf.sprintf "%s%s"
-        (Format.format_unop unop)
-        (Format.format_wirename w'.thread_id w'.id)
-    | Switch (sw, d) ->
-      let conds = List.map
-        (fun ((cond, v) : WireCollection.wire * WireCollection.wire) ->
-          Printf.sprintf "(%s) ? %s : "
-            (Format.format_wirename cond.thread_id cond.id)
-            (Format.format_wirename v.thread_id v.id)
-        )
-        sw
-      |> String.concat "" in
-      Printf.sprintf "%s%s" conds (Format.format_wirename d.thread_id d.id)
-    | RegRead reg_ident -> Format.format_regname_current reg_ident
-    | Concat ws ->
-      List.map (fun (w' : WireCollection.wire) -> Format.format_wirename w'.thread_id w'.id) ws |>
-        String.concat ", " |> Printf.sprintf "{%s}"
-    | MessagePort (msg, idx) ->
-      let msg_endpoint = CodegenFormat.canonicalize_endpoint_name msg.endpoint g in
-      Format.format_msg_data_signal_name msg_endpoint msg.msg idx
-    | Slice (w', base_i, len) ->
-      Printf.sprintf "%s[%s +: %d]" (Format.format_wirename w'.thread_id w'.id)
-        (Format.format_wire_maybe_const base_i)
-        len
-    | MessageValidPort msg ->
-      (* FIXME: sync pat *)
-      CodegenFormat.format_msg_valid_signal_name (CodegenFormat.canonicalize_endpoint_name msg.endpoint g) msg.msg
-  in
-  Printf.sprintf "assign %s = %s;" (Format.format_wirename w.thread_id w.id) expr |>
+  match w.source with
+  | Cases (vw, sw, d) -> (
+    CodegenPrinter.print_line ~lvl_delta_post:1 printer
+      @@ Printf.sprintf "always_comb begin: _%s_assign" @@ Format.format_wirename w.thread_id w.id;
+    CodegenPrinter.print_line ~lvl_delta_post:1 printer
+      @@ Printf.sprintf "unique case (%s)" @@ Format.format_wirename vw.thread_id vw.id;
+    List.iter (fun ((wp, wb) : WireCollection.wire * WireCollection.wire) ->
+      CodegenPrinter.print_line ~lvl_delta_post:1 printer
+        @@ Printf.sprintf "%s:" @@ Format.format_wirename wp.thread_id wp.id;
+      CodegenPrinter.print_line ~lvl_delta_post:(-1) printer
+        @@ Printf.sprintf "%s = %s;" (Format.format_wirename w.thread_id w.id)
+        @@ (Format.format_wirename wb.thread_id wb.id);
+    ) sw;
+    (* generate default case *)
+    CodegenPrinter.print_line ~lvl_delta_post:1 printer "default:";
+    CodegenPrinter.print_line ~lvl_delta_post:(-1) printer
+      @@ Printf.sprintf "%s = %s;" (Format.format_wirename w.thread_id w.id)
+      @@ (Format.format_wirename d.thread_id d.id);
+    CodegenPrinter.print_line ~lvl_delta_pre:(-1) printer "endcase";
+    CodegenPrinter.print_line ~lvl_delta_pre:(-1) printer "end"
+  )
+  | _ -> (
+    let expr =
+      match w.source with
+      | Literal lit -> Format.format_literal lit
+      | Binary (binop, w1, w2) ->
+        Printf.sprintf "%s %s %s"
+          (Format.format_wirename w1.thread_id w1.id)
+          (Format.format_binop binop)
+          (Format.format_wirename w2.thread_id w2.id)
+      | Unary (unop, w') ->
+        Printf.sprintf "%s%s"
+          (Format.format_unop unop)
+          (Format.format_wirename w'.thread_id w'.id)
+      | Switch (sw, d) ->
+        let conds = List.map
+          (fun ((cond, v) : WireCollection.wire * WireCollection.wire) ->
+            Printf.sprintf "(%s) ? %s : "
+              (Format.format_wirename cond.thread_id cond.id)
+              (Format.format_wirename v.thread_id v.id)
+          )
+          sw
+        |> String.concat "" in
+        Printf.sprintf "%s%s" conds (Format.format_wirename d.thread_id d.id)
+      | RegRead reg_ident -> Format.format_regname_current reg_ident
+      | Concat ws ->
+        List.map (fun (w' : WireCollection.wire) -> Format.format_wirename w'.thread_id w'.id) ws |>
+          String.concat ", " |> Printf.sprintf "{%s}"
+      | MessagePort (msg, idx) ->
+        let msg_endpoint = CodegenFormat.canonicalize_endpoint_name msg.endpoint g in
+        Format.format_msg_data_signal_name msg_endpoint msg.msg idx
+      | Slice (w', base_i, len) ->
+        Printf.sprintf "%s[%s +: %d]" (Format.format_wirename w'.thread_id w'.id)
+          (Format.format_wire_maybe_const base_i)
+          len
+      | MessageValidPort msg ->
+        (* FIXME: sync pat *)
+        CodegenFormat.format_msg_valid_signal_name (CodegenFormat.canonicalize_endpoint_name msg.endpoint g) msg.msg
+      | Cases _ -> failwith "Something went wrong!"
+    in
     CodegenPrinter.print_line printer
-
+      @@
+      if w.is_const then
+        Printf.sprintf "localparam %s = %s;" (Format.format_wirename w.thread_id w.id) expr
+      else
+        Printf.sprintf "assign %s = %s;" (Format.format_wirename w.thread_id w.id) expr
+  )
 
 let codegen_post_declare printer (graphs : event_graph_collection) (g : event_graph) =
   (* wire declarations *)
   let codegen_wire_decl = fun (w: WireCollection.wire) ->
-    Printf.sprintf "%s %s;" (Format.format_dtype graphs.typedefs graphs.macro_defs (`Array (`Logic, ParamEnv.Concrete w.size))) (Format.format_wirename w.thread_id w.id) |>
-      CodegenPrinter.print_line printer
+    if not w.is_const then (* constants do not correspond to wires *)
+      Printf.sprintf "%s %s;" (Format.format_dtype graphs.typedefs graphs.macro_defs (`Array (`Logic, ParamEnv.Concrete w.size))) (Format.format_wirename w.thread_id w.id) |>
+        CodegenPrinter.print_line printer
   in List.iter codegen_wire_decl g.wires.wire_li;
   List.iter (codegen_wire_assignment printer g) g.wires.wire_li
   (* set send signals *)

@@ -142,9 +142,14 @@ module Typing = struct
       {ctx with current = event_create g (`Branch (ctx.current, br_info))}
 
     (* merge the used state in context *)
-    let branch_merge ctx ctx1 ctx2 =
+    let branch_merge ctx br_ctxs =
+      let ctx1 = List.hd br_ctxs in
+      let other_ctxs = List.tl br_ctxs in
       Utils.StringMap.iter (fun ident r ->
-        if r.binding_used && (Utils.StringMap.find ident ctx2.typing_ctx).binding_used then (
+        if r.binding_used
+            && (List.for_all
+                (fun ctx2 -> (Utils.StringMap.find ident ctx2.typing_ctx).binding_used)
+               other_ctxs) then (
           (Utils.StringMap.find ident ctx.typing_ctx).binding_used <- true
         )
       ) ctx1.typing_ctx
@@ -436,7 +441,7 @@ and visit_expr (graph : event_graph) (ci : cunit_info)
     branch_info.branches_to <- [ctx_true.current; ctx_false.current];
     branch_info.branches_val <- [td3.lt.live; td2.lt.live];
 
-    BuildContext.branch_merge ctx' ctx_true ctx_false;
+    BuildContext.branch_merge ctx' [ctx_true; ctx_false];
 
     let ctx_br = BuildContext.branch graph ctx' branch_info in
     br_side_true.branch_event <- Some ctx_br.current;
@@ -453,6 +458,78 @@ and visit_expr (graph : event_graph) (ci : cunit_info)
         graph.wires <- wires';
         {w = Some w; lt; reg_borrows = reg_borrows'; dtype = td2.dtype}
       | _ -> raise (event_graph_error_default "Invalid if expression!" e.span)
+    )
+  | Match (match_v, match_arms) ->
+    let td_v = visit_expr graph ci ctx match_v in
+    let w_v = unwrap_or_err "Invalid match expression" match_v.span td_v.w in
+    let ctx' = BuildContext.wait graph ctx td_v.lt.live in
+    let branch_info = {
+      branch_cond_v = td_v;
+      branch_cond = MatchCases [];
+      branch_count = List.length match_arms;
+      branches_to = [];
+      branches_val = [];
+    } in
+
+    let (default_arms, match_arms) =
+      List.partition (fun ((pat, _) : expr_node * expr_node option) -> pat.d = Identifier "_") match_arms in
+    (
+      match default_arms with
+      | [default_arm] ->
+        let td_pats = List.map (fun (pat, _) -> visit_expr graph ci ctx' pat) match_arms in
+        (* make sure that the patterns are all constants *)
+        List.iter2
+          (fun ((pat, _) : expr_node * expr_node option) td ->
+            let valid =
+              match td.w with
+              | None -> false
+              | Some w -> w.is_const
+            in
+            if not valid then
+              raise (event_graph_error_default "Match patterns must be constant values!" pat.span)
+          ) match_arms td_pats;
+
+        (* build bodies *)
+        let branches = List.mapi
+          (fun idx (_, body) ->
+            let (br_side, ctx) = BuildContext.branch_side graph ctx' branch_info idx in
+            let td = visit_expr graph ci ctx @@ Option.get body in
+            ((ctx, br_side, td), (ctx.current, td.lt.live))
+          )
+          match_arms
+        in
+        let (br_side_default, ctx_default) = BuildContext.branch_side graph ctx' branch_info (branch_info.branch_count - 1) in
+        let td_default = visit_expr graph ci ctx_default @@ Option.get @@ snd default_arm in
+
+        let (branches, branches_events) = List.split branches in
+        let (branches_to, branches_val) = List.split branches_events in
+        branch_info.branches_to <- branches_to @ [ctx_default.current];
+        branch_info.branches_val <- branches_val @ [td_default.lt.live];
+
+        BuildContext.branch_merge ctx' @@ ctx_default::(List.map (fun (ctx, _, _) -> ctx) branches);
+        let ctx_br = BuildContext.branch graph ctx' branch_info in
+        List.iter
+          (fun (_, br_side, _) ->
+            br_side.branch_event <- Some ctx_br.current
+          )
+          branches;
+        br_side_default.branch_event <- Some ctx_br.current;
+        let lt = {
+          live = ctx_br.current;
+          dead = List.fold_left (fun l (_, _, td) -> Utils.list_unordered_join l td.lt.dead) td_v.lt.dead branches;
+        } in
+        let reg_borrows' = List.fold_left (fun l (_, _, td) -> Utils.list_unordered_join l td.reg_borrows) td_v.reg_borrows branches in
+        branch_info.branch_cond <- MatchCases td_pats;
+        if List.for_all (fun (_, _, td_val) -> Option.is_none td_val.w) branches then
+          {w = None; lt; reg_borrows = reg_borrows'; dtype = unit_dtype}
+        else (
+          let (wires', w) = WireCollection.add_cases graph.thread_id ci.typedefs w_v
+            (List.map2 (fun td_pat (_, _, td_val) -> (Option.get td_pat.w, Option.get td_val.w)) td_pats branches) (Option.get td_default.w)
+            graph.wires in
+          graph.wires <- wires';
+          {w = Some w; lt; reg_borrows = reg_borrows'; dtype = td_default.dtype}
+        )
+      | _ -> raise @@ event_graph_error_default "Invalid match expression (exactly one default case expected)!" e.span
     )
   | Concat es ->
     let tds = List.map (fun e' -> (e', visit_expr graph ci ctx e')) es in

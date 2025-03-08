@@ -380,8 +380,7 @@ and expr =
   | Indirect of expr_node * identifier (** a member of a record ([a.b]) *)
   | Concat of expr_node list
   | Ready of message_specifier (** [ready(a, b)] *)
-  | Match of expr_node * ((match_pattern * expr_node option) list) (** Currently unused. Match expressions are
-                                  converted into if expressions in the parser directly. *)
+  | Match of expr_node * ((expr_node * expr_node option) list)
   | Read of identifier (** reading a value from a register (leading to a borrow) *)
   | Debug of debug_op
   | Send of send_pack
@@ -402,11 +401,6 @@ and index =
   | Single of expr_node
   | Range of expr_node * expr_node (** a range, the second component is the size which must be literal *)
 
-(** Pattern in an arm of a {{!Match}match} expression. *)
-and match_pattern = {
-  cstr: identifier; (* constructor identifier *)
-  bind_name: identifier option; (* name of the binding for the unboxed value *)
-}
 and debug_op =
   | DebugPrint of string * expr_node list
   | DebugFinish
@@ -558,34 +552,6 @@ and string_of_literal (lit : literal) : string =
   | Hexadecimal (n, hexits) -> "Hexadecimal (" ^ string_of_int n ^ ", [" ^ String.concat ";" (List.map string_of_digit hexits) ^ "])"
   | WithLength (n, v) -> "WithLength (" ^ string_of_int n ^ ", " ^ string_of_int v ^ ")"
   | NoLength v -> "NoLength " ^ string_of_int v
-
-let generate_match_expression (e : expr_node) match_arms =
-  let is_default_pattern = function
-    | {d = Identifier "_"; _} -> true
-    | _ -> false
-  in
-  let match_arms_node = List.map (fun (pat, body_opt) ->
-    let pat_node = ast_node_of_data Lexing.dummy_pos Lexing.dummy_pos pat in
-    let body_node_opt = Option.map (fun body ->
-      ast_node_of_data Lexing.dummy_pos Lexing.dummy_pos body
-    ) body_opt in
-    (pat_node, body_node_opt)
-  ) match_arms in
-  let default_case, other_cases =
-    List.partition (fun (pat, _) -> is_default_pattern pat) match_arms_node
-  in
-  match default_case with
-  | [] -> failwith "Match expression must have a default case (_)"
-  | [(_, None)] -> failwith "Default case must have a body"
-  | [(_, Some default_body)] ->
-      List.fold_right (fun (pattern, body_opt) acc ->
-        match body_opt with
-        | None -> failwith "Match arm must have a body"
-        | Some body ->
-            let condition = ast_node_of_data e.span.st e.span.ed (Binop (Eq, e, pattern)) in
-            IfExpr (condition, body,  dummy_ast_node_of_data acc)
-      ) other_cases default_body.d
-  | _ -> failwith "Multiple default cases found in match expression"
 
 let rec substitute_expr_identifier (id: identifier) (value: expr_node) (expr: expr_node) : expr_node =
   let new_expr = match expr.d with

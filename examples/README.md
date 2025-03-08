@@ -25,6 +25,7 @@ make MODULE_NAME=<example-name> run
 | [subreg](subreg.anvil) | Sub-register assignment |
 | [subreg_var](subreg_var.anvil) | Sub-register assignment |
 | [match_test](match_test.anvil) | `match` expression |
+| [match_test_set](match_test_set.anvil) | `match` expression |
 | [test_ready](test_ready.anvil) | `ready` expression |
 | [generate_test](generate_test.anvil) | `generate` block |
 | [param_int](param_int.anvil) | Parameterised processes |

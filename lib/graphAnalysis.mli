@@ -87,10 +87,6 @@ val events_pred_min_dist : EventGraph.event -> int Array.t
     can be larger than the actual possible distance.
 
     If an event shares no trace with the given event, the result is [-event_distance_max].
-
-    This is essentially a newer version of {!event_slack_graph} that
-    handles branches correctly but is more relaxed for graphs
-    without branches.
 *)
 val events_max_dist : EventGraph.event list -> (Lang.message_specifier -> Lang.message_def option)
                         -> EventGraph.event -> int Array.t

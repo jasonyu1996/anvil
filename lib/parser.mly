@@ -466,7 +466,7 @@ expr:
 | LEFT_BRACE; e = expr; RIGHT_BRACE
   { e }
 | KEYWORD_MATCH; e = node(expr); LEFT_BRACE; match_arm_list = separated_list(COMMA, match_arm); RIGHT_BRACE
-  { Lang.generate_match_expression e match_arm_list }
+  { Lang.Match (e, match_arm_list) }
 | ASTERISK; reg_ident = IDENT
   { Lang.Read reg_ident }
 | constructor_spec = constructor_spec; e = ioption(node(expr_in_parenthese))
@@ -593,7 +593,7 @@ index:
 ;
 
 match_arm:
-| pattern = expr; EQ_GT body_opt = expr
+| pattern = node(expr); EQ_GT body_opt = node(expr)
   { (pattern, Some body_opt) }
 ;
 

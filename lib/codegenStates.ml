@@ -129,18 +129,12 @@ let codegen_next printer (graphs : EventGraph.event_graph_collection)
             Printf.sprintf "assign %s_n = (%s || %s_q) && !%s;" sn cn' sn wn
           ] |> print_lines
       )
-    | `Branch (_e, br_info) -> (
-      match br_info.branch_cond with
-      | TrueFalse ->
-        let e1 = List.nth br_info.branches_val 0
-        and e2 = List.nth br_info.branches_val 1 in
-        Printf.sprintf "assign %s = %s || %s;" cn
-          (EventStateFormatter.format_current g.thread_id e1.id)
-          (EventStateFormatter.format_current g.thread_id e2.id)
-        |> print_line
-      | MatchCases _ ->
-        failwith "Not supported yet" (* FIXME: implement this *)
-    )
+    | `Branch (_e, br_info) ->
+      List.map (fun (e : EventGraph.event) ->
+        EventStateFormatter.format_current g.thread_id e.id) br_info.branches_val
+      |> String.concat " || "
+      |> Printf.sprintf "assign %s = %s;" cn
+      |> print_line
     | `Later (e1, e2) ->
       let cn1 = EventStateFormatter.format_current g.thread_id e1.id in
       let cn2 = EventStateFormatter.format_current g.thread_id e2.id in
@@ -169,8 +163,48 @@ let codegen_next printer (graphs : EventGraph.event_graph_collection)
               Printf.sprintf "assign %s = %s && %s;" cn cn' wn
             else
               Printf.sprintf "assign %s = %s && !%s;" cn cn' wn
-        | MatchCases _ ->
-          failwith "Not supported yet" (* FIXME: implement this *)
+        | MatchCases pats ->
+          if br_side_info.branch_side_sel + 1 = br_side_info.owner_branch.branch_count then (
+            CodegenPrinter.print_line ~lvl_delta_post:1 printer
+              @@ Printf.sprintf "always_comb begin: _match_cases_%d_%d"
+                g.thread_id
+                (Option.get br_side_info.branch_event).id;
+
+            List.iter (fun (e : EventGraph.event) ->
+              CodegenPrinter.print_line printer @@ Printf.sprintf "%s = '0;"
+                @@ EventStateFormatter.format_current g.thread_id e.id
+            ) br_side_info.owner_branch.branches_to;
+
+            CodegenPrinter.print_line ~lvl_delta_post:1 printer
+              @@ Printf.sprintf "if (%s) begin" cn';
+
+            (* select cases *)
+            CodegenPrinter.print_line ~lvl_delta_post:1 printer
+              @@ Printf.sprintf "unique case (%s)" @@ CodegenFormat.format_wirename w.thread_id w.id;
+
+            (* cases: *)
+            let branches_to_no_default =
+              List.to_seq br_side_info.owner_branch.branches_to
+              |> Seq.take (br_side_info.owner_branch.branch_count - 1)
+            in
+            Seq.iter2 (fun (td_pat : EventGraph.timed_data) (br_to : EventGraph.event) ->
+              let wp = Option.get td_pat.w in
+              CodegenPrinter.print_line ~lvl_delta_post:1 printer
+                @@ Printf.sprintf "%s:" @@ CodegenFormat.format_wirename wp.thread_id wp.id;
+              CodegenPrinter.print_line ~lvl_delta_post:(-1) printer
+                @@ Printf.sprintf "%s = 1'b1;" @@ EventStateFormatter.format_current g.thread_id br_to.id
+            ) (List.to_seq pats) branches_to_no_default;
+
+            (* default case *)
+            CodegenPrinter.print_line ~lvl_delta_post:1 printer "default:";
+            CodegenPrinter.print_line ~lvl_delta_post:(-1) printer
+              @@ Printf.sprintf "%s = 1'b1;" cn;
+
+            CodegenPrinter.print_line ~lvl_delta_pre:(-1) printer "endcase";
+
+            CodegenPrinter.print_line ~lvl_delta_pre:(-1) printer "end"; (* ending if *)
+            CodegenPrinter.print_line ~lvl_delta_pre:(-1) printer "end" (* ending always_comb *)
+          )
       )
   in
   List.iter print_compute_next g.events

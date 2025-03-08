@@ -25,6 +25,7 @@ TESTS=(
     param_type_chan
     if_comb
     match_test
+    match_test_set
     enum_test
     test_multicycle
     branch_borrow
