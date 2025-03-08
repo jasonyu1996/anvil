@@ -28,23 +28,24 @@ module CombSimplPass = struct
     List.rev graph.events
     |> List.iter (fun ev ->
       match ev.source with
-      | `Branch (ev', {branch_cond = TrueFalse; branches_val = [ev1; ev2]; _}) -> (
-        let ev1 = event_arr_old.(find_ufs event_ufs ev1.id) in
-        let ev2 = event_arr_old.(find_ufs event_ufs ev2.id) in
-        match ev1.source, ev2.source with
-        | `Root (Some (ev_1', br_side_1)), `Root (Some (ev_2', br_side_2)) ->
-          let br_ev1 = Option.get br_side_1.branch_event
-          and br_ev2 = Option.get br_side_2.branch_event in
-          if br_ev1.id = br_ev2.id &&
-             ev_1'.id = ev'.id &&
-             ev_2'.id = ev'.id &&
-            ev1.actions = [] && ev2.actions = [] then (
-            (* we can merge the nodes ev, ev1, ev2 with ev1' *)
-            union_ufs event_ufs ev.id ev'.id;
-            union_ufs event_ufs ev1.id ev'.id;
-            union_ufs event_ufs ev2.id ev'.id
+      | `Branch (ev', {branches_val; _}) -> (
+        let can_merge =
+          List.for_all (fun e ->
+            let e = event_arr_old.(find_ufs event_ufs e.id) in
+            match e.source with
+            | `Root (Some (ep, br_side)) ->
+              ep.id = ev'.id && (Option.get br_side.branch_event).id = ev.id
+                && e.actions = [] && e.sustained_actions = []
+            | _ -> false
           )
-        | _ -> ()
+          branches_val in
+        if can_merge then (
+          List.iter (fun e ->
+            let e = event_arr_old.(find_ufs event_ufs e.id) in
+            union_ufs event_ufs e.id ev'.id;
+          ) branches_val;
+          union_ufs event_ufs ev.id ev'.id
+        )
       )
       | `Seq (ev', (`Send msg as delay)) | `Seq (ev', (`Recv msg as delay)) ->
         (* check if this msg takes any bit of time *)
