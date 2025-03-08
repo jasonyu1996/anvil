@@ -21,7 +21,6 @@ val event_is_predecessor : EventGraph.event -> EventGraph.event -> bool
 
 val find_first_msg_after : EventGraph.event -> Lang.message_specifier -> bool -> EventGraph.event option
 val event_distance_max : int
-val event_slack_graph : EventGraph.event list -> EventGraph.event -> int Array.t
 
 (** Compute the minimal weight among the successors of an event *)
 val event_min_among_succ : EventGraph.event list -> int Array.t -> int Array.t

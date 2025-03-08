@@ -129,13 +129,18 @@ let codegen_next printer (graphs : EventGraph.event_graph_collection)
             Printf.sprintf "assign %s_n = (%s || %s_q) && !%s;" sn cn' sn wn
           ] |> print_lines
       )
-    | `Branch (_e, br_info) ->
-      let e1 = Option.get br_info.branch_val_true
-      and e2 = Option.get br_info.branch_val_false in
-      Printf.sprintf "assign %s = %s || %s;" cn
-        (EventStateFormatter.format_current g.thread_id e1.id)
-        (EventStateFormatter.format_current g.thread_id e2.id)
-      |> print_line
+    | `Branch (_e, br_info) -> (
+      match br_info.branch_cond with
+      | TrueFalse ->
+        let e1 = List.nth br_info.branches_val 0
+        and e2 = List.nth br_info.branches_val 1 in
+        Printf.sprintf "assign %s = %s || %s;" cn
+          (EventStateFormatter.format_current g.thread_id e1.id)
+          (EventStateFormatter.format_current g.thread_id e2.id)
+        |> print_line
+      | MatchCases _ ->
+        failwith "Not supported yet" (* FIXME: implement this *)
+    )
     | `Later (e1, e2) ->
       let cn1 = EventStateFormatter.format_current g.thread_id e1.id in
       let cn2 = EventStateFormatter.format_current g.thread_id e2.id in
@@ -153,12 +158,20 @@ let codegen_next printer (graphs : EventGraph.event_graph_collection)
       ] |> print_lines
     | `Root (Some (e', br_side_info)) ->
       let cn' = EventStateFormatter.format_current g.thread_id e'.id in
-      let w = Option.get br_side_info.owner_branch.branch_cond.w in
+      let w = Option.get br_side_info.owner_branch.branch_cond_v.w in
       let wn = CodegenFormat.format_wirename w.thread_id w.id in
-      print_line (if br_side_info.branch_side_sel then
-        Printf.sprintf "assign %s = %s && %s;" cn cn' wn
-      else
-        Printf.sprintf "assign %s = %s && !%s;" cn cn' wn)
+      (
+        match br_side_info.owner_branch.branch_cond with
+        | TrueFalse ->
+          print_line
+            @@
+            if br_side_info.branch_side_sel = 0 then
+              Printf.sprintf "assign %s = %s && %s;" cn cn' wn
+            else
+              Printf.sprintf "assign %s = %s && !%s;" cn cn' wn
+        | MatchCases _ ->
+          failwith "Not supported yet" (* FIXME: implement this *)
+      )
   in
   List.iter print_compute_next g.events
 

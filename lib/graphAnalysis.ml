@@ -26,11 +26,9 @@ let imm_preds ev =
   match ev.source with
   | `Seq (e', _)
   | `Root (Some (e', _)) -> [e']
-  | `Branch (_, {branch_val_true = Some e1; branch_val_false = Some e2; _})
+  | `Branch (_, {branches_val; _}) -> branches_val
   | `Later (e1, e2) -> [e1; e2]
   | `Root None -> []
-  | _ ->
-      raise (Except.unknown_error_default "Unexpected event source!")
 
 let toposort events =
   let n = List.fold_left (fun l e -> Int.max l e.id) 0 events in
@@ -66,15 +64,15 @@ let toposort events =
 let event_predecessors (ev : event) : event list =
   let visitor add_to_queue cur =
     match cur.source with
-    | `Later (e1, e2)
-    | `Branch (_, {branch_val_true = Some e1; branch_val_false = Some e2; _}) ->
+    | `Later (e1, e2) ->
       add_to_queue e1;
       add_to_queue e2
+    | `Branch (_, {branches_val; _}) ->
+      List.iter add_to_queue branches_val
     | `Seq (ev', _)
     | `Root (Some (ev', _)) ->
       add_to_queue ev'
     | `Root None -> ()
-    | _ -> ()
   in
   event_traverse ev visitor |> toposort
 
@@ -138,81 +136,17 @@ let event_succ_distance non_succ_dist msg_dist_f later_dist_f either_dist_f even
       (* We need to check carefully to decide if we are sure
         the branch has/hasn't been taken. *)
         get_dist ev1
-    | `Branch (_, {branch_val_true = Some ev1; branch_val_false = Some ev2; _}) ->
-      either_dist_f (get_dist ev1) (get_dist ev2)
+    | `Branch (_, {branches_val = [ev]; _}) ->
+      get_dist ev
+    | `Branch (_, {branches_val = ev1::ev2::el; _}) ->
+      let first_two = either_dist_f (get_dist ev1) (get_dist ev2) in
+      List.fold_left (fun v e -> either_dist_f v @@ get_dist e) first_two el
     | _ ->
       raise (Except.unknown_error_default "Unexpected event source!")
     in
     set_dist ev' (min d event_distance_max)
   );
   dist
-
-
-(* Compute the slack: the max distance achievable to every event while keeping
-  the distance to ev unchanged. FIXME: branching might be problematic *)
-let event_slack_graph events ev =
-  let n = List.length events in
-  let root = List.nth events (n - 1) in
-  let dist = event_succ_distance event_distance_max (fun d -> d) max min events root root in
-  (* IntHashtbl.iter (fun ev_id d -> Printf.eprintf "Dist %d = %d\n" ev_id d) dist; *)
-  (* Now compute max dist allowed *)
-  let max_dists = Array.make n event_distance_max in
-  max_dists.(ev.id) <- IntHashtbl.find dist ev.id;
-  List.iter (fun ev' ->
-    let d = max_dists.(ev'.id) in
-    if d < event_distance_max then (
-      let update_dist ev_pred d =
-        let d' = max_dists.(ev_pred.id) in
-        if d' > d then
-          max_dists.(ev_pred.id) <- d
-      in
-      match ev'.source with
-      | `Root None -> ()
-      | `Later (e1, e2)
-      | `Branch (_, {branch_val_true = Some e1; branch_val_false = Some e2; _}) ->
-          update_dist e1 d;
-          update_dist e2 d
-      | `Seq (e', `Cycles cyc) ->
-        update_dist e' (d - cyc)
-      | `Root (Some (e', br_side_info)) ->
-        if br_side_info.branch_side_sel then (
-          let e_false = Option.get br_side_info.owner_branch.branch_to_false in
-          let d = Int.max d max_dists.(e_false.id) in
-          update_dist e' d
-        )
-      | `Seq (e', _) ->
-        update_dist e' d
-      | _ ->
-        raise (Except.unknown_error_default "Unexpected event source!")
-    )
-  ) events;
-  (* Array.iteri (fun ev_id d -> Printf.eprintf "Max dist %d = %d\n" ev_id d) max_dists; *)
-  (* let slacks = Array.mapi (fun idx md -> md - (IntHashtbl.find dist idx)) max_dists in *)
-  (* Array.iteri (fun ev_id sl -> Printf.eprintf "Slack %d = %d\n" ev_id sl) slacks; *)
-  (* Get the slack graph. This slack is the max distance achievable through adjusting
-  message delays without affecting the distance to ev. *)
-  let slacks = Array.make n 0 in
-  List.rev events |> List.iter (fun ev' ->
-    let d = match ev'.source with
-      | `Root None -> 0
-      | `Later (e1, e2)
-      | `Branch (_, {branch_val_true = Some e1; branch_val_false = Some e2; _}) ->
-        Int.max slacks.(e1.id) slacks.(e2.id)
-      | `Seq (e', `Cycles cyc) ->
-        slacks.(e'.id) + cyc
-      | `Root (Some (e', _)) ->
-        slacks.(e'.id)
-      | `Seq (_e', _) ->
-        max_dists.(ev'.id)
-      | _ ->
-        raise (Except.unknown_error_default "Unexpected event source!")
-    in
-    slacks.(ev'.id) <- d
-  );
-  (* Array.iteri (fun ev_id sl -> Printf.eprintf "Slack %d = %d\n" ev_id sl) slacks; *)
-  let d = IntHashtbl.find dist ev.id in
-  Array.map_inplace (fun sl -> sl - d) slacks;
-  slacks
 
 let event_min_among_succ events weights =
   let n = List.length events in
@@ -227,20 +161,20 @@ let event_min_among_succ events weights =
     let v = res.(ev'.id) in
     match ev'.source with
     | `Root None -> ()
-    | `Later (e1, e2)
-    | `Branch (_, {branch_val_true = Some e1; branch_val_false = Some e2; _}) ->
+    | `Later (e1, e2) ->
       update_res e1 v;
       update_res e2 v
+    | `Branch (_, {branches_val; _}) ->
+      List.iter (fun e -> update_res e v) branches_val
     | `Seq (e, _) ->
       update_res e v
     | `Root (Some (e, br_side)) ->
-      (* false side is visited first *)
-      if br_side.branch_side_sel then (
-        let other_side = Option.get br_side.owner_branch.branch_to_false in
-        Int.max res.(other_side.id) v |> update_res e
+      (* side sel = 0 is visited last *)
+      if br_side.branch_side_sel = 0 then (
+        update_res e
+        @@ List.fold_left
+          (fun v e -> Int.max v res.(e.id)) v br_side.owner_branch.branches_to
       )
-      (* we handle this at forward edges instead *)
-    | `Branch _ -> ()
   ) events;
   res
 
@@ -265,10 +199,9 @@ let events_prepare_outs events =
       e1.outs <- ev::e1.outs;
       e2.outs <- ev::e2.outs
     | `Branch (_ev', br_info) ->
-      let e1 = Option.get br_info.branch_val_true
-      and e2 = Option.get br_info.branch_val_false in
-      e1.outs <- ev::e1.outs;
-      e2.outs <- ev::e2.outs
+      List.iter (fun e ->
+        e.outs <- ev::e.outs
+      ) br_info.branches_val
     | `Seq (ev', _)
     | `Root (Some (ev', _)) ->
       ev'.outs <- ev::ev'.outs
@@ -291,11 +224,10 @@ let event_is_dominant e1 e2 =
           is_dominated.(e1.id) || is_dominated.(e2.id)
         | `Seq (e', _) ->
           is_dominated.(e'.id)
-        | `Branch (_, {branch_val_true = Some e1; branch_val_false = Some e2; _}) ->
-          is_dominated.(e1.id) && is_dominated.(e2.id)
+        | `Branch (_, {branches_val; _}) ->
+          List.fold_left (fun b e -> b && is_dominated.(e.id)) true branches_val
         | `Root (Some (e', _)) ->
           is_dominated.(e'.id)
-        | _ -> raise (Except.unknown_error_default "Unexpected event source!")
       )
     in
     is_dominated.(e.id) <- d
@@ -309,7 +241,7 @@ let events_pred_min_dist ev =
   let check_is_pred e = e.id < n && is_preds.(e.id) in
   List.iter (fun e -> is_preds.(e.id) <- true) preds;
   let res = Array.make n (-1) in
-  let seen_branches = ref Utils.IntSet.empty in
+  let branch_counter = Hashtbl.create 4 in
   res.(ev.id) <- 0;
   let update_dist e v =
     if res.(e.id) < v then
@@ -328,28 +260,28 @@ let events_pred_min_dist ev =
         in
         update_dist e' (v + gap)
       )
-      | `Later (e1, e2)
-      | `Branch (_, {branch_val_true = Some e1; branch_val_false = Some e2; _}) -> (
+      | `Later (e1, e2) -> (
         update_dist e1 v;
         update_dist e2 v
       )
+      | `Branch (_, {branches_val; _}) ->
+        List.iter (fun e -> update_dist e v) branches_val
       | `Root None -> ()
       | `Root (Some (e', {branch_event = Some br_ev; owner_branch; branch_side_sel})) -> (
-        if Utils.IntSet.mem br_ev.id !seen_branches then (
-          (* only pass when the both sides have been reached *)
-          let e1 = Option.get owner_branch.branch_to_true
-          and e2 = Option.get owner_branch.branch_to_false in
-          let v1 = res.(e1.id) in
-          let v2 = res.(e2.id) in
-          update_dist e' (Int.min v1 v2)
+        let c = Hashtbl.find_opt branch_counter br_ev.id |> Option.value ~default:0 in
+        if c + 1 = owner_branch.branch_count then (
+          (* only pass when all sides have been reached *)
+          update_dist e'
+            @@
+            List.fold_left (fun v e -> Int.min v res.(e.id))
+              event_distance_max owner_branch.branches_to
         ) else (
-          (* the other side of the branch may not be a predecessor, in which
+          (* other sides of the branch may not be a predecessor, in which
           case we just pass through the result as there is no real branching *)
-          let other =
-            (if branch_side_sel then owner_branch.branch_to_false else owner_branch.branch_to_true)
-            |> Option.get in
+          let other_side_idx = if branch_side_sel = 0 then 1 else 0 in
+          let other = List.nth owner_branch.branches_to other_side_idx in
           if check_is_pred other then
-            seen_branches := Utils.IntSet.add br_ev.id !seen_branches
+            Hashtbl.replace branch_counter br_ev.id (c + 1)
           else
             update_dist e' v
         )
@@ -367,9 +299,10 @@ let events_reachable events ev =
       match e.source with
       | `Root (Some (_, br_side_info)) ->
         (* invalidate the other side of the branch if it's not a predecessor *)
-        let other_side = EventGraphOps.branch_other_side br_side_info in
-        if not is_pred.(other_side.id) then
-          event_is_reachable.(other_side.id) <- false
+        List.iter (fun other_side ->
+          if other_side.id <> e.id && not is_pred.(other_side.id) then
+            event_is_reachable.(other_side.id) <- false
+        ) br_side_info.owner_branch.branches_to
       | _ -> ()
     ) preds;
   (* now propagate *)
@@ -381,9 +314,8 @@ let events_reachable events ev =
           | `Root _ -> true
           | `Later (e1, e2) -> event_is_reachable.(e1.id) && event_is_reachable.(e2.id)
           | `Seq (e', _) -> event_is_reachable.(e'.id)
-          | `Branch (_, {branch_val_true = Some e1; branch_val_false = Some e2; _}) ->
-            event_is_reachable.(e1.id) || event_is_reachable.(e2.id)
-          | _ -> raise (Except.unknown_error_default "Unexpected event source!")
+          | `Branch (_, {branches_val; _}) ->
+            List.fold_left (fun b e -> b || event_is_reachable.(e.id)) false branches_val
         in
         event_is_reachable.(e.id) <- reachable
       )
@@ -487,13 +419,21 @@ let events_max_dist events lookup_message ev =
           | `Later (e1, e2) ->
             if not pred then
               update_dist e @@ Int.max (res.(e1.id)) (res.(e2.id))
-          | `Branch (_, {branch_val_true = Some e1; branch_val_false = Some e2; _}) ->
-            update_dist e @@ Int.max (res.(e1.id)) (res.(e2.id))
+          | `Branch (_, {branches_val; _}) ->
+            update_dist e
+              @@
+              List.fold_left
+                (fun v e -> Int.max v res.(e.id))
+                (-event_distance_max) branches_val
           | `Root (Some (e', br_side)) ->
             update_dist e res.(e'.id);
-            pick_filter_out2 min3_outs.(e'.id) e.id (EventGraphOps.branch_other_side br_side).id
+            (
+              match br_side.owner_branch.branches_to with
+              | [e1; e2] ->
+                pick_filter_out2 min3_outs.(e'.id) e1.id e2.id
+              | _ -> failwith "Unimplemented!" (* FIXME: need to change when there are k > 2 branches *)
+            )
             |> update_dist e
-          | _ -> raise (Except.unknown_error_default "Unexpected event source!")
         )
       )
     );
@@ -548,15 +488,13 @@ let events_first_msg events ev msg =
               || (event_succ_masked_has_msg e1) || (event_succ_masked_has_msg e2)
         | `Root (Some (e', _))
         | `Seq (e', _) -> path_has_msg.(e'.id) || (event_succ_masked_has_msg e')
-        | `Branch (_, {branch_val_true = Some e1; branch_val_false = Some e2; _}) ->
-          if not reachable.(e1.id) then
-            path_has_msg.(e2.id) || event_succ_masked_has_msg e2
-          else if not reachable.(e2.id) then
-            path_has_msg.(e1.id) || event_succ_masked_has_msg e1
-          else
-            (path_has_msg.(e1.id) || event_succ_masked_has_msg e1)
-              && (path_has_msg.(e2.id) || event_succ_masked_has_msg e2)
-        | _ -> raise (Except.unknown_error_default "Unexpected event source!")
+        | `Branch (_, {branches_val; _}) ->
+          List.fold_left (fun v e ->
+            if reachable.(e.id) then
+              v && (path_has_msg.(e.id) || event_succ_masked_has_msg e)
+            else
+              v
+          ) true branches_val
       in
       path_has_msg.(e.id) <- v
     ) succs;

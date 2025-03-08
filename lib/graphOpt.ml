@@ -28,9 +28,7 @@ module CombSimplPass = struct
     List.rev graph.events
     |> List.iter (fun ev ->
       match ev.source with
-      | `Branch (ev', br_info) -> (
-        let ev1 = Option.get br_info.branch_val_true
-        and ev2 = Option.get br_info.branch_val_false in
+      | `Branch (ev', {branch_cond = TrueFalse; branches_val = [ev1; ev2]; _}) -> (
         let ev1 = event_arr_old.(find_ufs event_ufs ev1.id) in
         let ev2 = event_arr_old.(find_ufs event_ufs ev2.id) in
         match ev1.source, ev2.source with
@@ -155,6 +153,11 @@ module CombSimplPass = struct
         | Send (msg, td) -> Send (msg, replace_timed_data td)
         | Recv msg -> Recv msg
       in
+      let replace_branch_cond = function
+        | TrueFalse -> TrueFalse
+        | MatchCases cases ->
+          MatchCases (List.map replace_timed_data cases)
+      in
       let actions = List.map (fun (action: action Lang.ast_node) ->
         let d = match action.d with
         | DebugPrint (s, td_list) -> DebugPrint (s, List.map replace_timed_data td_list)
@@ -175,11 +178,11 @@ module CombSimplPass = struct
       ) ev.sustained_actions in
       let replace_branch_info br_info =
         {
-          branch_cond = replace_timed_data br_info.branch_cond;
-          branch_to_true = Option.map replace_event br_info.branch_to_true;
-          branch_to_false = Option.map replace_event br_info.branch_to_false;
-          branch_val_true = Option.map replace_event br_info.branch_val_true;
-          branch_val_false = Option.map replace_event br_info.branch_val_false;
+          branch_cond_v = replace_timed_data br_info.branch_cond_v;
+          branch_cond = replace_branch_cond br_info.branch_cond;
+          branch_count = br_info.branch_count;
+          branches_to = List.map replace_event br_info.branches_to;
+          branches_val = List.map replace_event br_info.branches_val;
         }
       in
       let f = find_ufs event_ufs old_id in

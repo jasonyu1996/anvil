@@ -124,20 +124,24 @@ and event = {
   preds : Utils.int_set; (** set of predecessors, used for fast reachability query. Only used during the graph building process *)
 }
 
+and branch_cond =
+  | TrueFalse
+  | MatchCases of timed_data list
+
 (** Describes branching information. *)
 and branch_info = {
-  branch_cond : timed_data;
-  mutable branch_to_true : event option;
-  mutable branch_to_false : event option;
-  mutable branch_val_true : event option;
-  mutable branch_val_false : event option;
+  branch_cond_v : timed_data; (** the value used to decide branch *)
+  branch_cond : branch_cond; (** conditions *)
+  branch_count : int;
+  mutable branches_to : event list;
+  mutable branches_val : event list;
 }
 
 (** Information about the branch condition of one side of a branch. *)
 and branch_side_info = {
   mutable branch_event : event option;
   owner_branch : branch_info;
-  branch_side_sel : bool;
+  branch_side_sel : int; (** an index in {!branches_to} and {!branches_val} *)
 }
 
 

@@ -33,9 +33,8 @@ module Typing = struct
         | `Root None -> []
         | `Seq (e, _)
         | `Root Some (e, _) -> [e]
-        | `Branch (_, { branch_val_true = Some e1; branch_val_false = Some e2; _ })
         | `Later (e1, e2) -> [e1; e2]
-        | _ -> failwith "Something went wrong!"
+        | `Branch (_, { branches_val; _ }) -> branches_val
       in
       let new_preds = List.fold_left
         (fun preds e -> Utils.IntSet.union preds e.preds)
@@ -134,7 +133,7 @@ module Typing = struct
       {ctx with current = event_create g (`Later (ctx.current, other))}
 
     (* returns a pair of contexts for *)
-    let branch_side g (ctx : t) (bi : branch_info) (sel : bool) : branch_side_info * t  =
+    let branch_side g (ctx : t) (bi : branch_info) (sel : int) : branch_side_info * t  =
       let br_side_info = {branch_event = None; owner_branch = bi; branch_side_sel = sel} in
       let event_side_root = event_create g (`Root (Some (ctx.current, br_side_info))) in
       (br_side_info, {ctx with current = event_side_root; typing_ctx = context_clear_used ctx.typing_ctx})
@@ -421,16 +420,21 @@ and visit_expr (graph : event_graph) (ci : cunit_info)
     (* TODO: type checking *)
     let w1 = unwrap_or_err "Invalid condition" e1.span td1.w in
     let ctx' = BuildContext.wait graph ctx td1.lt.live in
-    let branch_info = {branch_cond = td1; branch_to_true = None; branch_to_false = None; branch_val_true = None; branch_val_false = None} in
-    let (br_side_true, ctx_true) = BuildContext.branch_side graph ctx' branch_info true in
+    let branch_info = {
+      branch_cond_v = td1;
+      branch_cond = TrueFalse;
+      branch_count = 2; (* for if-else *)
+      branches_to = [];
+      branches_val = [];
+    } in
 
-    branch_info.branch_to_true <- Some ctx_true.current;
+    let (br_side_true, ctx_true) = BuildContext.branch_side graph ctx' branch_info 0 in
     let td2 = visit_expr graph ci ctx_true e2 in
-    branch_info.branch_val_true <- Some td2.lt.live;
-    let (br_side_false, ctx_false) = BuildContext.branch_side graph ctx' branch_info false in
-    branch_info.branch_to_false <- Some ctx_false.current;
+    let (br_side_false, ctx_false) = BuildContext.branch_side graph ctx' branch_info 1 in
     let td3 = visit_expr graph ci ctx_false e3 in
-    branch_info.branch_val_false <- Some td3.lt.live;
+
+    branch_info.branches_to <- [ctx_true.current; ctx_false.current];
+    branch_info.branches_val <- [td3.lt.live; td2.lt.live];
 
     BuildContext.branch_merge ctx' ctx_true ctx_false;
 
