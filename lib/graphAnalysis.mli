@@ -108,6 +108,9 @@ val events_first_msg : EventGraph.event list -> EventGraph.event -> Lang.message
 (** Sort in topological order. *)
 val toposort : EventGraph.event list -> EventGraph.event list
 
+(** Sort in topological order with a given predecessor function. *)
+val toposort_with_preds : (EventGraph.event -> EventGraph.event list) -> EventGraph.event list -> EventGraph.event list
+
 (** Return the list of registers modified in the graph *)
 val graph_owned_regs : EventGraph.event_graph -> Lang.identifier list
 
@@ -116,3 +119,6 @@ val graph_owned_regs : EventGraph.event_graph -> Lang.identifier list
 val message_is_immediate : Lang.message_def -> bool -> bool
 
 val event_is_msg_end : Lang.message_specifier -> EventGraph.event -> bool
+
+(** Returns the list of immediate predecessors. *)
+val imm_preds : EventGraph.event -> EventGraph.event list

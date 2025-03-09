@@ -39,6 +39,8 @@ let print_graph (g: event_graph) =
   ) g.events
 
 let print_dot_graph g out =
+  Printf.fprintf out "// BEGIN GRAPH IN DOT FORMAT\n";
+  Printf.fprintf out "// can render to PDF with 'dot -Tpdf -O <filename>'\n";
   Printf.fprintf out "digraph {\n";
   let ev_node_name ev = Printf.sprintf "event%d" ev.id in
   let print_edge e1 e2 label =
@@ -68,7 +70,8 @@ let print_dot_graph g out =
     | `Root (Some (ev', br_side_info)) ->
       print_edge ev' ev @@ string_of_int br_side_info.branch_side_sel
   ) g.events;
-  Printf.fprintf out "}\n"
+  Printf.fprintf out "}\n";
+  Printf.fprintf out "// END GRAPH IN DOT FORMAT\n"
 
 let find_last_event g =
   List.find (

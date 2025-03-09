@@ -280,8 +280,16 @@ let generate_extern_import out file_name =
     )
 
 let generate (out : out_channel)
-             (_config : Config.compile_config)
+             (config : Config.compile_config)
              (graphs : EventGraph.event_graph_collection) : unit =
+  if config.verbose then (
+    Printf.eprintf "==== CodeGen Details ====\n";
+    List.iter (fun (pg : proc_graph) ->
+      List.iter (fun g ->
+        EventGraphOps.print_dot_graph g Out_channel.stderr
+      ) pg.threads
+    ) graphs.event_graphs;
+  );
   let printer = CodegenPrinter.create out 2 in
   List.iter (codegen_proc printer graphs) graphs.event_graphs
 
