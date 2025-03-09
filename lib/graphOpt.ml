@@ -159,6 +159,14 @@ module CombSimplPass = struct
           union_ufs event_ufs ev.id new_ev_delay.id;
           merge_branch new_ev_branch ev_r new_ev_br_info
         )
+      | `Root (Some (e_p, _)) ->
+        let e_p = find_event e_p in
+        if List.for_all (fun ev' ->
+            match ev'.source with
+            | `Root (Some (e_p', _)) -> e_p.id = (find_event e_p').id
+            | _ -> false
+          ) ev_l then
+          union_ufs event_ufs ev.id e_p.id
       | _ -> ()
     in
     List.rev graph.events
@@ -294,7 +302,8 @@ module CombSimplPass = struct
         assert (f != old_id);
         let ev_f = event_arr_old.(f) in
         ev_f.actions <- Utils.list_unordered_join ev_f.actions actions;
-        ev_f.sustained_actions <- Utils.list_unordered_join ev_f.sustained_actions sustained_actions
+        ev_f.sustained_actions <- Utils.list_unordered_join ev_f.sustained_actions sustained_actions;
+        ev_f.is_recurse <- ev_f.is_recurse || ev.is_recurse (* maintain recurse event *)
       )
     in
     List.iter2 (fun e_new e_old -> assert to_keep.(e_old.id); merge_event e_old.id e_new) events_to_keep events_to_keep_old; (* merge events to keep first *)
@@ -325,6 +334,8 @@ module CombSimplPass = struct
     |> optimize_pass_merge merge_pass_isomorphic config for_lt_check ci
     |> optimize_pass_merge merge_pass_joint config for_lt_check ci
     |> codegen_only merge_pass_isomorphic_branch
+    |> codegen_only merge_pass_isomorphic
+    |> codegen_only merge_pass_joint
 end
 
 let optimize config for_lt_check ci graph =

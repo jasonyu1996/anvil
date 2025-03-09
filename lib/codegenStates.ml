@@ -61,6 +61,7 @@ let codegen_next printer (graphs : EventGraph.event_graph_collection)
   let print_line = CodegenPrinter.print_line printer in
   let print_lines = CodegenPrinter.print_lines printer in
   let lookup_msg_def msg = MessageCollection.lookup_message pg.messages msg graphs.channel_classes in
+  let recurse_event = List.find (fun e -> let open EventGraph in e.is_recurse) g.events in
   let print_compute_next (e : EventGraph.event) =
     let cn = EventStateFormatter.format_current g.thread_id e.id in
     match e.source with
@@ -148,7 +149,7 @@ let codegen_next printer (graphs : EventGraph.event_graph_collection)
       [
         Printf.sprintf "assign %s = _init || %s;"
           cn
-          (EventStateFormatter.format_current g.thread_id g.last_event_id)
+          (EventStateFormatter.format_current g.thread_id recurse_event.id)
       ] |> print_lines
     | `Root (Some (e', br_side_info)) ->
       let cn' = EventStateFormatter.format_current g.thread_id e'.id in

@@ -13,8 +13,7 @@ proc match_test_set () {
     reg cycle_counter : logic[l];
     reg v : logic[2];
     loop {
-        set cycle_counter := call add (*cycle_counter, 2'd1);
-        cycle 1
+        set cycle_counter := call add (*cycle_counter, 2'd1)
     }
     loop {
         match *cycle_counter {

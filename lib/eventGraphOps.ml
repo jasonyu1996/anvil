@@ -50,6 +50,8 @@ let print_dot_graph g out =
       label
   in
   List.iter (fun ev ->
+    if ev.is_recurse then
+      Printf.fprintf out "  %s [peripheries=2];\n" @@ ev_node_name ev;
     match ev.source with
     | `Later (e1, e2) ->
       print_edge e1 ev "L";
