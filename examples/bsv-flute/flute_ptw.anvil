@@ -1,0 +1,221 @@
+struct PTW_Req {
+    va : logic[64],
+    satp : logic[64]
+}
+enum PTW_Result{
+    PTW_OK,
+    PTW_ACCESS_FAULT,
+    PTW_PAGE_FAULT
+}
+struct PTW_Resp {
+    result : logic[2],
+    pte : PTE,
+    level : logic[2],
+    pte_pa : logic[56]
+}
+
+enum PTW_State{
+    FSM_IDLE,
+    FSM_Level_2,
+    FSM_Level_1,
+    FSM_Level_0,
+}
+chan ptw_mem_ch{
+    left req : (PTW_Req@#1),
+    right resp : (PTW_Resp@#1)
+}
+
+chan ptw_cache_ch{
+    left req : (logic[56]@res),
+    right resp : (logic[64]@#1)
+}
+
+
+struct merge_req{
+    sel : logic,
+    req : PTW_Req,
+}
+struct fifo<T:type>{
+    data : T,
+    valid : logic[1]
+}
+
+chan fifo_ch<T:type>{
+    left enq : (T@#1),
+    left deq : (logic[1]@#1),
+    right deq_rsp : (T@#1) @#deq - @#deq,
+    left peek : logic[1],
+    right peek_rsp : (T@#1)
+}
+
+proc FIFO<T:type>(ep : left fifo_ch<T>)
+{
+    reg fifo : T;
+    reg full : logic;
+    loop{
+        if(*full==1'd0 && ready ep.enq==1'd1){
+            let inp = recv ep.enq >>
+            set fifo = inp 
+            set full = 1'd1
+        }
+        else{
+            if(full==1'd1 && ready ep.deq==1'd1){
+                send ep.deq_rsp(*fifo)>>
+                set full = 1'd0
+            }
+            else{
+                if(full==1'd1 && ready ep.peek==1'd1){
+                    send ep.peek(*fifo)
+                }
+                else{
+                    cycle 1
+                }
+            }
+        }
+    }
+}
+
+
+func r1_ptw_start(){
+    send f_dcache_icache_ri.not_empty_check(1'd1);
+    let not_empty = recv f_dcache_icache_ri.not_empty;
+    if(not_empty){
+            send f_dcache_icache_ri.deq(1'd1)>>
+            let dmem_imem_reqs = recv f_dcache_icache_ri.deq_rsp
+            let dmem_not_imem = dmem_imem_reqs.data.sel;
+            let ptw_req = dmem_imem_reqs.req;
+            let va = ptw_req.va[0+:39];
+            let vpn2 = va[30+:9];
+            let PPN = ptw_req.satp[0+:44];
+            let satp_pa = #{PPN, 12'd0};
+            let vpn2_pa = {47'd0, vpn2};
+            let lev2_pte_pa = satp_pa + vpn2_pa;
+            send f_mem_req_ri.enq(lev2_pte_pa)>>
+            set rg_pte_pa := lev2_pte_pa;
+            set state = PTW_State::FSM_Level_2;
+    }
+    else cycle 1;
+}
+
+func r1_ptw_lvl2(){
+    send f_mem_res_ri.not_empty_check(1'd1);
+    let not_empty = recv f_mem_res_ri.not_empty;
+    if(not_empty){
+        // check lvl2 pte
+    }
+    else cycle 1;
+
+}
+func r1_ptw_lvl1(){
+    send f_mem_res_ri.not_empty_check(1'd1);
+    let not_empty = recv f_mem_res_ri.not_empty;
+    if(not_empty){
+        // check lvl1 pte
+    }
+    else cycle 1;
+}
+
+func r1_ptw_lvl0(){
+    send f_mem_res_ri.not_empty_check(1'd1);
+    let not_empty = recv f_mem_res_ri.not_empty;
+    if(not_empty){
+        // check lvl0 pte
+    }
+    else cycle 1;
+}
+proc flute_ptw (icache_ep: left ptw_cache_ch, dcache_ep : left ptw_cache_ch, mem_ep : right ptw_mem_ch) {
+    reg state : logic[2];
+
+
+    chan f_icache_req_le --  f_icache_req_ri : fifo_ch<PTW_Req>;
+    chan f_dcache_req_le --  f_dcache_req_ri : fifo_ch<PTW_Req>;
+    chan f_icache_res_le -- f_icache_res_ri : fifo_ch<PTW_Resp>;
+    chan f_dcache_res_le  -- f_dcache_res_ri : fifo_ch<PTW_Resp>;
+    chan f_mem_req_le --  f_mem_req_ri : fifo_ch<logic[56]>;
+    chan f_mem_res_le --  f_mem_res_ri : fifo_ch<logic[64]>;
+    chan f_dcache_icache_le -- f_dcache_icache_le_me : fifo_ch<merge_req>
+
+    spawn FIFO(f_icache_req_le);
+    spawn FIFO(f_icache_res_le);
+    spawn FIFO(f_dcache_req_le);
+    spawn FIFO(f_dcache_res_le);
+    
+    spawn FIFO(f_dcache_icache_le);
+
+    spawn FIFO(f_mem_req_le);
+    spawn FIFO(f_mem_res_le);
+
+
+    loop{
+        match *state{
+            FSM_IDLE => call r1_ptw_start(),
+            FSM_Level_0 => call r1_ptw_lvl0(),
+            FSM_Level_1 => call r1_ptw_lvl1(),
+            FSM_Level_2 => call r1_ptw_lvl2(),
+            _ => call serve_req()
+        }
+    }
+// Icache_Request
+    loop{
+        send f_icache_req_ri.full_check(1'd1);
+        let full = recv f_icache_req_ri.full;
+        if(full){
+            cycle 1
+        }
+        else{
+            let inp = recv icache_ep.req >>
+            send f_icache_req_le.enq(inp) >>
+            cycle 1
+        }
+
+    }
+
+    //DCache Req
+    loop{
+        send f_dcache_req_ri.full_check(1'd1);
+        let full = recv f_dcache_req_ri.full;
+        if(full){
+            cycle 1
+        }
+        else{
+            let inp = recv dcache_ep.req >>
+            send f_dcache_req_le.enq(inp) >>
+            cycle 1
+        }
+    }
+
+    //Arbiter
+
+    loop{
+        let full = recv f_dcache_icache_ri.full_check(1'd1);
+        if(full){
+            cycle 1
+        }
+        else{
+            send f_dcache_req_ri.not_empty_check(1'd1);
+            let d_not_empty = recv f_dcache_req_ri.not_empty;
+            send f_icache_req_ri.not_empty_check(1'd1);
+            let i_not_empty = recv f_icache_req_ri.not_empty;
+            if (i_not_empty){
+                send f_icache_req_ri.deq(1'd1)>>
+                let i_req = recv f_icache_req_ri.deq_rsp;
+                send f_dcache_icache_le.enq(merge_req::{sel=0; req=i_req})>>
+                cycle 1
+            }
+            else if(d_not_empty){
+                send f_dcache_req_ri.deq(1'd1)>>
+                let d_req = recv f_dcache_req_ri.deq_rsp;
+                send f_dcache_icache_le.enq(merge_req::{sel=1; req=d_req})>>
+                cycle 1
+            }
+            else{
+                cycle 1
+            }
+        }
+    }
+
+}
+
+
+
+

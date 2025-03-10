@@ -13,23 +13,29 @@ struct tlb_entry_lvl0{
     tag : logic[23],
     valid : logic[1],
     asid : logic[16],
-    pa : logic[56]
+    pa : logic[64]
 }
 struct tlb_entry_lvl1{
     content : pte_ty,
     tag : logic[15],
     valid : logic[1],
     asid : logic[16],
-    pa : logic[56]
+    pa : logic[64]
 }
 struct tlb_entry_lvl2{
     content : pte_ty,
     tag : logic[23],
     valid : logic[1],
     asid : logic[16],
-    pa : logic[56]
+    pa : logic[64]
 }
 
+struct tlb_result{
+    hit : logic[1],
+    pte : pte_ty,
+    pte_lvl : logic[2],
+    pte_pa : logic[56]
+}
 struct pte_ty{
     reserved : logic[10],
     ppn : logic[44],
@@ -44,11 +50,17 @@ struct pte_ty{
     v : logic
 }
 
+enum XLATE_OUT{
+    VM_XLATE_OK, VM_XLATE_TLB_MISS, VM_XLATE_EXCEPTION 
+}
 struct xlate_result{
-    hit : logic[1],
+    outcome : logic[2],
+    pa : logic[64],
+    exc_code : logic[4],
+    pte_modified : logic[1],
     pte : pte_ty,
     pte_lvl : logic[2],
-    pte_pa : logic[56]    
+    pte_pa : logic[56]    //Not Bare Metal
 }
 
 struct update_ty{
@@ -56,7 +68,7 @@ struct update_ty{
     vpn : logic[27],
     pte : pte_ty,
     pte_lvl : logic[2],
-    pte_pa : logic[56]   
+    pte_pa : logic[56] //Not Bare Metal   
 }
 chan tlb_translate_ch {
     left req : (xlate_in@#1) @dyn- @#1,
@@ -93,7 +105,7 @@ func fn_lookup2(asid,vpn)
     let tag = vpn[4+:23];
     ((*tlb2[idx].tag == tag) && (*tlb2[idx].valid == 1) && ((*tlb2[idx].asid == asid) || (*tlb2[idx].content.g==1'd1)))
 }
-func VM_Xlate(xlate_req)
+func TLB_Lookup(xlate_req)
 {
     let asid = xlate_req.satp[44+:16];
     let vpn = xlate_req.va[12+:27];
@@ -101,30 +113,110 @@ func VM_Xlate(xlate_req)
     let match_lvl1= call fn_lookup1(asid,vpn)>>
     let match_lvl2= call fn_lookup2(asid,vpn)>>
 
-    if (match_lvl0)
-    {
-        let idx = vpn[0+:4];
-        xlate_result::{hit=1; pte=*tlb0[idx].content; pte_lvl=0; pte_pa=*tlb0[idx].pa}
-    }
-    else
-    {
-        if(match_lvl1)
+    
+        if (match_lvl2)
         {
-            let idx = vpn[9+:3];
-            xlate_result::{hit=1; pte=*tlb1[idx].content; pte_lvl=1; pte_pa=*tlb1[idx].pa}
+            let idx = vpn[18+:2];
+            tlb_result::{hit=1; pte=*tlb2[idx].content; pte_lvl=2; pte_pa=*tlb2[idx].pa}
+            
+            
         }
+
         else
         {
-            if(match_lvl2)
+            if(match_lvl1)
             {
-                let idx = vpn[18+:2];
-                xlate_result::{hit=1; pte=*tlb2[idx].content; pte_lvl=2; pte_pa=*tlb2[idx].pa}
+                let idx = vpn[9+:3];
+                tlb_result::{hit=1; pte=*tlb1[idx].content; pte_lvl=1; pte_pa=*tlb1[idx].pa}
             }
             else
             {
-                xlate_result::{hit=0; pte=0; pte_lvl=0; pte_pa=0}
+                if(match_lvl0)
+                {
+                    let idx = vpn[0+:4];
+                    tlb_result::{hit=1; pte=*tlb0[idx].content; pte_lvl=0; pte_pa=*tlb0[idx].pa}
+                }
+                else
+                {
+                    tlb_result::{hit=0; pte=0; pte_lvl=0; pte_pa=0}
+                }
             }
         }
+}
+func is_pte_denial(xlate_in,pte){
+    let dmem_not_imem = xlate_in.dmem_not_imem;
+    let read_not_write = xlate_in.read_not_write;
+    let priv = xlate_in.priv;
+    let sstatus = xlate_in.sstatus;
+    let mstatus_mxr = xlate_in.mstatus_mxr;
+    let priv_deny = ((priv==2'd0) && (pte.u==1'd0))||((priv==2'd1)&&(pte.u==1'd1)&&(sstatus==1'b0));
+    let access_fetch = ((dmem_not_imem==1'd0)&&(read_not_write==1'd1));
+    let access_load = ((dmem_not_imem==1'd1)&&(read_not_write==1'd1));
+    let access_store = ((dmem_not_imem==1'd1)&&(read_not_write==1'd0));
+    let pte_r_mxr = (pte.r | (mstatus_mxr&pte.x));
+    let access_ok = (access_fetch && (pte.x==1'd1))||(access_load&&(pte_r_mxr==1'd1))||(access_store&&(pte.w==1'd1));
+    (priv_deny||(~access_ok))
+}
+
+func get_exc_code(dmem_not_imem,read_not_write){
+    if(dmem_not_imem==1'd0){
+        4'd12
+    }
+    else{
+        if(read_not_write==1'd1){
+            4'd13
+        }
+        else{
+            4'd15
+        }
+    }
+}
+
+func is_pte_A_D_fault(read_not_write,pte){
+    (pte.a==1'd0)||((read_not_write==1'd0)&&(pte.d==1'd0))
+}
+
+func VM_Xlate(tlb_result,xlate_req){
+    let xlate = call xlate(xlate_req.satp,xlate_req.priv);
+    let pte = tlb_result.pte;
+    let pte_modified = ((~pte.a)|((~pte.d)&(~xlate_req.read_not_write)));
+    let pte_o = pte_ty::{reserved=pte.reserved; ppn=pte.ppn; rsw=pte.rsw; d=(pte.d|((~pte.d)&(~xlate_req.read_not_write))); a=1'd1; g=pte.g; u=pte.u; x=pte.x; w=pte.w; r=pte.r; v=pte.v}>>
+    if(xlate){
+        if(tlb_result.hit==1'd1){
+            if (call is_pte_denial(xlate_req,tlb_result.pte))
+            {
+                xlate_result::{outcome=XLATE_OUT::VM_XLATE_EXCEPTION; pa=0;exc_code=(call get_exc_code(xlate_req.dmem_not_imem,xlate_req.read_not_write)); pte_modified=pte_modified; pte=0; pte_lvl=0; pte_pa=0}
+            }
+            else{
+                if(call is_pte_A_D_fault(xlate_req.read_not_write,tlb_result.pte))
+                {
+                    xlate_result::{outcome=XLATE_OUT::VM_XLATE_EXCEPTION; pa=0;exc_code=(call get_exc_code(xlate_req.dmem_not_imem,xlate_req.read_not_write)); pte_modified=pte_modified; pte=0; pte_lvl=0; pte_pa=0}
+                }
+                else{
+                    if(tlb_result.pte_lvl==2'd0){
+                        xlate_result::{outcome=XLATE_OUT::VM_XLATE_OK; pa=#{tlb_result.pte.ppn[0+:44],xlate_req.va[0+:12]}; exc_code=0; pte_modified=pte_modified; pte=pte_o; pte_lvl=tlb_result.pte_lvl; pte_pa=tlb_result.pte_pa}
+                    }
+                    else{
+                        if(tlb_result.pte_lvl==2'd1){
+                            xlate_result::{outcome=XLATE_OUT::VM_XLATE_OK; pa=#{tlb_result.pte.ppn[9+:35],xlate_req.va[0+:21]}; exc_code=0; pte_modified=pte_modified; pte=pte_o; pte_lvl=tlb_result.pte_lvl; pte_pa=tlb_result.pte_pa}
+                        }
+                        else if(tlb_result.pte_lvl==2'd2){
+                                xlate_result::{outcome=XLATE_OUT::VM_XLATE_OK; pa=#{tlb_result.pte.ppn[18+:26],xlate_req.va[0+:30]} ; exc_code=0; pte_modified=pte_modified; pte=pte_o; pte_lvl=tlb_result.pte_lvl; pte_pa=tlb_result.pte_pa}
+                        }
+                        else {xlate_result::{outcome=XLATE_OUT::VM_XLATE_OK; pa=xlate_req.va[0+:56]; exc_code=0; pte_modified=pte_modified; pte=pte_o; pte_lvl=tlb_result.pte_lvl; pte_pa=tlb_result.pte_pa}}
+                    
+                    }
+                    
+                }
+
+            }
+        }
+        else {
+            xlate_result::{outcome=XLATE_OUT::VM_XLATE_TLB_MISS; pa=0;exc_code=0; pte_modified=pte_modified; pte=0; pte_lvl=0; pte_pa=0}
+        }
+    }
+    else {
+        xlate_result::{outcome=XLATE_OUT::VM_XLATE_OK; pa=xlate_req.va[0+:56]; exc_code=0; pte_modified=pte_modified; pte=pte_o; pte_lvl=tlb_result.pte_lvl; pte_pa=tlb_result.pte_pa}
     }
 }
 
@@ -171,7 +263,8 @@ proc anvil_flute_tlb(flush_ep : left tlb_flush_ch, insert_ep : left tlb_insert_c
     reg tlb2 : tlb_entry_lvl2[4];
     loop{
         let inp = recv translate_ep.req >>
-        let resp = call VM_Xlate(inp);
+        let tlbResult = call TLB_Lookup(inp);
+        let resp = call VM_Xlate(tlbResult,inp);
         send translate_ep.res(resp)>>
         cycle 1
     }
