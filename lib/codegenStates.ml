@@ -18,7 +18,7 @@ let collect_reg_states g =
     | `Seq (_, d) -> (
       match d with
       | `Cycles n ->
-        if g.is_general_recursive then (
+        if g.is_general_recursive || n = 1 then (
           (* split into one-hot single cycles in general recursive case *)
           let sn = EventStateFormatter.format_counter g.thread_id e.id in
           Seq.ints 1 |> Seq.take n |> Seq.map (fun i -> ("logic", Printf.sprintf "%s_%d" sn i))
@@ -70,7 +70,7 @@ let codegen_next printer (graphs : EventGraph.event_graph_collection)
         let cn' = EventStateFormatter.format_current g.thread_id e'.id in
         match d with
         | `Cycles n when n >= 1 ->
-          if g.is_general_recursive then (
+          if g.is_general_recursive || n = 1 then (
             (* we need to split into individual cycles one-hot *)
             let sn = EventStateFormatter.format_counter g.thread_id e.id in
             Printf.sprintf "assign %s = %s_%d_q;" cn sn n |> print_line;
@@ -89,7 +89,7 @@ let codegen_next printer (graphs : EventGraph.event_graph_collection)
             ] |> print_lines
           )
         | `Cycles _ ->
-          failwith "Invalid number of cycles"
+          failwith "Invalid number of cycles" (* TODO: proper handling *)
         | `Send msg ->
           let sn = EventStateFormatter.format_syncstate g.thread_id e.id in
           let msg_def = lookup_msg_def msg |> Option.get in
