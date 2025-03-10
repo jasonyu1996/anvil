@@ -48,11 +48,11 @@ chan tlb_lookup_ch {
 }
 
 chan shared_tlb_update_ch {
-    left req : (update_in@#1) @dyn - @#1
+    left req : (update_in@#1) @#0~1 - @dyn
 }
 
 chan tlb_flush_issue_ch {
-    left req : (flush_in@#1) @dyn - @#1
+    left req : (flush_in@#1) @#0~1 - @dyn
 }
 
 //-----------------------------------------------------------------------------------------------------------------
@@ -313,7 +313,7 @@ proc anvil_tlb(lu_ch : left tlb_lookup_ch,
     loop { //update and flush
         // //dprint "[Cycle %d] Update or Flush Logic" (*cyc);
         if ready flush_issue_ch.req {
-            let inp = recv flush_issue_ch.req >>
+            let inp = recv flush_issue_ch.req;
             // //dprint "[Cycle %d] Flush TLB asid = %x, vaddr = %x " (*cyc, inp.asid_to_be_flushed_i, inp.vaddr_to_be_flushed_i);
             if (inp.asid_to_be_flushed_i == 16'd0) && (inp.vaddr_to_be_flushed_i == 64'd0) {
                 generate (i: 0, 15,1) {
@@ -346,7 +346,7 @@ proc anvil_tlb(lu_ch : left tlb_lookup_ch,
           //      //dprint "[Cycle %d] Flushed a particular address" (*cyc)
 
         } else if (ready update_ch.req && ((*lu_hit_o==1'd0)||(ready lu_ch.hit == 1'd0))) {
-            let update = recv update_ch.req >>
+            let update = recv update_ch.req ;
             // //dprint "[Cycle %d] Update TLB: vpn=%x, content = %x" (*cyc, update.vpn, update.content);
             if ((~*PLRUtree[0])&(~*PLRUtree[1])&(~*PLRUtree[3])&(~*PLRUtree[7])) {
                 set tag_q[0] := tag::{asid = update.asid; vpn=#{update.vpn[18+:9],update.vpn[9+:9],update.vpn[0+:9]};

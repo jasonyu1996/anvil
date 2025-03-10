@@ -1,0 +1,195 @@
+
+struct xlate_in{
+    va : logic[64],
+    satp : logic[64],
+    dmem_not_imem : logic[1],
+    read_not_write : logic[1],
+    priv : logic[2],
+    sstatus : logic[1],
+    mstatus_mxr : logic[1]
+}
+struct tlb_entry_lvl0{
+    content : pte_ty,
+    tag : logic[23],
+    valid : logic[1],
+    asid : logic[16],
+    pa : logic[56]
+}
+struct tlb_entry_lvl1{
+    content : pte_ty,
+    tag : logic[15],
+    valid : logic[1],
+    asid : logic[16],
+    pa : logic[56]
+}
+struct tlb_entry_lvl2{
+    content : pte_ty,
+    tag : logic[23],
+    valid : logic[1],
+    asid : logic[16],
+    pa : logic[56]
+}
+
+struct pte_ty{
+    reserved : logic[10],
+    ppn : logic[44],
+    rsw : logic[2],
+    d : logic,
+    a : logic,
+    g : logic,
+    u : logic,
+    x : logic,
+    w : logic,
+    r : logic,
+    v : logic
+}
+
+struct xlate_result{
+    hit : logic[1],
+    pte : pte_ty,
+    pte_lvl : logic[2],
+    pte_pa : logic[56]    
+}
+
+struct update_ty{
+    asid : logic[16],
+    vpn : logic[27],
+    pte : pte_ty,
+    pte_lvl : logic[2],
+    pte_pa : logic[56]   
+}
+chan tlb_translate_ch {
+    left req : (xlate_in@#1) @dyn- @#1,
+    right res : (xlate_result@#1) @#req - @#req
+}
+
+chan tlb_insert_ch {
+    left req : (update_ty@#1)
+}
+
+chan tlb_flush_ch {
+    left req : (logic[1]@#1)
+}
+
+func xlate(satp,priv)
+{
+    (priv<2'd1)&&(satp[60+:4]==4'd8)
+}
+func fn_lookup0(asid,vpn)
+{
+    let idx = vpn[0+:4];
+    let tag = vpn[4+:23];
+    ((*tlb0[idx].tag == tag) && (*tlb0[idx].valid == 1) && ((*tlb0[idx].asid == asid) || (*tlb0[idx].content.g==1'd1)))
+}
+func fn_lookup1(asid,vpn)
+{
+    let idx = vpn[9+:3];
+    let tag = vpn[12+:15];
+    ((*tlb1[idx].tag == tag) && (*tlb1[idx].valid == 1) && ((*tlb1[idx].asid == asid) || (*tlb1[idx].content.g==1'd1)))
+}
+func fn_lookup2(asid,vpn)
+{
+    let idx = vpn[18+:2];
+    let tag = vpn[4+:23];
+    ((*tlb2[idx].tag == tag) && (*tlb2[idx].valid == 1) && ((*tlb2[idx].asid == asid) || (*tlb2[idx].content.g==1'd1)))
+}
+func VM_Xlate(xlate_req)
+{
+    let asid = xlate_req.satp[44+:16];
+    let vpn = xlate_req.va[12+:27];
+    let match_lvl0= call fn_lookup0(asid,vpn)>>
+    let match_lvl1= call fn_lookup1(asid,vpn)>>
+    let match_lvl2= call fn_lookup2(asid,vpn)>>
+
+    if (match_lvl0)
+    {
+        let idx = vpn[0+:4];
+        xlate_result::{hit=1; pte=*tlb0[idx].content; pte_lvl=0; pte_pa=*tlb0[idx].pa}
+    }
+    else
+    {
+        if(match_lvl1)
+        {
+            let idx = vpn[9+:3];
+            xlate_result::{hit=1; pte=*tlb1[idx].content; pte_lvl=1; pte_pa=*tlb1[idx].pa}
+        }
+        else
+        {
+            if(match_lvl2)
+            {
+                let idx = vpn[18+:2];
+                xlate_result::{hit=1; pte=*tlb2[idx].content; pte_lvl=2; pte_pa=*tlb2[idx].pa}
+            }
+            else
+            {
+                xlate_result::{hit=0; pte=0; pte_lvl=0; pte_pa=0}
+            }
+        }
+    }
+}
+
+func vm_insert(upd)
+{
+    if(upd.pte_lvl==0){
+
+        let idx = upd.vpn[0+:4];
+        set tlb0[idx] := tlb_entry_lvl0::{content=upd.pte; tag=upd.vpn[4+:23]; valid=1; asid=upd.asid; pa=upd.pte_pa}
+    }
+    else
+    {
+        if(upd.pte_lvl==1){
+            let idx = upd.vpn[9+:3];
+            set tlb1[idx] := tlb_entry_lvl1::{content=upd.pte; tag=upd.vpn[12+:15]; valid=1; asid=upd.asid; pa=upd.pte_pa}
+        }
+        else
+        {
+            if(upd.pte_lvl==2){
+                let idx = upd.vpn[18+:2];
+                set tlb2[idx] := tlb_entry_lvl2::{content=upd.pte; tag=upd.vpn[4+:23]; valid=1; asid=upd.asid; pa=upd.pte_pa}
+            }
+            else {cycle 1}
+        }
+    }
+
+}
+func ma_flush()
+{
+    generate (i: 0,15,1){
+        set tlb0[i].valid := 0
+    };
+    generate (i: 0,7,1){
+        set tlb1[i].valid := 0
+    };
+    generate (i: 0,3,1){
+        set tlb2[i].valid := 0
+    }
+}
+proc anvil_flute_tlb(flush_ep : left tlb_flush_ch, insert_ep : left tlb_insert_ch, translate_ep : left tlb_translate_ch) 
+{
+    reg tlb0 : tlb_entry_lvl0[16];
+    reg tlb1 : tlb_entry_lvl1[8];
+    reg tlb2 : tlb_entry_lvl2[4];
+    loop{
+        let inp = recv translate_ep.req >>
+        let resp = call VM_Xlate(inp);
+        send translate_ep.res(resp)>>
+        cycle 1
+    }
+    loop{
+        if(ready flush_ep.req)
+        {
+            let inp = recv flush_ep.req >>
+            call ma_flush();
+            cycle 1
+        }
+        else{
+            if(ready insert_ep.req)
+            {
+                let inp = recv insert_ep.req >>
+                call vm_insert(inp)
+            }
+            else {cycle 1}
+        }
+        
+    }
+}
