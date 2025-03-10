@@ -177,6 +177,47 @@ module CombSimplPass = struct
       | _ -> ()
     )
 
+  let merge_pass_branch_fuse _config for_lt_check (_ci : cunit_info) (graph : event_graph) event_ufs event_arr_old =
+    assert (not for_lt_check); (* can only be used for codegen *)
+    List.iter (fun ev ->
+      match ev.source with
+      | `Branch (_, br_info) -> (
+        List.iter (fun e ->
+          match e.source with
+          | `Branch _ -> (
+            if e.actions = [] && e.sustained_actions = [] then
+              union_ufs event_ufs e.id ev.id
+          )
+          | _ -> ()
+        ) br_info.branches_val
+      )
+      | _ -> ()
+    ) graph.events;
+    List.iter (fun ev ->
+      match ev.source with
+      | `Branch (_, br_info) -> (
+        let f = find_ufs event_ufs ev.id in
+        let new_br_val = List.filter_map (fun e ->
+          let f_p = find_ufs event_ufs e.id in
+          let p = event_arr_old.!(f_p) in
+          if f_p = f then
+            None
+          else
+            Some p
+        ) br_info.branches_val in
+        if f = ev.id then
+          br_info.branches_val <- new_br_val
+        else (
+          (* need to merge *)
+          match event_arr_old.!(f).source with
+          | `Branch (_, br_info') ->
+            br_info'.branches_val <- new_br_val @ br_info'.branches_val
+          | _ -> failwith "Something went wrong!"
+        )
+      )
+      | _ -> ()
+    ) graph.events
+
   let optimize_pass_merge merge_pass config for_lt_check (ci : EventGraph.cunit_info) graph =
     let graph = {graph with thread_id = graph.thread_id} in (* create a copy *)
     let event_ufs = create_ufs @@ List.length graph.events in
@@ -336,6 +377,7 @@ module CombSimplPass = struct
     |> codegen_only merge_pass_isomorphic_branch
     |> codegen_only merge_pass_isomorphic
     |> codegen_only merge_pass_joint
+    |> codegen_only merge_pass_branch_fuse
 end
 
 let optimize config for_lt_check ci graph =
