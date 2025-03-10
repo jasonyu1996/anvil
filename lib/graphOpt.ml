@@ -218,6 +218,44 @@ module CombSimplPass = struct
       | _ -> ()
     ) graph.events
 
+  let merge_pass_triangle_fuse _config for_lt_check (_ci : cunit_info) (graph : event_graph) event_ufs event_arr_old =
+    assert (not for_lt_check);
+    List.rev graph.events
+    |> List.iter (fun ev ->
+      match ev.source with
+      | `Later (e1, e2) ->
+        let e1 = event_arr_old.!(find_ufs event_ufs e1.id) in
+        let e2 = event_arr_old.!(find_ufs event_ufs e2.id) in
+        if List.exists (fun e -> e.id = e1.id) @@ GraphAnalysis.imm_preds e2 then
+          union_ufs event_ufs ev.id e2.id
+        else if List.exists (fun e -> e.id = e2.id) @@ GraphAnalysis.imm_preds e1 then
+          union_ufs event_ufs ev.id e1.id
+      | _ -> ()
+    )
+
+  let merge_pass_unbalanced_later _config for_lt_check (ci : cunit_info) (graph : event_graph) event_ufs event_arr_old =
+    assert (not for_lt_check);
+    List.rev graph.events
+    |> List.iter (fun ev ->
+      match ev.source with
+      | `Later (e1, e2) ->
+        let e1 = event_arr_old.!(find_ufs event_ufs e1.id) in
+        let e2 = event_arr_old.!(find_ufs event_ufs e2.id) in
+        let lookup_message msg = MessageCollection.lookup_message graph.messages msg ci.channel_classes in
+        let order = GraphAnalysis.events_get_order graph.events lookup_message e1 e2 in
+        (
+          match order with
+          | BeforeEq | Before | AlwaysEq ->
+            union_ufs event_ufs ev.id e2.id
+          | AfterEq | After ->
+            union_ufs event_ufs ev.id e1.id
+          | Unreachable ->
+            failwith "Something went wrong!"
+          | _ -> ()
+        )
+      | _ -> ()
+    )
+
   let optimize_pass_merge merge_pass config for_lt_check (ci : EventGraph.cunit_info) graph =
     let graph = {graph with thread_id = graph.thread_id} in (* create a copy *)
     let event_ufs = create_ufs @@ List.length graph.events in
@@ -378,6 +416,8 @@ module CombSimplPass = struct
     |> codegen_only merge_pass_isomorphic
     |> codegen_only merge_pass_joint
     |> codegen_only merge_pass_branch_fuse
+    |> codegen_only merge_pass_triangle_fuse
+    |> codegen_only merge_pass_unbalanced_later
 end
 
 let optimize config for_lt_check ci graph =
