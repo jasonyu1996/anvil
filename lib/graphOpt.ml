@@ -139,6 +139,60 @@ module CombSimplPass = struct
     in
     let rec merge_branch ev ev_r br_info =
       let branches_val = List.map find_event br_info.branches_val in
+      let try_merge_branch_root () =
+        (* maintain the count of branch end seen, identified by the event id of
+        the first side *)
+        let new_branch_vals = ref [] in
+        let branch_count = Hashtbl.create 2 in
+        let merge_queue = Queue.create () in
+        let add_branch e_p =
+          match e_p.source with
+          | `Root (Some (e_root, br_side)) ->
+            let fst_side = List.hd br_side.owner_branch.branches_to in
+            (
+              match Hashtbl.find_opt branch_count fst_side.id with
+              | Some (cnt, el) ->
+                if cnt = 1 then
+                  (* seen all branches, can add to queue *)
+                  Queue.add e_root merge_queue;
+                Hashtbl.replace branch_count fst_side.id (cnt - 1, e_p::el)
+              | None ->
+                Hashtbl.replace branch_count fst_side.id ((List.length br_side.owner_branch.branches_to - 1), [e_p])
+            )
+          | _ -> new_branch_vals := e_p::!new_branch_vals
+        in
+        List.iter add_branch branches_val;
+        while not @@ Queue.is_empty merge_queue do
+          let e_root = Queue.pop merge_queue in
+          add_branch e_root
+        done;
+
+        (* construct the new branch_vals *)
+        let new_branch_vals = !new_branch_vals @
+        (
+          Hashtbl.to_seq branch_count
+          |> Seq.map (fun (_, (cnt, li)) ->
+            if cnt = 0 then
+              []
+            else
+              li
+          )
+          |> List.of_seq |> List.concat
+        ) in
+        (
+          match new_branch_vals with
+          | [] -> failwith "Something went wrong!"
+          | [e_root] ->
+            (* can merge *)
+            union_ufs event_ufs ev.id e_root.id;
+            changed := true
+          | _ ->
+            if List.length new_branch_vals <> List.length br_info.branches_val then (
+              br_info.branches_val <- new_branch_vals;
+              changed := true
+            )
+        )
+      in
       let ev_v = List.hd branches_val in
       let ev_l = List.tl branches_val in
       (* need to insert extra nodes *)
@@ -171,19 +225,9 @@ module CombSimplPass = struct
           union_ufs event_ufs ev.id new_ev_delay.id;
           changed := true;
           merge_branch new_ev_branch ev_r new_ev_br_info
-        )
-      | `Root (Some (e_p, _)) ->
-        let e_p = find_event e_p in
-        if List.for_all (fun ev' ->
-            match ev'.source with
-            | `Root (Some (e_p', _)) -> e_p.id = (find_event e_p').id
-            | _ -> false
-          ) ev_l then
-        (
-          union_ufs event_ufs ev.id e_p.id;
-          changed := true
-        )
-      | _ -> ()
+        ) else
+          try_merge_branch_root ()
+      | _ -> try_merge_branch_root ()
     in
     List.rev graph.events
     |> List.iter (fun ev ->
