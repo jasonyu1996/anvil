@@ -402,9 +402,9 @@ module CombSimplPass = struct
       last_event_id = (List.length events_to_keep) - 1
     }
 
-  let optimize_pass config for_lt_check ci graph =
-    let codegen_only merge_pass graph =
-      if for_lt_check then
+  let optimize_pass (config : Config.compile_config) for_lt_check ci graph =
+    let codegen_only min_opt_level merge_pass graph =
+      if for_lt_check || config.opt_level < min_opt_level then
         graph
       else
         optimize_pass_merge merge_pass config for_lt_check ci graph
@@ -412,12 +412,12 @@ module CombSimplPass = struct
     optimize_pass_merge merge_pass_simpl_comb config for_lt_check ci graph
     |> optimize_pass_merge merge_pass_isomorphic config for_lt_check ci
     |> optimize_pass_merge merge_pass_joint config for_lt_check ci
-    |> codegen_only merge_pass_isomorphic_branch
-    |> codegen_only merge_pass_isomorphic
-    |> codegen_only merge_pass_joint
-    |> codegen_only merge_pass_branch_fuse
-    |> codegen_only merge_pass_triangle_fuse
-    |> codegen_only merge_pass_unbalanced_later
+    |> codegen_only 1 merge_pass_isomorphic_branch
+    |> codegen_only 1 merge_pass_isomorphic
+    |> codegen_only 1 merge_pass_joint
+    |> codegen_only 1 merge_pass_branch_fuse
+    |> codegen_only 1 merge_pass_triangle_fuse
+    |> codegen_only 2 merge_pass_unbalanced_later
 end
 
 let optimize config for_lt_check ci graph =

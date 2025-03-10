@@ -35,7 +35,7 @@ Software simulation tested with Verilator 5.024.
 ### Usage
 
 ```
-dune exec anvil -- [-verbose] [-disable-lt-checks] [-two-round] <anvil-source-file>
+dune exec anvil -- [-verbose] [-disable-lt-checks] [-O <opt-level>] [-two-round] <anvil-source-file>
 ```
 
 NOTE: To disable lifetime-related checks, pass `-disable-lt-checks`. The `-two-round` flag
