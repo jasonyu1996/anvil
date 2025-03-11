@@ -144,7 +144,7 @@ let codegen_post_declare printer (graphs : event_graph_collection) (g : event_gr
       Printf.sprintf "%s %s;" (Format.format_dtype graphs.typedefs graphs.macro_defs (`Array (`Logic, ParamEnv.Concrete w.size))) (Format.format_wirename w.thread_id w.id) |>
         CodegenPrinter.print_line printer
   in List.iter codegen_wire_decl g.wires.wire_li;
-  List.iter (codegen_wire_assignment printer g) g.wires.wire_li
+  List.iter (codegen_wire_assignment printer g) @@ List.rev g.wires.wire_li (* reversed to generate from wire0 *)
   (* set send signals *)
   (* StringMap.iter (fun _ {msg_spec; select} ->
     let data_wires = gather_data_wires_from_msg ctx proc msg_spec
