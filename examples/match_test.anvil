@@ -12,8 +12,7 @@ func add (a,b) {
 proc match_test () {
     reg cycle_counter : logic[l];
     loop {
-        set cycle_counter := call add (*cycle_counter, 2'd1);
-        cycle 1
+        set cycle_counter := call add (*cycle_counter, 2'd1)
     }
     loop {
         match *cycle_counter {

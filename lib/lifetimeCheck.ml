@@ -195,11 +195,9 @@ let lifetime_check (config : Config.compile_config) (ci : cunit_info) (g : event
   let lookup_message msg = MessageCollection.lookup_message g.messages msg ci.channel_classes in
 
   if config.verbose then (
+    Printf.eprintf "==== Lifetime Check Details ====\n";
     EventGraphOps.print_graph g;
-    Printf.eprintf "// BEGIN GRAPH IN DOT FORMAT\n";
-    Printf.eprintf "// can render to PDF with 'dot -Tpdf -O <filename>'\n";
-    EventGraphOps.print_dot_graph g Out_channel.stderr;
-    Printf.eprintf "// END GRAPH IN DOT FORMAT\n"
+    EventGraphOps.print_dot_graph g Out_channel.stderr
   );
 
   GraphAnalysis.events_prepare_outs g.events;

@@ -4,6 +4,7 @@
 type compile_config = {
   verbose : bool; (** output verbose details related to compilation to stderr *)
   disable_lt_checks : bool; (** disable all lifetime and borrow related checks *)
+  opt_level : int; (** optimisation level *)
   two_round_graph: bool; (** enable codegen of two rounds for each thread
                              NOTE: with general recursive graphs, this may not be
                              literally two rounds *)

@@ -30,7 +30,7 @@ let imm_preds ev =
   | `Later (e1, e2) -> [e1; e2]
   | `Root None -> []
 
-let toposort events =
+let toposort_with_preds preds events =
   let n = List.fold_left (fun l e -> Int.max l e.id) 0 events in
   let n = n + 1 in
   let in_subgraph = Array.make n false in
@@ -40,26 +40,29 @@ let toposort events =
   in
   List.iter (fun e -> in_subgraph.(e.id) <- true) events;
   List.iter (fun e ->
-    imm_preds e |>
+    preds e |> List.rev |>
     List.iter (fun e' ->
       if is_in_subgraph e' then
         outdegs.(e'.id) <- outdegs.(e'.id) + 1
     )
   ) events;
-  let q = List.filter (fun e -> outdegs.(e.id) = 0) events |> List.to_seq |> Queue.of_seq in
+  let q = List.filter (fun e -> outdegs.(e.id) = 0) events |> List.to_seq |> Stack.of_seq in
   let res = ref [] in
-  while Queue.is_empty q |> not do
-    let e = Queue.pop q in
+  while Stack.is_empty q |> not do
+    let e = Stack.pop q in
     res := e::!res;
-    imm_preds e |> List.iter (fun e' ->
+    preds e |> List.rev |> List.iter (fun e' ->
       if is_in_subgraph e' then (
         outdegs.(e'.id) <- outdegs.(e'.id) - 1;
         if outdegs.(e'.id) = 0 then
-          Queue.add e' q
+          Stack.push e' q
       )
     )
   done;
   !res
+
+
+let toposort = toposort_with_preds imm_preds
 
 let event_predecessors (ev : event) : event list =
   let visitor add_to_queue cur =
