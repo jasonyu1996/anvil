@@ -68,7 +68,7 @@ let codegen_endpoints printer (graphs : event_graph_collection) (g : event_graph
   CodegenPort.gather_ports graphs.channel_classes |>
   List.iter print_port_signal_decl
 
-let codegen_wire_assignment printer (g : event_graph) (w : WireCollection.wire) =
+let codegen_wire_assignment printer (graphs : event_graph_collection) (g : event_graph) (w : WireCollection.wire) =
   match w.source with
   | Cases (vw, sw, d) -> (
     CodegenPrinter.print_line ~lvl_delta_post:1 printer
@@ -132,7 +132,9 @@ let codegen_wire_assignment printer (g : event_graph) (w : WireCollection.wire) 
     CodegenPrinter.print_line printer
       @@
       if w.is_const then
-        Printf.sprintf "localparam %s = %s;" (Format.format_wirename w.thread_id w.id) expr
+        Printf.sprintf "localparam %s %s = %s;"
+          (Format.format_dtype graphs.typedefs graphs.macro_defs (`Array (`Logic, ParamEnv.Concrete w.size)))
+          (Format.format_wirename w.thread_id w.id) expr
       else
         Printf.sprintf "assign %s = %s;" (Format.format_wirename w.thread_id w.id) expr
   )
@@ -144,7 +146,7 @@ let codegen_post_declare printer (graphs : event_graph_collection) (g : event_gr
       Printf.sprintf "%s %s;" (Format.format_dtype graphs.typedefs graphs.macro_defs (`Array (`Logic, ParamEnv.Concrete w.size))) (Format.format_wirename w.thread_id w.id) |>
         CodegenPrinter.print_line printer
   in List.iter codegen_wire_decl g.wires.wire_li;
-  List.iter (codegen_wire_assignment printer g) @@ List.rev g.wires.wire_li (* reversed to generate from wire0 *)
+  List.iter (codegen_wire_assignment printer graphs g) @@ List.rev g.wires.wire_li (* reversed to generate from wire0 *)
   (* set send signals *)
   (* StringMap.iter (fun _ {msg_spec; select} ->
     let data_wires = gather_data_wires_from_msg ctx proc msg_spec
