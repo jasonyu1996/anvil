@@ -13,13 +13,17 @@ module CombSimplPass = struct
   (* Creates a new union-find set. *)
   let create_ufs n = Dynarray.init n (fun i -> i)
   let rec find_ufs ufs i =
-    let f = ufs.!(i) in
-    if f == i then
+    if i < 0 then
       i
     else (
-      let f = find_ufs ufs f in
-      ufs.!(i) <- f;
-      f
+      let f = ufs.!(i) in
+      if f == i || f < 0 then (* < 0 for special use *)
+        f
+      else (
+        let f = find_ufs ufs f in
+        ufs.!(i) <- f;
+        f
+      )
     )
 
   (* This always merges hi into lo. *)
@@ -331,6 +335,24 @@ module CombSimplPass = struct
     );
     !changed
 
+
+  let merge_pass_prune _config for_lt_check (_ci : cunit_info) (graph : event_graph) event_ufs _event_arr_old =
+    assert (not for_lt_check);
+    let changed = ref false in
+    let n = List.length graph.events in
+    let out_deg = Array.make n 0 in
+    List.iter (fun e ->
+      if out_deg.(e.id) = 0 && not e.is_recurse && e.actions = [] && e.sustained_actions = [] then (
+        (* remove *)
+        union_ufs event_ufs e.id (-1);
+        changed := true
+      ) else (
+        GraphAnalysis.imm_preds e
+        |> List.iter (fun e' -> out_deg.(e'.id) <- out_deg.(e'.id) + 1)
+      )
+    ) graph.events;
+    !changed
+
   let optimize_pass_merge merge_pass config for_lt_check (ci : EventGraph.cunit_info) changed graph =
     let graph = {graph with thread_id = graph.thread_id} in (* create a copy *)
     let event_ufs = create_ufs @@ List.length graph.events in
@@ -376,8 +398,11 @@ module CombSimplPass = struct
         }
       and replace_event ev =
         let f = find_ufs event_ufs ev.id in
-        assert to_keep.(f);
-        event_arr_old.(f)
+        assert (f < 0 || to_keep.(f));
+        if f < 0  then
+          ev (* shouldn't matter anyway *)
+        else
+          event_arr_old.(f)
       in
       let replace_lvalue_info lval_info =
         let range_fst = match fst lval_info.lval_range.subreg_range_interval with
@@ -463,7 +488,7 @@ module CombSimplPass = struct
         )
       in
       List.iter2 (fun e_new e_old -> assert to_keep.(e_old.id); merge_event e_old.id e_new) events_to_keep events_to_keep_old; (* merge events to keep first *)
-      Array.iteri (fun i e -> if not to_keep.(i) then merge_event i e) event_arr_old; (* then merge the rest *)
+      Array.iteri (fun i e -> if not to_keep.(i) && find_ufs event_ufs i >= 0 then merge_event i e) event_arr_old; (* then merge the rest *)
 
       List.iter (fun ev ->
         List.iter (fun sa_span ->
@@ -501,6 +526,7 @@ module CombSimplPass = struct
         |> codegen_only 1 merge_pass_joint
         |> codegen_only 1 merge_pass_branch_fuse
         |> codegen_only 1 merge_pass_triangle_fuse
+        |> codegen_only 1 merge_pass_prune
         |> codegen_only 2 merge_pass_unbalanced_later
     done;
     !graph
