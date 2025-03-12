@@ -31,22 +31,25 @@ enum PTW_State{
     FSM_IDLE,
     FSM_Level_2,
     FSM_Level_1,
-    FSM_Level_0,
+    FSM_Level_0
 }
 chan ptw_cache_ch{
-    left req : (PTW_Req@#1),
-    right resp : (PTW_Resp@#1)
+    left req : (PTW_Req@resp),
+    right resp : (PTW_Resp@req)
 }
-
+struct Mem_Resp{
+    ok : logic[1],
+    pte_word : logic[64]
+}
 chan ptw_mem_ch{
     left req : (logic[56]@res),
-    right resp : (logic[64]@#1)
+    right res : (Mem_Resp@req)
 }
 
 
 struct merge_req{
     sel : logic,
-    req : PTW_Req,
+    req : PTW_Req
 }
 struct fifo<T:type>{
     data : T,
@@ -56,13 +59,186 @@ struct fifo<T:type>{
 chan fifo_ch<T:type>{
     left enq : (T@#1),
     left deq : (logic[1]@#1),
-    right deq_rsp : (T@#1) @#deq - @#deq,
+    // right deq_rsp : (T@#1) @#deq - @#deq,
     left peek : (logic[1]@#1),
     right peek_rsp : (T@enq) @#peek - @#peek,
-    left full_check : (logic[1]@#1) @dyn - @#1,
-    right full : logic[1] @#full_check - @#full_check,
-    left not_empty_check : (logic[1]@#1) @dyn - @#1,
-    right not_empty : logic[1] @#not_empty_check - @#not_empty_check 
+    left full_check : (logic[1]@#1) @#1 - @dyn,
+    right full : (logic[1]@#1) @#full_check - @#full_check,
+    left not_empty_check : (logic[1]@#1) @#1 - @dyn,
+    right not_empty : (logic[1]@#1) @#not_empty_check - @#not_empty_check 
+}
+
+func peek_dcache_icache_merged_fifo(){
+    send f_dcache_icache_ri.peek(1'd1)>>
+    recv f_dcache_icache_ri.peek_rsp
+}
+
+func word_to_pte(word){
+    pte_ty::{v=word[0]; r=word[1]; w=word[2]; x=word[3]; u=word[4]; g=word[5]; a=word[6]; d=word[7]; rsw=word[8+:2]; ppn=word[10+:44]; reserved=word[54+:10]}
+}
+
+func r1_ptw_start(){
+    send f_dcache_icache_ri.not_empty_check(1'd1)>>
+    let not_empty = recv f_dcache_icache_ri.not_empty;
+    if(not_empty){
+            let dmem_imem_reqs= call peek_dcache_icache_merged_fifo()>>
+            let ptw_req = dmem_imem_reqs.req;
+            let va = ptw_req.va[0+:39];
+            let vpn2 = va[30+:9];
+            let PPN = ptw_req.satp[0+:44];
+            let satp_pa = #{PPN, 12'd0};
+            let vpn2_pa = #{47'd0, vpn2};
+            let lev2_pte_pa = satp_pa + vpn2_pa;
+            send f_mem_req_ri.enq(lev2_pte_pa)>>
+            set rg_pte_pa := lev2_pte_pa;
+            set state := PTW_State::FSM_Level_2
+    }
+    else {cycle 1}
+}
+func enq_ptw_res(resp,dmem_not_imem){
+    send f_dcache_icache_ri.deq(1'd1)>>
+    if (dmem_not_imem==1'd1){
+        send f_dcache_res_ri.enq(resp)
+    }
+    else{
+        send f_icache_res_ri.enq(resp)
+    }
+
+}
+func is_invalid_pte(pte)
+{
+    (pte.v==1'd0)||((pte.r==1'd0)&&(pte.w==1'd1))
+}
+func get_empty_pty()
+{
+    pte_ty::{v=1'd0; r=1'd0; w=1'd0; x=1'd0; u=1'd0; g=1'd0; a=1'd0; d=1'd0; rsw=0; ppn=0; reserved=0}
+}
+func r1_ptw_lvl2(){
+    send f_mem_res_ri.not_empty_check(1'd1)>>
+    let not_empty = recv f_mem_res_ri.not_empty;
+    let dmem_imem_reqs = call peek_dcache_icache_merged_fifo()>>
+    if(not_empty){
+        send f_mem_res_ri.peek(1'd1)>>
+        let mem_rsp = recv f_mem_res_ri.peek_rsp;
+        let pte = call word_to_pte(mem_rsp.pte_word)>>
+        if (mem_rsp.ok != 1'd1)
+        {
+            let resp = PTW_Resp::{result=PTW_Result::PTW_ACCESS_FAULT; pte=call get_empty_pty(); level=2'd2; pte_pa=*rg_pte_pa};
+            call enq_ptw_res(resp,dmem_imem_reqs.sel)>>
+            set state := PTW_State::FSM_IDLE
+        }
+        else{
+            if(call is_invalid_pte(pte)){
+                let resp = PTW_Resp::{result=PTW_Result::PTW_PAGE_FAULT; pte=call get_empty_pty(); level=2'd2; pte_pa=*rg_pte_pa};
+                call enq_ptw_res(resp,dmem_imem_reqs.sel)>>
+                set state := PTW_State::FSM_IDLE
+            }
+            else{
+               if ((pte.x==1'd0)&& (pte.r==1'd0)){
+                let ppn = pte.ppn;
+                let lev1_ptn_pa = #{ppn, 12'd0};
+                let vpn1 = dmem_imem_reqs.req.va[21+:9];
+                let vpn1_pa = #{47'd0, vpn1};
+                let lev1_pte_pa = lev1_ptn_pa + vpn1_pa;
+                send f_mem_req_ri.enq(lev1_pte_pa)>>
+                set rg_pte_pa := lev1_pte_pa;
+                set state := PTW_State::FSM_Level_1
+               }
+               else{
+                let resp = PTW_Resp::{result=PTW_Result::PTW_OK; pte=pte; level=2'd2; pte_pa=*rg_pte_pa};
+                call enq_ptw_res(resp,dmem_imem_reqs.sel)>>
+                set state := PTW_State::FSM_IDLE
+               }
+                
+            }
+        }
+        // check lvl2 pte
+
+    }
+    else {cycle 1}
+
+}
+func r1_ptw_lvl1(){
+    send f_mem_res_ri.not_empty_check(1'd1)>>
+    let not_empty = recv f_mem_res_ri.not_empty;
+    let dmem_imem_reqs = call peek_dcache_icache_merged_fifo()>>
+    if(not_empty){
+        send f_mem_res_ri.peek(1'd1)>>
+        let mem_rsp = recv f_mem_res_ri.peek_rsp;
+        let pte = call word_to_pte(mem_rsp.pte_word)>>
+        if (mem_rsp.ok != 1'd1)
+        {
+            let resp = PTW_Resp::{result=PTW_Result::PTW_ACCESS_FAULT; pte=call get_empty_pty(); level=2'd1; pte_pa=*rg_pte_pa};
+            call enq_ptw_res(resp,dmem_imem_reqs.sel)>>
+            set state := PTW_State::FSM_IDLE
+        }
+        else{
+            if(call is_invalid_pte(pte)){
+                let resp = PTW_Resp::{result=PTW_Result::PTW_PAGE_FAULT; pte=call get_empty_pty(); level=2'd1; pte_pa=*rg_pte_pa};
+                call enq_ptw_res(resp,dmem_imem_reqs.sel)>>
+                set state := PTW_State::FSM_IDLE
+            }
+            else{
+               if ((pte.x==1'd0)&& (pte.r==1'd0)){
+                let ppn = pte.ppn;
+                let lev0_ptn_pa = #{ppn, 12'd0};
+                let vpn0 = dmem_imem_reqs.req.va[12+:9];
+                let vpn0_pa = #{47'd0, vpn0};
+                let lev0_pte_pa = lev0_ptn_pa + vpn0_pa;
+                send f_mem_req_ri.enq(lev0_pte_pa)>>
+                set rg_pte_pa := lev0_pte_pa;
+                set state := PTW_State::FSM_Level_0
+               }
+               else{
+                let resp = PTW_Resp::{result=PTW_Result::PTW_OK; pte=pte; level=2'd1; pte_pa=*rg_pte_pa};
+                call enq_ptw_res(resp,dmem_imem_reqs.sel)>>
+                set state := PTW_State::FSM_IDLE
+               }
+                
+            }
+        }
+
+    }
+    else {cycle 1}
+}
+
+
+func r1_ptw_lvl0(){
+    send f_mem_res_ri.not_empty_check(1'd1)>>
+    let not_empty = recv f_mem_res_ri.not_empty;
+    let dmem_imem_reqs = call peek_dcache_icache_merged_fifo()>>
+    if(not_empty){
+        send f_mem_res_ri.peek(1'd1)>>
+        let mem_rsp = recv f_mem_res_ri.peek_rsp;
+        let pte = call word_to_pte(mem_rsp.pte_word)>>
+        if (mem_rsp.ok != 1'd1)
+        {
+            let resp = PTW_Resp::{result=PTW_Result::PTW_ACCESS_FAULT; pte=call get_empty_pty(); level=2'd0; pte_pa=*rg_pte_pa};
+            call enq_ptw_res(resp,dmem_imem_reqs.sel)>>
+            set state := PTW_State::FSM_IDLE
+        }
+        else{
+            if(call is_invalid_pte(pte)){
+                let resp = PTW_Resp::{result=PTW_Result::PTW_PAGE_FAULT; pte=call get_empty_pty(); level=2'd0; pte_pa=*rg_pte_pa};
+                call enq_ptw_res(resp,dmem_imem_reqs.sel)>>
+                set state := PTW_State::FSM_IDLE
+            }
+            else{
+                if((pte.x == 1'd0) && (pte.r == 1'd0)){
+                    let resp = PTW_Resp::{result=PTW_Result::PTW_PAGE_FAULT; pte=call get_empty_pty(); level=2'd0; pte_pa=*rg_pte_pa};
+                    call enq_ptw_res(resp,dmem_imem_reqs.sel)>>
+                    set state := PTW_State::FSM_IDLE
+                }
+                else{
+                    let resp = PTW_Resp::{result=PTW_Result::PTW_OK; pte=pte; level=2'd0; pte_pa=*rg_pte_pa};
+                    call enq_ptw_res(resp,dmem_imem_reqs.sel)>>
+                    set state := PTW_State::FSM_IDLE
+                }
+                
+            }
+        }
+    }
+    else {cycle 1}
 }
 
 proc FIFO<T:type>(ep : left fifo_ch<T>)
@@ -70,18 +246,18 @@ proc FIFO<T:type>(ep : left fifo_ch<T>)
     reg fifo : T;
     reg full : logic;
     loop{
-        if(*full==1'd1 && ready ep.peek==1'd1){
+        if(*full==1'd1 && (ready ep.peek==1'd1)){
             let inp = recv ep.peek >>
             send ep.peek_rsp(*fifo) >>
+            cycle 1
         }
         else{
-            if(full==1'd1 && ready ep.deq==1'd1){
-                let inp = recv ep.deq >>
-                send ep.deq_rsp(*fifo)>>
-                set full = 1'd0
+            if((*full==1'd1) && (ready ep.deq==1'd1)){
+                let _ = recv ep.deq >>
+                set full := 1'd0
             }
             else{
-                if(full==1'd0 && ready ep.enq==1'd1){
+                if((*full==1'd0) && (ready ep.enq==1'd1)){
                     let inp = recv ep.enq >>
                     set fifo := inp
                 }
@@ -93,158 +269,117 @@ proc FIFO<T:type>(ep : left fifo_ch<T>)
     }
 
     loop{
-        let _ = recv ep.full_check()>>
+        let _ = recv ep.full_check>>
         send ep.full(*full)>>
         cycle 1
     }
     loop{
-        let _ = recv ep.not_empty_check()>>
-        send ep.not_empty(full)>>
+        let _ = recv ep.not_empty_check>>
+        send ep.not_empty(*full)>>
         cycle 1
     }
 }
 
-
-func r1_ptw_start(){
-    send f_dcache_icache_ri.not_empty_check(1'd1);
-    let not_empty = recv f_dcache_icache_ri.not_empty;
-    if(not_empty){
-            send f_dcache_icache_ri.deq(1'd1)>>
-            let dmem_imem_reqs = recv f_dcache_icache_ri.deq_rsp;
-            let dmem_not_imem = dmem_imem_reqs.data.sel;
-            let ptw_req = dmem_imem_reqs.req;
-            let va = ptw_req.va[0+:39];
-            let vpn2 = va[30+:9];
-            let PPN = ptw_req.satp[0+:44];
-            let satp_pa = #{PPN, 12'd0};
-            let vpn2_pa = {47'd0, vpn2};
-            let lev2_pte_pa = satp_pa + vpn2_pa;
-            send f_mem_req_ri.enq(lev2_pte_pa)>>
-            set rg_pte_pa := lev2_pte_pa;
-            set state = PTW_State::FSM_Level_2;
-    }
-    else cycle 1;
-}
-func is_invalid_pte(pte)
-{
-    (pte.v==1'd0)||((pte.r==1'd0)&&(pte.w==1'd1))
-}
-func r1_ptw_lvl2(){
-    send f_mem_res_ri.not_empty_check(1'd1);
-    let not_empty = recv f_mem_res_ri.not_empty;
-    if(not_empty){
-        send f_mem_res_ri.deq(1'd1);
-        let mem_rsp = recv f_mem_res_ri.deq_rsp;
-
-        if (mem_rsp. != 1'd1)
-        {
-            if(mem_rsp.dmem_not_imem){
-                send f_dcache_res_ri.enq(PTW_Resp::{result==PTW_Result::PTW_PAGE_FAULT; pte=mem_rsp.pte; level=2; pte_pa=*rg_pte_pa})>>
-                set state = PTW_State::FSM_IDLE
-            }
-            else{
-                send f_icache_res_le.enq(PTW_Resp::{result==PTW_Result::PTW_PAGE_FAULT; pte=mem_rsp.pte; level=2; pte_pa=*rg_pte_pa})>>
-                set state = PTW_State::FSM_IDLE
-            }
-        }
-        else{
-            if(call is_invalid_pte()){
-                
-            }
-        }
-
-        // check lvl2 pte
-
-    }
-    else cycle 1;
-
-}
-func r1_ptw_lvl1(){
-    send f_mem_res_ri.not_empty_check(1'd1);
-    let not_empty = recv f_mem_res_ri.not_empty;
-    if(not_empty){
-        // check lvl1 pte
-    }
-    else cycle 1;
-}
-
-func r1_ptw_lvl0(){
-    send f_mem_res_ri.not_empty_check(1'd1);
-    let not_empty = recv f_mem_res_ri.not_empty;
-    if(not_empty){
-        // check lvl0 pte
-    }
-    else cycle 1;
-}
 proc flute_ptw (icache_ep: left ptw_cache_ch, dcache_ep : left ptw_cache_ch, mem_ep : right ptw_mem_ch) {
     reg state : logic[2];
-
+    reg rg_pte_pa : logic[56];
 
     chan f_icache_req_le --  f_icache_req_ri : fifo_ch<PTW_Req>;
     chan f_dcache_req_le --  f_dcache_req_ri : fifo_ch<PTW_Req>;
     chan f_icache_res_le -- f_icache_res_ri : fifo_ch<PTW_Resp>;
     chan f_dcache_res_le  -- f_dcache_res_ri : fifo_ch<PTW_Resp>;
-    chan f_mem_req_le --  f_mem_req_ri : fifo_ch<logic[56]>;
-    chan f_mem_res_le --  f_mem_res_ri : fifo_ch<logic[64]>;
-    chan f_dcache_icache_le -- f_dcache_icache_le_me : fifo_ch<merge_req>
+    chan f_mem_req_le --  f_mem_req_ri :fifo_ch<logic[56]>;
+    chan f_mem_res_le --  f_mem_res_ri : fifo_ch<Mem_Resp>;
+    chan f_dcache_icache_le -- f_dcache_icache_ri : fifo_ch<merge_req>;
 
-    spawn FIFO(f_icache_req_le);
-    spawn FIFO(f_icache_res_le);
-    spawn FIFO(f_dcache_req_le);
-    spawn FIFO(f_dcache_res_le);
+    spawn FIFO<PTW_Req>(f_icache_req_le);
+    spawn FIFO<PTW_Resp>(f_icache_res_le);
+    spawn FIFO<PTW_Req>(f_dcache_req_le);
+    spawn FIFO<PTW_Resp>(f_dcache_res_le);
     
-    spawn FIFO(f_dcache_icache_le);
+    spawn FIFO<merge_req>(f_dcache_icache_le);
 
-    spawn FIFO(f_mem_req_le);
-    spawn FIFO(f_mem_res_le);
+    spawn FIFO<logic[56]>(f_mem_req_le);
+    spawn FIFO<Mem_Resp>(f_mem_res_le);
 
 
     loop{
         match *state{
-            FSM_IDLE => call r1_ptw_start(),
-            FSM_Level_0 => call r1_ptw_lvl0(),
-            FSM_Level_1 => call r1_ptw_lvl1(),
-            FSM_Level_2 => call r1_ptw_lvl2(),
-            _ => call serve_req()
-        }
+            PTW_State::FSM_IDLE => (call r1_ptw_start();cycle 1),
+            PTW_State::FSM_Level_0 => (call r1_ptw_lvl0();cycle 1),
+            PTW_State::FSM_Level_1 => (call r1_ptw_lvl1();cycle 1),
+            PTW_State::FSM_Level_2 => (call r1_ptw_lvl2();cycle 1),
+            _ => (call r1_ptw_start();cycle 1)
+        }>>
+        cycle 1
     }
 
 // Memory Request
     loop{
-        send_f_mem_req_ri.peek(1'd1);
+        send f_mem_req_ri.peek(1'd1)>>
         let inp = recv f_mem_req_ri.peek_rsp;
         send mem_ep.req(inp)>>
         let resp = recv mem_ep.res >>
+        send f_mem_res_ri.enq(resp)>>
         send f_mem_req_ri.deq(1'd1)>>
-        let _ = recv f_mem_req_ri.deq_rsp >>
-        send f_mem_res_le.enq(resp)>>
         cycle 1
     }
 // Icache_Request
     loop{
-        send f_icache_req_ri.full_check(1'd1);
-        let full = recv f_icache_req_ri.full();
+        send f_icache_req_ri.full_check(1'd1)>>
+        let full = recv f_icache_req_ri.full;
         if(full){
             cycle 1
         }
         else{
             let inp = recv icache_ep.req >>
-            send f_icache_req_le.enq(inp) >>
+            send f_icache_req_ri.enq(inp) >>
             cycle 1
         }
 
     }
+    //Icache_Res
+    loop{
+        send f_icache_res_ri.not_empty_check(1'd1)>>
+        let not_empty = recv f_icache_res_ri.not_empty;
+        if(not_empty){
+            send f_icache_res_ri.peek(1'd1)>>
+            let inp = recv f_icache_res_ri.peek_rsp;
+            send icache_ep.resp(inp)>>
+            send f_icache_res_ri.deq(1'd1)>>
+            cycle 1
+        }
+        else{
+            cycle 1
+        }
+    
 
+    }
     //DCache Req
     loop{
-        send f_dcache_req_ri.full_check(1'd1);
-        let full = recv f_dcache_req_ri.full();
+        send f_dcache_req_ri.full_check(1'd1)>>
+        let full = recv f_dcache_req_ri.full;
         if(full){
             cycle 1
         }
         else{
             let inp = recv dcache_ep.req >>
-            send f_dcache_req_le.enq(inp) >>
+            send f_dcache_req_ri.enq(inp) >>
+            cycle 1
+        }
+    }
+//Dcache Resp
+    loop{
+        send f_dcache_res_ri.not_empty_check(1'd1)>>
+        let not_empty = recv f_dcache_res_ri.not_empty;
+        if(not_empty){
+            send f_dcache_res_ri.peek(1'd1)>>
+            let inp = recv f_dcache_res_ri.peek_rsp;
+            send dcache_ep.resp(inp)>>
+            send f_dcache_res_ri.deq(1'd1)>>
+            cycle 1
+        }
+        else{
             cycle 1
         }
     }
@@ -252,26 +387,28 @@ proc flute_ptw (icache_ep: left ptw_cache_ch, dcache_ep : left ptw_cache_ch, mem
     //Arbiter
 
     loop{
-        send f_dcache_icache_ri.full_check(1'd1);
-        let full = recv f_dcache_icache_ri.full();
+        send f_dcache_icache_ri.full_check(1'd1)>>
+        let full = recv f_dcache_icache_ri.full;
         if(full){
             cycle 1
         }
         else{
-            send f_dcache_req_ri.not_empty_check(1'd1);
-            let d_not_empty = recv f_dcache_req_ri.not_empty;
-            send f_icache_req_ri.not_empty_check(1'd1);
-            let i_not_empty = recv f_icache_req_ri.not_empty;
+            send f_dcache_req_ri.not_empty_check(1'd1)>>
+            let d_not_empty = recv f_dcache_req_ri.not_empty>>
+            send f_icache_req_ri.not_empty_check(1'd1)>> 
+            let i_not_empty = recv f_icache_req_ri.not_empty>>
             if (i_not_empty){
+                send f_icache_req_ri.peek(1'd1)>>
+                let i_req = recv f_icache_req_ri.peek_rsp;
+                send f_dcache_icache_ri.enq(merge_req::{sel=0; req=i_req})>>
                 send f_icache_req_ri.deq(1'd1)>>
-                let i_req = recv f_icache_req_ri.deq_rsp;
-                send f_dcache_icache_le.enq(merge_req::{sel=0; req=i_req})>>
                 cycle 1
             }
             else if(d_not_empty){
+                send f_dcache_req_ri.peek(1'd1)>>
+                let d_req = recv f_dcache_req_ri.peek_rsp;
+                send f_dcache_icache_ri.enq(merge_req::{sel=1; req=d_req})>>
                 send f_dcache_req_ri.deq(1'd1)>>
-                let d_req = recv f_dcache_req_ri.deq_rsp;
-                send f_dcache_icache_le.enq(merge_req::{sel=1; req=d_req})>>
                 cycle 1
             }
             else{

@@ -532,7 +532,50 @@ let rec string_of_expr (e : expr) : string =
   | Identifier id -> "Identifier " ^ id
   | Let (ids, e) -> "Let (" ^ String.concat ", " ids ^ ", " ^ string_of_expr e.d ^ ")"
   | Assign (lv, n) -> "Assign (" ^ string_of_lvalue lv ^ ", " ^ string_of_expr n.d ^ ")"
-  | _ -> "..."
+  | Binop (op, e1, e2) -> "Binop (" ^ string_of_binop op ^ ", " ^ string_of_expr e1.d ^ ", " ^ string_of_expr e2.d ^ ")"
+  | Unop (op, e) -> "Unop (" ^ string_of_unop op ^ ", " ^ string_of_expr e.d ^ ")"
+  | Tuple exprs -> "Tuple [" ^ String.concat "; " (List.map (fun e -> string_of_expr e.d) exprs) ^ "]"
+  | Join (e1, e2) -> "Join (" ^ string_of_expr e1.d ^ ", " ^ string_of_expr e2.d ^ ")"
+  | Wait (e1, e2) -> "Wait (" ^ string_of_expr e1.d ^ " => " ^ string_of_expr e2.d ^ ")"
+  | Cycle n -> "Cycle " ^ string_of_int n
+  | Sync id -> "Sync " ^ id
+  | IfExpr (cond, then_e, else_e) -> 
+      "If (" ^ string_of_expr cond.d ^ " then " ^ string_of_expr then_e.d ^ " else " ^ string_of_expr else_e.d ^ ")"
+  | Construct (spec, None) -> "Construct " ^ spec.variant_ty_name ^ "::" ^ spec.variant
+  | Construct (spec, Some e) -> 
+      "Construct " ^ spec.variant_ty_name ^ "::" ^ spec.variant ^ "(" ^ string_of_expr e.d ^ ")"
+  | Record (name, fields) ->
+      "Record " ^ name ^ " {" ^ 
+      String.concat "; " (List.map (fun (f, e) -> f ^ ": " ^ string_of_expr e.d) fields) ^ 
+      "}"
+  | Index (arr, idx) -> string_of_expr arr.d ^ "[" ^ string_of_index idx ^ "]"
+  | Indirect (e, field) -> string_of_expr e.d ^ "." ^ field
+  | Concat exprs -> "Concat [" ^ String.concat "; " (List.map (fun e -> string_of_expr e.d) exprs) ^ "]"
+  | Ready msg_spec -> "Ready(" ^ string_of_msg_spec msg_spec ^ ")"
+  | Match (e, cases) ->
+      "Match " ^ string_of_expr e.d ^ " {" ^
+      String.concat "; " (List.map (fun (pat, guard) ->
+        let guard_str = match guard with
+          | None -> ""
+          | Some g -> " if " ^ string_of_expr g.d
+        in
+        string_of_expr pat.d ^ guard_str
+      ) cases) ^ "}"
+  | Read id -> "Read " ^ id
+  | Debug op -> string_of_debug_op op
+  | Send pack -> "Send(" ^ string_of_msg_spec pack.send_msg_spec ^ ", " ^ string_of_expr pack.send_data.d ^ ")"
+  | Recv pack -> "Recv(" ^ string_of_msg_spec pack.recv_msg_spec ^ ")"
+  | SharedAssign (id, e) -> "SharedAssign(" ^ id ^ " := " ^ string_of_expr e.d ^ ")"
+  | List exprs -> "List [" ^ String.concat "; " (List.map (fun e -> string_of_expr e.d) exprs) ^ "]"
+  | Recurse -> "Recurse"
+  | Call (name, args) -> 
+      "Call " ^ name ^ "(" ^ String.concat ", " (List.map (fun e -> string_of_expr e.d) args) ^ ")"
+
+and string_of_debug_op = function
+  | DebugPrint (msg, args) -> 
+      "DebugPrint(\"" ^ msg ^ "\", [" ^ 
+      String.concat "; " (List.map (fun e -> string_of_expr e.d) args) ^ "])"
+  | DebugFinish -> "DebugFinish"
 
 and string_of_lvalue (lv : lvalue) : string =
   match lv with
