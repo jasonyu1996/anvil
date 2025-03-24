@@ -1,0 +1,17 @@
+const l = 2;
+const p = 32;
+
+proc match_test () {
+    reg cycle_counter : logic[l];
+    reg v : logic;
+    loop {
+        set cycle_counter := *cycle_counter + 2'd1
+    }
+    loop {
+        match *cycle_counter {
+            2'd0 => set v := 1'b1,
+            2'd1 => set v := 1'b0,
+            _ => set v := 1'b1
+        }
+    }
+}

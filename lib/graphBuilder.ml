@@ -28,18 +28,33 @@ module Typing = struct
 
   let event_create g source =
     let event_create_inner () =
-      let n = {actions = []; sustained_actions = []; source; id = List.length g.events;
+      let parents =
+        match source with
+        | `Root None -> []
+        | `Seq (e, _)
+        | `Root Some (e, _) -> [e]
+        | `Later (e1, e2) -> [e1; e2]
+        | `Branch (_, { branches_val; _ }) -> branches_val
+      in
+      let new_preds = List.fold_left
+        (fun preds e -> Utils.IntSet.union preds e.preds)
+        Utils.IntSet.empty
+        parents
+      in
+      let new_preds = Utils.IntSet.add (g.last_event_id + 1) new_preds in
+      let n = {actions = []; sustained_actions = []; source; id = g.last_event_id + 1;
         is_recurse = false;
-        outs = []; graph = g} in
+        outs = []; graph = g; preds = new_preds } in
       g.events <- n::g.events;
+      g.last_event_id <- n.id;
       n
     in
     (
       match source with
       | `Later (e1, e2) -> (
-        if GraphAnalysis.event_is_dominant e2 e1 then
+        if Utils.IntSet.mem e1.id e2.preds then
           e2
-        else if GraphAnalysis.event_is_dominant e1 e2 then
+        else if Utils.IntSet.mem e2.id e1.preds then
           e1
         else
           event_create_inner ()
@@ -51,7 +66,7 @@ module Typing = struct
   let lifetime_intersect g (a : lifetime) (b : lifetime) =
     {
       live = event_create g (`Later (a.live, b.live));
-      dead = a.dead @ b.dead;
+      dead = Utils.list_unordered_join a.dead b.dead;
     }
 
   let cycles_data g (n : int) (current : event) =
@@ -118,7 +133,7 @@ module Typing = struct
       {ctx with current = event_create g (`Later (ctx.current, other))}
 
     (* returns a pair of contexts for *)
-    let branch_side g (ctx : t) (bi : branch_info) (sel : bool) : branch_side_info * t  =
+    let branch_side g (ctx : t) (bi : branch_info) (sel : int) : branch_side_info * t  =
       let br_side_info = {branch_event = None; owner_branch = bi; branch_side_sel = sel} in
       let event_side_root = event_create g (`Root (Some (ctx.current, br_side_info))) in
       (br_side_info, {ctx with current = event_side_root; typing_ctx = context_clear_used ctx.typing_ctx})
@@ -127,9 +142,14 @@ module Typing = struct
       {ctx with current = event_create g (`Branch (ctx.current, br_info))}
 
     (* merge the used state in context *)
-    let branch_merge ctx ctx1 ctx2 =
+    let branch_merge ctx br_ctxs =
+      let ctx1 = List.hd br_ctxs in
+      let other_ctxs = List.tl br_ctxs in
       Utils.StringMap.iter (fun ident r ->
-        if r.binding_used && (Utils.StringMap.find ident ctx2.typing_ctx).binding_used then (
+        if r.binding_used
+            && (List.for_all
+                (fun ctx2 -> (Utils.StringMap.find ident ctx2.typing_ctx).binding_used)
+               other_ctxs) then (
           (Utils.StringMap.find ident ctx.typing_ctx).binding_used <- true
         )
       ) ctx1.typing_ctx
@@ -193,7 +213,7 @@ let rec recurse_unfold expr_full_node expr_node =
   else
     let expr' = match expr_node.d with
     | Literal _ | Identifier _
-    | Cycle _ | Sync _ | EnumRef _
+    | Cycle _ | Sync _
     | Ready _ | Read _
     | Debug DebugFinish
     | Recv _ -> expr_node.d
@@ -207,8 +227,10 @@ let rec recurse_unfold expr_full_node expr_node =
       Unop (op, unfold expr_node')
     | Tuple expr_nodes ->
       Tuple (List.map unfold expr_nodes)
-    | LetIn (idents, e1, e2) ->
-      LetIn (idents, unfold e1, unfold e2)
+    | Let (idents, e) ->
+      Let (idents, unfold e)
+    | Join (e1, e2) ->
+      Join (unfold e1, unfold e2)
     | Wait (e1, e2) ->
       Wait (unfold e1, unfold e2)
     | IfExpr (e1, e2, e3) ->
@@ -246,7 +268,7 @@ let rec lvalue_info_of graph (ci:cunit_info) ctx span lval =
   and binop_td_td = binop_td_td graph ci ctx span in
   match lval with
   | Reg ident ->
-    let r = List.find_opt (fun (r : reg_def) -> r.name = ident) graph.regs
+    let r = Utils.StringMap.find_opt ident graph.regs
       |> unwrap_or_err ("Undefined register " ^ ident) span in
     let sz = TypedefMap.data_type_size ci.typedefs ci.macro_defs r.dtype in
     {
@@ -345,36 +367,55 @@ and visit_expr (graph : event_graph) (ci : cunit_info)
     graph.wires <- wires';
     Typing.derived_data (Some w) td
   | Tuple [] -> Typing.const_data graph None (unit_dtype) ctx.current
-  | LetIn (idents, e1, e2) ->
+  | Let (_idents, e) -> visit_expr graph ci ctx e
+  | Join (e1, e2) ->
     let td1 = visit_expr graph ci ctx e1 in
     (
-      match idents, td1.w with
-      | [], None | ["_"], _ ->
+      match e1.d with
+      | Let (["_"], _)
+      | Let ([], _) ->
         let td = visit_expr graph ci ctx e2 in
         let lt = Typing.lifetime_intersect graph td1.lt td.lt in
         {td with lt} (* forcing the bound value to be awaited *)
-      | [ident], _ ->
-        let ctx' = BuildContext.add_binding ctx ident td1 in
-        let td = visit_expr graph ci ctx' e2 in
-        (* check if the binding is used *)
-        let binding = Typing.context_lookup ctx'.typing_ctx ident |> Option.get in
-        if not binding.binding_used then (
-          raise (event_graph_error_default "Unused value!" e1.span)
-        );
-        td
-      | _ -> raise (event_graph_error_default "Discarding expression results!" e.span)
+      | Let ([ident], _) ->
+          let ctx' = BuildContext.add_binding ctx ident td1 in
+          let td = visit_expr graph ci ctx' e2 in
+          (* check if the binding is used *)
+          let binding = Typing.context_lookup ctx'.typing_ctx ident |> Option.get in
+          if not binding.binding_used then (
+            raise (event_graph_error_default "Unused value!" e1.span)
+          );
+          td
+      | Let _ -> raise (event_graph_error_default "Discarding expression results!" e.span)
+      | _ ->
+        let td = visit_expr graph ci ctx e2 in
+        let lt = Typing.lifetime_intersect graph td1.lt td.lt in
+        {td with lt} (* forcing the bound value to be awaited *)
     )
   | Wait (e1, e2) ->
     let td1 = visit_expr graph ci ctx e1 in
-    let ctx' = BuildContext.wait graph ctx td1.lt.live in
-    visit_expr graph ci ctx' e2
+    (
+      match e1.d with
+      | Let (["_"], _)
+      | Let ([], _) ->
+        let ctx' = BuildContext.wait graph ctx td1.lt.live in
+        visit_expr graph ci ctx' e2
+      | Let ([ident], _) ->
+        let ctx' = BuildContext.wait graph ctx td1.lt.live in
+        let ctx' = BuildContext.add_binding ctx' ident td1 in
+        visit_expr graph ci ctx' e2
+      | Let _ -> raise (event_graph_error_default "Discarding expression results!" e.span)
+      | _ ->
+        let ctx' = BuildContext.wait graph ctx td1.lt.live in
+        visit_expr graph ci ctx' e2
+    )
   | Ready msg_spec ->
-    (* let msg = MessageCollection.lookup_message graph.messages msg_spec ci.channel_classes
-      |> unwrap_or_err "Invalid message specifier in ready" e.span in *)
-    (* if msg.dir <> In then (
+    let msg = MessageCollection.lookup_message graph.messages msg_spec ci.channel_classes
+      |> unwrap_or_err "Invalid message specifier in ready" e.span in
+    if msg.dir <> In then (
       (* mismatching direction *)
       raise (event_graph_error_default "Mismatching message direction!" e.span)
-    ); *)
+    );
     let wires, msg_valid_port = WireCollection.add_msg_valid_port graph.thread_id ci.typedefs msg_spec graph.wires in
     graph.wires <- wires;
     Typing.immediate_data graph (Some msg_valid_port) `Logic ctx.current
@@ -384,25 +425,30 @@ and visit_expr (graph : event_graph) (ci : cunit_info)
     (* TODO: type checking *)
     let w1 = unwrap_or_err "Invalid condition" e1.span td1.w in
     let ctx' = BuildContext.wait graph ctx td1.lt.live in
-    let branch_info = {branch_cond = td1; branch_to_true = None; branch_to_false = None; branch_val_true = None; branch_val_false = None} in
-    let (br_side_true, ctx_true) = BuildContext.branch_side graph ctx' branch_info true in
+    let branch_info = {
+      branch_cond_v = td1;
+      branch_cond = TrueFalse;
+      branch_count = 2; (* for if-else *)
+      branches_to = [];
+      branches_val = [];
+    } in
 
-    branch_info.branch_to_true <- Some ctx_true.current;
+    let (br_side_true, ctx_true) = BuildContext.branch_side graph ctx' branch_info 0 in
     let td2 = visit_expr graph ci ctx_true e2 in
-    branch_info.branch_val_true <- Some td2.lt.live;
-    let (br_side_false, ctx_false) = BuildContext.branch_side graph ctx' branch_info false in
-    branch_info.branch_to_false <- Some ctx_false.current;
+    let (br_side_false, ctx_false) = BuildContext.branch_side graph ctx' branch_info 1 in
     let td3 = visit_expr graph ci ctx_false e3 in
-    branch_info.branch_val_false <- Some td3.lt.live;
 
-    BuildContext.branch_merge ctx' ctx_true ctx_false;
+    branch_info.branches_to <- [ctx_true.current; ctx_false.current];
+    branch_info.branches_val <- [td3.lt.live; td2.lt.live];
+
+    BuildContext.branch_merge ctx' [ctx_true; ctx_false];
 
     let ctx_br = BuildContext.branch graph ctx' branch_info in
     br_side_true.branch_event <- Some ctx_br.current;
     br_side_false.branch_event <- Some ctx_br.current;
     let lt = {live = ctx_br.current; (* branch event is reached when either split event is reached *)
-      dead = td1.lt.dead @ td2.lt.dead @td3.lt.dead} in
-    let reg_borrows' = td1.reg_borrows @ td2.reg_borrows @ td3.reg_borrows in
+      dead = Utils.list_unordered_join td1.lt.dead td2.lt.dead |> Utils.list_unordered_join td3.lt.dead} in
+    let reg_borrows' = Utils.list_unordered_join td1.reg_borrows td2.reg_borrows |> Utils.list_unordered_join td3.reg_borrows in
     (
       match td2.w, td3.w with
       | None, None -> {w = None; lt; reg_borrows = reg_borrows'; dtype = unit_dtype}
@@ -413,6 +459,78 @@ and visit_expr (graph : event_graph) (ci : cunit_info)
         {w = Some w; lt; reg_borrows = reg_borrows'; dtype = td2.dtype}
       | _ -> raise (event_graph_error_default "Invalid if expression!" e.span)
     )
+  | Match (match_v, match_arms) ->
+    let td_v = visit_expr graph ci ctx match_v in
+    let w_v = unwrap_or_err "Invalid match expression" match_v.span td_v.w in
+    let ctx' = BuildContext.wait graph ctx td_v.lt.live in
+    let branch_info = {
+      branch_cond_v = td_v;
+      branch_cond = MatchCases [];
+      branch_count = List.length match_arms;
+      branches_to = [];
+      branches_val = [];
+    } in
+
+    let (default_arms, match_arms) =
+      List.partition (fun ((pat, _) : expr_node * expr_node option) -> pat.d = Identifier "_") match_arms in
+    (
+      match default_arms with
+      | [default_arm] ->
+        let td_pats = List.map (fun (pat, _) -> visit_expr graph ci ctx' pat) match_arms in
+        (* make sure that the patterns are all constants *)
+        List.iter2
+          (fun ((pat, _) : expr_node * expr_node option) td ->
+            let valid =
+              match td.w with
+              | None -> false
+              | Some w -> w.is_const
+            in
+            if not valid then
+              raise (event_graph_error_default "Match patterns must be constant values!" pat.span)
+          ) match_arms td_pats;
+
+        (* build bodies *)
+        let branches = List.mapi
+          (fun idx (_, body) ->
+            let (br_side, ctx) = BuildContext.branch_side graph ctx' branch_info idx in
+            let td = visit_expr graph ci ctx @@ Option.get body in
+            ((ctx, br_side, td), (ctx.current, td.lt.live))
+          )
+          match_arms
+        in
+        let (br_side_default, ctx_default) = BuildContext.branch_side graph ctx' branch_info (branch_info.branch_count - 1) in
+        let td_default = visit_expr graph ci ctx_default @@ Option.get @@ snd default_arm in
+
+        let (branches, branches_events) = List.split branches in
+        let (branches_to, branches_val) = List.split branches_events in
+        branch_info.branches_to <- branches_to @ [ctx_default.current];
+        branch_info.branches_val <- branches_val @ [td_default.lt.live];
+
+        BuildContext.branch_merge ctx' @@ ctx_default::(List.map (fun (ctx, _, _) -> ctx) branches);
+        let ctx_br = BuildContext.branch graph ctx' branch_info in
+        List.iter
+          (fun (_, br_side, _) ->
+            br_side.branch_event <- Some ctx_br.current
+          )
+          branches;
+        br_side_default.branch_event <- Some ctx_br.current;
+        let lt = {
+          live = ctx_br.current;
+          dead = List.fold_left (fun l (_, _, td) -> Utils.list_unordered_join l td.lt.dead) td_v.lt.dead branches;
+        } in
+        let reg_borrows' = List.fold_left (fun l (_, _, td) -> Utils.list_unordered_join l td.reg_borrows) td_v.reg_borrows branches in
+        branch_info.branch_cond <- MatchCases td_pats;
+        if List.for_all (fun (_, _, td_val) -> Option.is_none td_val.w) branches then
+          {w = None; lt; reg_borrows = reg_borrows'; dtype = unit_dtype}
+        else (
+          let (wires', w) = WireCollection.add_cases graph.thread_id ci.typedefs w_v
+            (List.map2 (fun td_pat (_, _, td_val) -> (Option.get td_pat.w, Option.get td_val.w)) td_pats branches) (Option.get td_default.w)
+            graph.wires in
+          graph.wires <- wires';
+          {w = Some w; lt; reg_borrows = reg_borrows'; dtype = td_default.dtype}
+        )
+      | _ -> raise @@ event_graph_error_default "Invalid match expression (exactly one default case expected)!" e.span
+    )
   | Concat es ->
     let tds = List.map (fun e' -> (e', visit_expr graph ci ctx e')) es in
     let ws = List.map (fun ((e', td) : expr_node * timed_data) -> unwrap_or_err "Invalid value in concat" e'.span td.w) tds in
@@ -421,7 +539,7 @@ and visit_expr (graph : event_graph) (ci : cunit_info)
     let new_dtype = `Array (`Logic, ParamEnv.Concrete w.size) in
     List.map snd tds |> Typing.merged_data graph (Some w) new_dtype ctx.current
   | Read reg_ident ->
-    let r = List.find_opt (fun (r : Lang.reg_def) -> r.name = reg_ident) graph.regs
+    let r = Utils.StringMap.find_opt reg_ident graph.regs
       |> unwrap_or_err ("Undefined register " ^ reg_ident) e.span in
     let (wires', w) = WireCollection.add_reg_read graph.thread_id ci.typedefs ci.macro_defs r graph.wires in
     graph.wires <- wires';
@@ -480,16 +598,6 @@ and visit_expr (graph : event_graph) (ci : cunit_info)
       w = Some new_w;
       dtype = new_dtype
     }
-  | EnumRef (id, variant) ->
-    let enum_variants = List.assoc_opt id ci.enum_mappings
-      |> unwrap_or_err ("Undefined enum type: " ^ id) e.span in
-    let variant_idx = List.find_map (fun (v, idx) -> if v = variant then Some idx else None) enum_variants
-      |> unwrap_or_err ("Invalid enum variant " ^ variant ^ " for enum " ^ id) e.span in
-    let sz = Utils.int_log2 (List.length enum_variants) in
-    let (wires', w) = WireCollection.add_literal graph.thread_id ci.typedefs ci.macro_defs
-      (WithLength (sz, variant_idx)) graph.wires in
-    graph.wires <- wires';
-    Typing.const_data graph (Some w) (`Array (`Logic, ParamEnv.Concrete sz)) ctx.current
   | Index (e', ind) ->
     let td = visit_expr graph ci ctx e' in
     let w = unwrap_or_err "Invalid value in indexing" e'.span td.w in
@@ -621,14 +729,14 @@ module IntHashTbl = Hashtbl.Make(Int)
 
 (* unfold until sufficient for lifetime checks *)
 let recurse_unfold_for_checks ci shared_vars_info graph expr_node =
-  let tmp_graph = {graph with last_event_id = 0} in
+  let tmp_graph = {graph with last_event_id = -1} in
   let td = visit_expr tmp_graph ci
     (BuildContext.create_empty tmp_graph shared_vars_info true)
     expr_node in
   (* now just check the total *)
   let root = List.find (fun e -> e.source = `Root None) tmp_graph.events in
   let recurse = List.find (fun e -> e.is_recurse) tmp_graph.events in
-  let dists = GraphAnalysis.event_min_distance tmp_graph.events root root in
+  let dists = GraphAnalysis.event_min_distance_with_later tmp_graph.events root root in
   let full_dist = IntHashTbl.find dists td.lt.live.id in
   let recurse_dist = IntHashTbl.find dists recurse.id in
   if recurse_dist = 0 then
@@ -681,14 +789,15 @@ let build_proc (config : Config.compile_config) sched module_name param_values
           channels = List.map data_of_ast_node body.channels;
           messages = msg_collection;
           spawns = List.map data_of_ast_node body.spawns;
-          regs = List.map data_of_ast_node body.regs;
-          last_event_id = 0;
+          regs = List.map (fun (reg : Lang.reg_def ast_node) ->
+                (reg.d.name, reg.d)) body.regs |> Utils.StringMap.of_list;
+          last_event_id = -1;
           is_general_recursive = false;
           thread_codespan = e.span;
         } in
         (* Bruteforce treatment: just run twice *)
         let graph_opt = if (not config.disable_lt_checks) || config.two_round_graph then (
-          let tmp_graph = {graph with last_event_id = 0} in
+          let tmp_graph = {graph with last_event_id = -1} in
           let td = visit_expr tmp_graph ci
             (BuildContext.create_empty tmp_graph shared_vars_info true)
             (recurse_unfold_for_checks ci shared_vars_info graph e) in
@@ -725,13 +834,6 @@ let build_proc (config : Config.compile_config) sched module_name param_values
         proc_body = proc.body; spawns = []}
 
 let build (config : Config.compile_config) sched module_name param_values (cunit : compilation_unit) =
-  let enum_mappings = List.map (fun (enum : enum_def) ->
-    let variants_with_indices = List.mapi (fun i variant ->
-      (variant, i)
-    ) enum.variants in
-    (enum.name, variants_with_indices)
-  ) cunit.enum_defs in
-
   let macro_defs = cunit.macro_defs in
   let typedefs = TypedefMap.of_list cunit.type_defs in
   let func_defs = cunit.func_defs in
@@ -739,7 +841,6 @@ let build (config : Config.compile_config) sched module_name param_values (cunit
     file_name = Option.get cunit.cunit_file_name;
     typedefs;
     channel_classes = cunit.channel_classes;
-    enum_mappings;
     macro_defs;
     func_defs
   } in
@@ -750,7 +851,6 @@ let build (config : Config.compile_config) sched module_name param_values (cunit
     macro_defs;
     channel_classes = cunit.channel_classes;
     external_event_graphs = [];
-    enum_mappings;
   }
 
 let syntax_tree_precheck (_config : Config.compile_config) cunit =

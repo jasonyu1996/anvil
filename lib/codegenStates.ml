@@ -18,7 +18,7 @@ let collect_reg_states g =
     | `Seq (_, d) -> (
       match d with
       | `Cycles n ->
-        if g.is_general_recursive then (
+        if g.is_general_recursive || n = 1 then (
           (* split into one-hot single cycles in general recursive case *)
           let sn = EventStateFormatter.format_counter g.thread_id e.id in
           Seq.ints 1 |> Seq.take n |> Seq.map (fun i -> ("logic", Printf.sprintf "%s_%d" sn i))
@@ -61,6 +61,7 @@ let codegen_next printer (graphs : EventGraph.event_graph_collection)
   let print_line = CodegenPrinter.print_line printer in
   let print_lines = CodegenPrinter.print_lines printer in
   let lookup_msg_def msg = MessageCollection.lookup_message pg.messages msg graphs.channel_classes in
+  let recurse_event = List.find (fun e -> let open EventGraph in e.is_recurse) g.events in
   let print_compute_next (e : EventGraph.event) =
     let cn = EventStateFormatter.format_current g.thread_id e.id in
     match e.source with
@@ -69,7 +70,7 @@ let codegen_next printer (graphs : EventGraph.event_graph_collection)
         let cn' = EventStateFormatter.format_current g.thread_id e'.id in
         match d with
         | `Cycles n when n >= 1 ->
-          if g.is_general_recursive then (
+          if g.is_general_recursive || n = 1 then (
             (* we need to split into individual cycles one-hot *)
             let sn = EventStateFormatter.format_counter g.thread_id e.id in
             Printf.sprintf "assign %s = %s_%d_q;" cn sn n |> print_line;
@@ -88,7 +89,7 @@ let codegen_next printer (graphs : EventGraph.event_graph_collection)
             ] |> print_lines
           )
         | `Cycles _ ->
-          failwith "Invalid number of cycles"
+          failwith "Invalid number of cycles" (* TODO: proper handling *)
         | `Send msg ->
           let sn = EventStateFormatter.format_syncstate g.thread_id e.id in
           let msg_def = lookup_msg_def msg |> Option.get in
@@ -130,11 +131,10 @@ let codegen_next printer (graphs : EventGraph.event_graph_collection)
           ] |> print_lines
       )
     | `Branch (_e, br_info) ->
-      let e1 = Option.get br_info.branch_val_true
-      and e2 = Option.get br_info.branch_val_false in
-      Printf.sprintf "assign %s = %s || %s;" cn
-        (EventStateFormatter.format_current g.thread_id e1.id)
-        (EventStateFormatter.format_current g.thread_id e2.id)
+      List.map (fun (e : EventGraph.event) ->
+        EventStateFormatter.format_current g.thread_id e.id) br_info.branches_val
+      |> String.concat " || "
+      |> Printf.sprintf "assign %s = %s;" cn
       |> print_line
     | `Later (e1, e2) ->
       let cn1 = EventStateFormatter.format_current g.thread_id e1.id in
@@ -149,16 +149,64 @@ let codegen_next printer (graphs : EventGraph.event_graph_collection)
       [
         Printf.sprintf "assign %s = _init || %s;"
           cn
-          (EventStateFormatter.format_current g.thread_id g.last_event_id)
+          (EventStateFormatter.format_current g.thread_id recurse_event.id)
       ] |> print_lines
     | `Root (Some (e', br_side_info)) ->
       let cn' = EventStateFormatter.format_current g.thread_id e'.id in
-      let w = Option.get br_side_info.owner_branch.branch_cond.w in
+      let w = Option.get br_side_info.owner_branch.branch_cond_v.w in
       let wn = CodegenFormat.format_wirename w.thread_id w.id in
-      print_line (if br_side_info.branch_side_sel then
-        Printf.sprintf "assign %s = %s && %s;" cn cn' wn
-      else
-        Printf.sprintf "assign %s = %s && !%s;" cn cn' wn)
+      (
+        match br_side_info.owner_branch.branch_cond with
+        | TrueFalse ->
+          print_line
+            @@
+            if br_side_info.branch_side_sel = 0 then
+              Printf.sprintf "assign %s = %s && %s;" cn cn' wn
+            else
+              Printf.sprintf "assign %s = %s && !%s;" cn cn' wn
+        | MatchCases pats ->
+          if br_side_info.branch_side_sel + 1 = br_side_info.owner_branch.branch_count then (
+            CodegenPrinter.print_line ~lvl_delta_post:1 printer
+              @@ Printf.sprintf "always_comb begin: _match_cases_%d_%d"
+                g.thread_id
+                (Option.get br_side_info.branch_event).id;
+
+            List.iter (fun (e : EventGraph.event) ->
+              CodegenPrinter.print_line printer @@ Printf.sprintf "%s = '0;"
+                @@ EventStateFormatter.format_current g.thread_id e.id
+            ) br_side_info.owner_branch.branches_to;
+
+            CodegenPrinter.print_line ~lvl_delta_post:1 printer
+              @@ Printf.sprintf "if (%s) begin" cn';
+
+            (* select cases *)
+            CodegenPrinter.print_line ~lvl_delta_post:1 printer
+              @@ Printf.sprintf "unique case (%s)" @@ CodegenFormat.format_wirename w.thread_id w.id;
+
+            (* cases: *)
+            let branches_to_no_default =
+              List.to_seq br_side_info.owner_branch.branches_to
+              |> Seq.take (br_side_info.owner_branch.branch_count - 1)
+            in
+            Seq.iter2 (fun (td_pat : EventGraph.timed_data) (br_to : EventGraph.event) ->
+              let wp = Option.get td_pat.w in
+              CodegenPrinter.print_line ~lvl_delta_post:1 printer
+                @@ Printf.sprintf "%s:" @@ CodegenFormat.format_wirename wp.thread_id wp.id;
+              CodegenPrinter.print_line ~lvl_delta_post:(-1) printer
+                @@ Printf.sprintf "%s = 1'b1;" @@ EventStateFormatter.format_current g.thread_id br_to.id
+            ) (List.to_seq pats) branches_to_no_default;
+
+            (* default case *)
+            CodegenPrinter.print_line ~lvl_delta_post:1 printer "default:";
+            CodegenPrinter.print_line ~lvl_delta_post:(-1) printer
+              @@ Printf.sprintf "%s = 1'b1;" cn;
+
+            CodegenPrinter.print_line ~lvl_delta_pre:(-1) printer "endcase";
+
+            CodegenPrinter.print_line ~lvl_delta_pre:(-1) printer "end"; (* ending if *)
+            CodegenPrinter.print_line ~lvl_delta_pre:(-1) printer "end" (* ending always_comb *)
+          )
+      )
   in
   List.iter print_compute_next g.events
 
@@ -191,6 +239,8 @@ let codegen_actions printer (g : EventGraph.event_graph) =
             (CodegenFormat.format_wirename w.thread_id w.id)
             |> print_line
         | PutShared _ -> ()
+        | ImmediateRecv _ -> ()
+        | ImmediateSend _ -> ()
       in
       List.iter print_action e.actions;
       print_line ~lvl_delta_pre:(-1) "end"
@@ -207,13 +257,13 @@ let codegen_transition printer (_graphs : EventGraph.event_graph_collection) (g 
   (* reset states *)
 
   let owned_regs = GraphAnalysis.graph_owned_regs g |> Utils.StringSet.of_list in
-  let owned_regs = List.filter (fun (r : Lang.reg_def) -> Utils.StringSet.mem r.name owned_regs) g.regs in
+  let owned_regs = Utils.StringMap.filter (fun name _ -> Utils.StringSet.mem name owned_regs) g.regs in
 
   Printf.sprintf "always_ff @(posedge clk_i or negedge rst_ni) begin : _thread_%d_st_transition" g.thread_id |> print_line ~lvl_delta_post:1;
   print_line ~lvl_delta_post:1 "if (~rst_ni) begin";
   (* register reset *)
-  List.iter (
-    fun (r : Lang.reg_def) ->
+  Utils.StringMap.iter (
+    fun _ (r : Lang.reg_def) ->
       let open CodegenFormat in
       Printf.sprintf "%s <= '0;" (format_regname_current r.name) |> print_line
   ) owned_regs;
@@ -240,35 +290,49 @@ let codegen_sustained_actions printer (graphs : EventGraph.event_graph_collectio
   in
   let lookup_msg_def msg = MessageCollection.lookup_message pg.messages msg graphs.channel_classes in
   let open Lang in
-  let print_sa_event (e : EventGraph.event) =
-    List.iter (fun (sa : EventGraph.sustained_action Lang.ast_node) ->
-      let activated = Printf.sprintf "(%s || %s_q)"
-        (EventStateFormatter.format_current g.thread_id e.id)
-        (EventStateFormatter.format_syncstate g.thread_id sa.d.until.id) in
-      match sa.d.ty with
-      | Send (msg, td) ->
-        let w = Option.get td.w in
-        let msg_def = lookup_msg_def msg |> Option.get in
-        let has_valid_port = CodegenPort.message_has_valid_port msg_def in
-        insert_to send_or_assigns
-          (CodegenFormat.format_msg_valid_signal_name (CodegenFormat.canonicalize_endpoint_name msg.endpoint g) msg.msg)
-          has_valid_port
-          (
-            activated,
-            CodegenFormat.format_msg_data_signal_name (CodegenFormat.canonicalize_endpoint_name msg.endpoint g) msg.msg 0,
-            CodegenFormat.format_wirename w.thread_id w.id
-          )
-      | Recv msg ->
+  let print_send_recv (e : EventGraph.event) =
+    let open EventGraph in
+    let print_recv activated msg =
         let msg_def = lookup_msg_def msg |> Option.get in
         let has_ack_port = CodegenPort.message_has_ack_port msg_def in
         insert_to recv_or_assigns
           (CodegenFormat.format_msg_ack_signal_name (CodegenFormat.canonicalize_endpoint_name msg.endpoint g) msg.msg)
           has_ack_port
           activated
-    ) e.sustained_actions
+    in
+    let print_send activated msg td =
+      let w = Option.get td.w in
+      let msg_def = lookup_msg_def msg |> Option.get in
+      let has_valid_port = CodegenPort.message_has_valid_port msg_def in
+      insert_to send_or_assigns
+        (CodegenFormat.format_msg_valid_signal_name (CodegenFormat.canonicalize_endpoint_name msg.endpoint g) msg.msg)
+        has_valid_port
+        (
+          activated,
+          CodegenFormat.format_msg_data_signal_name (CodegenFormat.canonicalize_endpoint_name msg.endpoint g) msg.msg 0,
+          CodegenFormat.format_wirename w.thread_id w.id
+        )
+    in
+
+    List.iter (fun (sa : EventGraph.sustained_action Lang.ast_node) ->
+      let activated = Printf.sprintf "(%s || %s_q)"
+        (EventStateFormatter.format_current g.thread_id e.id)
+        (EventStateFormatter.format_syncstate g.thread_id sa.d.until.id) in
+      match sa.d.ty with
+      | Send (msg, td) -> print_send activated msg td
+      | Recv msg -> print_recv activated msg
+    ) e.sustained_actions;
+
+    let activated = (EventStateFormatter.format_current g.thread_id e.id) in
+    List.iter (fun (ac : EventGraph.action Lang.ast_node) ->
+      match ac.d with
+      | ImmediateSend (msg, td) -> print_send activated msg td
+      | ImmediateRecv msg -> print_recv activated msg
+      | _ -> ()
+    ) e.actions
   in
   (* assuming reverse topo order, the assign lists will be in topo order *)
-  List.iter print_sa_event g.events;
+  List.iter print_send_recv g.events;
   Hashtbl.iter (fun w_name (has_sync_port, conds) ->
     if has_sync_port then (
       String.concat " || " !conds
@@ -367,9 +431,9 @@ let codegen_proc_states printer proc =
                 |> Utils.StringSet.of_list |> Utils.StringSet.union !owned_regs
   ) proc.threads;
 
-  List.filter (fun (r : Lang.reg_def) -> Utils.StringSet.mem r.name !owned_regs |> not) g.regs
-  |> List.iter (
-    fun (r : Lang.reg_def) ->
+  Utils.StringMap.filter (fun name _ -> Utils.StringSet.mem name !owned_regs |> not) g.regs
+  |> Utils.StringMap.iter (
+    fun _ (r : Lang.reg_def) ->
       let open CodegenFormat in
       Printf.sprintf "%s <= '0;" (format_regname_current r.name)
         |> CodegenPrinter.print_line printer

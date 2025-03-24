@@ -37,7 +37,6 @@ rule read =
   | '@'       { AT }
   | '~'       { TILDE }
   | '.'       { PERIOD }
-  | "->"      { POINT_TO }
   | ":="      { COLON_EQ }
   | "::"      { DOUBLE_COLON }
   | "<"       { LEFT_ABRACK }
@@ -45,12 +44,11 @@ rule read =
   | "<="      { LEFT_ABRACK_EQ }
   | ">="      { RIGHT_ABRACK_EQ }
   | "=>"      { EQ_GT }
+  | ">>"      { DOUBLE_GT }
   | "<<"      { DOUBLE_LEFT_ABRACK }
   | ">>"      { DOUBLE_RIGHT_ABRACK }
   | "=="      { DOUBLE_EQ }
   | "!="      { EXCL_EQ }
-  | "|>"      { OR_GT }
-  | "!"       { EXCL }
   | "ready"   { KEYWORD_READY }
   | "put"     { KEYWORD_PUT }
   | "shared"  { KEYWORD_SHARED }
@@ -59,36 +57,27 @@ rule read =
   | "func"    { KEYWORD_FUNCTION }
   | "call"    { KEYWORD_CALL }
   | "loop"    { KEYWORD_LOOP }
-  | "enum"    { KEYWORD_ENUM }
   | "proc"    { KEYWORD_PROC }
   | "chan"    { KEYWORD_CHAN }
-  | "in"      { KEYWORD_IN }
   | "left"    { KEYWORD_LEFT }
   | "right"   { KEYWORD_RIGHT }
   | "logic"   { KEYWORD_LOGIC }
   | "foreign" { KEYWORD_FOREIGN }
   | "let"     { KEYWORD_LET }
   | "if"      { KEYWORD_IF }
-  | "then"    { KEYWORD_THEN }
   | "else"    { KEYWORD_ELSE }
-  | "while"   { KEYWORD_WHILE }
   | "send"    { KEYWORD_SEND }
   | "recv"    { KEYWORD_RECV }
   | "eternal" { KEYWORD_ETERNAL }
-  | "done"    { KEYWORD_DONE }
   | "type"    { KEYWORD_TYPE }
-  | "of"      { KEYWORD_OF }
   | "set"     { KEYWORD_SET }
   | "match"   { KEYWORD_MATCH }
-  | "with"    { KEYWORD_WITH }
   | "dyn"     { KEYWORD_DYN }
   | "sync"    { KEYWORD_SYNC }
-  | "wait"    { KEYWORD_WAIT }
   | "cycle"   { KEYWORD_CYCLE }
   | "reg"     { KEYWORD_REG }
-  | "Use"     { KEYWORD_USE }
+  | "const"   { KEYWORD_CONST }
   | "spawn"   { KEYWORD_SPAWN }
-  | "try"     { KEYWORD_TRY }
   | "dprint"  { KEYWORD_DPRINT }
   | "dfinish" { KEYWORD_DFINISH }
   | "import"  { KEYWORD_IMPORT }
@@ -97,6 +86,8 @@ rule read =
   | "generate" { KEYWORD_GENERATE }
   | "recursive" { KEYWORD_RECURSIVE }
   | "recurse" { KEYWORD_RECURSE }
+  | "struct"  { KEYWORD_STRUCT }
+  | "enum"    { KEYWORD_ENUM }
   | int       { let n = Lexing.lexeme lexbuf |> int_of_string in INT n }
   | ident     { IDENT (Lexing.lexeme lexbuf) }
   | bit_literal { BIT_LITERAL (Lexing.lexeme lexbuf) }

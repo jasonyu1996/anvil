@@ -1,9 +1,10 @@
-chan channel = {
+chan channel {
     left req : (logic[8]@#1)
 }
 
-proc irrelevant_msg (ep : left channel) =
+proc irrelevant_msg (ep : left channel) {
     loop {
-        let a = recv ep.req in
+        let a = recv ep.req;
         cycle 1
     }
+}

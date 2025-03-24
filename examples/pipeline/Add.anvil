@@ -1,16 +1,15 @@
-chan Add_itfc<T : type> = {
-    left input_l : (T@#1) @dyn-@#1,
+chan Add_itfc<T : type> {
+    left input_l : (T@#1) @#1-@dyn,
     left input_r : (T@#1) @#input_l-@#input_l,
     right output : (T@#1) @#input_l-@#input_l
 }
 
-proc Add<T : type> (endp : left Add_itfc<T>) =
+proc Add<T : type> (endp : left Add_itfc<T>) {
     loop {
-        let l = recv endp.input_l in
-        l =>
-        let r = recv endp.input_r in
-        r =>
-        send endp.output (l + r) =>
+        let l = recv endp.input_l >>
+        let r = recv endp.input_r >>
+        send endp.output (l + r) >>
         cycle 1
     }
+}
 

@@ -1,9 +1,9 @@
-proc generate_test () = 
-    loop{
-        generate (i :0,10,1) =
-        {
-           dprint "i = %d" (i) 
-        }=>
+proc generate_test () {
+    loop {
+        generate (i : 0,10,1) {
+           dprint "i = %d" (i)
+        } >>
         dfinish;
         cycle 1
     }
+}

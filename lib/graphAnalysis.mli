@@ -21,14 +21,17 @@ val event_is_predecessor : EventGraph.event -> EventGraph.event -> bool
 
 val find_first_msg_after : EventGraph.event -> Lang.message_specifier -> bool -> EventGraph.event option
 val event_distance_max : int
-val event_slack_graph : EventGraph.event list -> EventGraph.event -> int Array.t
 
 (** Compute the minimal weight among the successors of an event *)
 val event_min_among_succ : EventGraph.event list -> int Array.t -> int Array.t
 
 (** Compute the min distances from a specified event. The second event is the current event (the event known to
-    have taken place). *)
+    have taken place). This considers all paths, disregarding [Later]. *)
 val event_min_distance : EventGraph.event list -> EventGraph.event -> EventGraph.event -> int Hashtbl.Make(Int).t
+
+(** Compute the min distances from a specified event. The second event is the current event (the event known to
+    have taken place). *)
+val event_min_distance_with_later : EventGraph.event list -> EventGraph.event -> EventGraph.event -> int Hashtbl.Make(Int).t
 
 (** Same as {!event_min_distance} but compute the max distances instead. *)
 val event_max_distance : EventGraph.event list -> EventGraph.event -> EventGraph.event -> int Hashtbl.Make(Int).t
@@ -84,10 +87,6 @@ val events_pred_min_dist : EventGraph.event -> int Array.t
     can be larger than the actual possible distance.
 
     If an event shares no trace with the given event, the result is [-event_distance_max].
-
-    This is essentially a newer version of {!event_slack_graph} that
-    handles branches correctly but is more relaxed for graphs
-    without branches.
 *)
 val events_max_dist : EventGraph.event list -> (Lang.message_specifier -> Lang.message_def option)
                         -> EventGraph.event -> int Array.t
@@ -109,5 +108,17 @@ val events_first_msg : EventGraph.event list -> EventGraph.event -> Lang.message
 (** Sort in topological order. *)
 val toposort : EventGraph.event list -> EventGraph.event list
 
+(** Sort in topological order with a given predecessor function. *)
+val toposort_with_preds : (EventGraph.event -> EventGraph.event list) -> EventGraph.event list -> EventGraph.event list
+
 (** Return the list of registers modified in the graph *)
 val graph_owned_regs : EventGraph.event_graph -> Lang.identifier list
+
+
+(** Check if a message send/recv operation is always immediate. *)
+val message_is_immediate : Lang.message_def -> bool -> bool
+
+val event_is_msg_end : Lang.message_specifier -> EventGraph.event -> bool
+
+(** Returns the list of immediate predecessors. *)
+val imm_preds : EventGraph.event -> EventGraph.event list

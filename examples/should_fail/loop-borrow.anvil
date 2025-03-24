@@ -1,0 +1,29 @@
+chan memory_ch {
+    left read_req : (logic[8]@#1) @#2 - @dyn,
+    right read_resp : (logic[8]@read_req) @#read_req+1 - @#read_req+1,
+    left write_req :  (logic@#1),
+    right write_resp : (logic[1]@#1) @#write_req+1 - @#write_req+1
+}
+
+type byte = logic[8];
+proc memory(endp: left memory_ch) {
+    reg mem : byte[256];
+    reg rd_addr : byte;
+    loop {
+        if ready endp.read_req {
+            let addr = recv endp.read_req >>
+            set rd_addr := *mem[addr] >>
+            send endp.read_resp(*mem[*rd_addr])>>
+            cycle 1
+        }
+        else {
+          if ready endp.write_req {
+            let addr_data = recv endp.write_req >>
+            set mem[1'b0] := 1'b0 >>
+            send endp.write_resp(1)
+          }
+          else {cycle 1}
+        }
+    }
+
+}

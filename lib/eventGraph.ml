@@ -16,7 +16,6 @@ type cunit_info = {
   file_name : string;
   typedefs : TypedefMap.t;
   channel_classes : Lang.channel_class_def list;
-  enum_mappings : (string * (string * int) list) list;
   func_defs : Lang.func_def list;
   macro_defs : Lang.macro_def list
 }
@@ -85,6 +84,8 @@ and action =
   | DebugFinish (** [dfinish] *)
   | RegAssign of lvalue_info * timed_data (** register assignment (technically this is not performed instantly) *)
   | PutShared of string * shared_var_info * timed_data
+  | ImmediateSend of Lang.message_specifier * timed_data
+  | ImmediateRecv of Lang.message_specifier
 
 (** Type of an action that may take multiple cycles. Those
 are basically those that synchronise through message passing. *)
@@ -120,22 +121,27 @@ and event = {
   mutable source: event_source; (** under what circumstances is this event reached.
                       {i Those are effectively the edges in the event graph} *)
   mutable outs : event list; (** the outbound edges, i.e., the events that directly depend on this event *)
+  preds : Utils.int_set; (** set of predecessors, used for fast reachability query. Only used during the graph building process *)
 }
+
+and branch_cond =
+  | TrueFalse
+  | MatchCases of timed_data list
 
 (** Describes branching information. *)
 and branch_info = {
-  branch_cond : timed_data;
-  mutable branch_to_true : event option;
-  mutable branch_to_false : event option;
-  mutable branch_val_true : event option;
-  mutable branch_val_false : event option;
+  branch_cond_v : timed_data; (** the value used to decide branch *)
+  mutable branch_cond : branch_cond; (** conditions *)
+  branch_count : int;
+  mutable branches_to : event list;
+  mutable branches_val : event list;
 }
 
 (** Information about the branch condition of one side of a branch. *)
 and branch_side_info = {
   mutable branch_event : event option;
   owner_branch : branch_info;
-  branch_side_sel : bool;
+  branch_side_sel : int; (** an index in {!branches_to} and {!branches_val} *)
 }
 
 
@@ -167,7 +173,7 @@ and event_graph = {
   messages : MessageCollection.t; (** all messages referenceable from within the process,
             including those through channels passed from outside*)
   spawns : Lang.spawn_def list;
-  regs: Lang.reg_def list;
+  regs: Lang.reg_def Utils.string_map;
   mutable last_event_id: int;
   thread_codespan : Lang.code_span;
   mutable is_general_recursive : bool; (** is this a general recursive graph? *)
@@ -193,7 +199,6 @@ type event_graph_collection = {
   macro_defs : Lang.macro_def list;
   channel_classes : Lang.channel_class_def list;
   external_event_graphs : proc_graph list;
-  enum_mappings : (string * (string * int) list) list;
 }
 
 (** Exception that can be throw during event graph generation *)

@@ -123,11 +123,6 @@ type endpoint_def = {
   with the same channel *)
 }
 
-
-type enum_def = {
-  name: identifier;
-  variants: identifier list;
-}
 type macro_def = {
   id: identifier;
   value : int;
@@ -373,7 +368,8 @@ and expr =
   | Binop of binop * expr_node * expr_node
   | Unop of unop * expr_node
   | Tuple of expr_node list
-  | LetIn of identifier list * expr_node * expr_node
+  | Let of identifier list * expr_node
+  | Join of expr_node * expr_node (** [a; b] *)
   | Wait of expr_node * expr_node (** [a => b] *)
   | Cycle of int
   | Sync of identifier (** synchronise on a shared value *)
@@ -382,11 +378,9 @@ and expr =
   | Record of identifier * (identifier * expr_node) list (** constructing a record-type value *)
   | Index of expr_node * index (** an element of an array ([a[3]]) *)
   | Indirect of expr_node * identifier (** a member of a record ([a.b]) *)
-  | EnumRef of identifier * identifier (** a reference to an enum variant *)
   | Concat of expr_node list
   | Ready of message_specifier (** [ready(a, b)] *)
-  | Match of expr_node * ((match_pattern * expr_node option) list) (** Currently unused. Match expressions are
-                                  converted into if expressions in the parser directly. *)
+  | Match of expr_node * ((expr_node * expr_node option) list)
   | Read of identifier (** reading a value from a register (leading to a borrow) *)
   | Debug of debug_op
   | Send of send_pack
@@ -407,11 +401,6 @@ and index =
   | Single of expr_node
   | Range of expr_node * expr_node (** a range, the second component is the size which must be literal *)
 
-(** Pattern in an arm of a {{!Match}match} expression. *)
-and match_pattern = {
-  cstr: identifier; (* constructor identifier *)
-  bind_name: identifier option; (* name of the binding for the unboxed value *)
-}
 and debug_op =
   | DebugPrint of string * expr_node list
   | DebugFinish
@@ -494,7 +483,6 @@ type compilation_unit = {
   cunit_file_name : string option; (** filename in which the compilation unit resides *)
   channel_classes: channel_class_def list;
   type_defs: type_def list;
-  enum_defs: enum_def list;
   macro_defs: macro_def list;
   func_defs : func_def list;
   procs: proc_def list;
@@ -504,7 +492,7 @@ type compilation_unit = {
 
 let cunit_empty : compilation_unit =
   {cunit_file_name = None; channel_classes = []; type_defs = [];
-  procs = []; imports = []; _extern_procs = [];enum_defs = [];macro_defs = [];func_defs = []}
+  procs = []; imports = []; _extern_procs = []; macro_defs = [];func_defs = []}
 
 let cunit_add_channel_class
   (c : compilation_unit) (cc : channel_class_def) : compilation_unit =
@@ -515,8 +503,6 @@ let cunit_add_type_def (c : compilation_unit) (ty : type_def) : compilation_unit
 
 let cunit_add_func_def (c : compilation_unit) (f : func_def) : compilation_unit =
   {c with func_defs = f::c.func_defs}
-let cunit_add_enum_def (c : compilation_unit) (enum : enum_def) :
-  compilation_unit = {c with enum_defs = enum::c.enum_defs}
 let cunit_add_macro_def (c : compilation_unit) (macro : macro_def) :
   compilation_unit = {c with macro_defs = macro::c.macro_defs}
 let cunit_add_proc
@@ -544,7 +530,7 @@ let rec string_of_expr (e : expr) : string =
   match e with
   | Literal lit -> "Literal " ^ string_of_literal lit
   | Identifier id -> "Identifier " ^ id
-  | LetIn (ids, e1, e2) -> "LetIn (" ^ String.concat ", " ids ^ ", " ^ string_of_expr e1.d ^ ", " ^ string_of_expr e2.d ^ ")"
+  | Let (ids, e) -> "Let (" ^ String.concat ", " ids ^ ", " ^ string_of_expr e.d ^ ")"
   | Assign (lv, n) -> "Assign (" ^ string_of_lvalue lv ^ ", " ^ string_of_expr n.d ^ ")"
   | _ -> "..."
 
@@ -567,41 +553,13 @@ and string_of_literal (lit : literal) : string =
   | WithLength (n, v) -> "WithLength (" ^ string_of_int n ^ ", " ^ string_of_int v ^ ")"
   | NoLength v -> "NoLength " ^ string_of_int v
 
-let generate_match_expression (e : expr_node) match_arms =
-  let is_default_pattern = function
-    | {d = Identifier "_"; _} -> true
-    | _ -> false
-  in
-  let match_arms_node = List.map (fun (pat, body_opt) ->
-    let pat_node = ast_node_of_data Lexing.dummy_pos Lexing.dummy_pos pat in
-    let body_node_opt = Option.map (fun body ->
-      ast_node_of_data Lexing.dummy_pos Lexing.dummy_pos body
-    ) body_opt in
-    (pat_node, body_node_opt)
-  ) match_arms in
-  let default_case, other_cases =
-    List.partition (fun (pat, _) -> is_default_pattern pat) match_arms_node
-  in
-  match default_case with
-  | [] -> failwith "Match expression must have a default case (_)"
-  | [(_, None)] -> failwith "Default case must have a body"
-  | [(_, Some default_body)] ->
-      List.fold_right (fun (pattern, body_opt) acc ->
-        match body_opt with
-        | None -> failwith "Match arm must have a body"
-        | Some body ->
-            let condition = ast_node_of_data e.span.st e.span.ed (Binop (Eq, e, pattern)) in
-            IfExpr (condition, body,  dummy_ast_node_of_data acc)
-      ) other_cases default_body.d
-  | _ -> failwith "Multiple default cases found in match expression"
-
 let rec substitute_expr_identifier (id: identifier) (value: expr_node) (expr: expr_node) : expr_node =
   let new_expr = match expr.d with
   | Identifier name when name = id ->
       value.d
-  | LetIn (ids, e1, e2) ->
+  | Let (ids, e) ->
       if List.mem id ids then expr.d
-      else LetIn (ids, substitute_expr_identifier id value e1, substitute_expr_identifier id value e2)
+      else Let (ids, substitute_expr_identifier id value e)
   | Record (name, fields) ->
       Record (name, List.map (fun (field_name, field_expr) ->
         (field_name, substitute_expr_identifier id value field_expr)
@@ -612,6 +570,8 @@ let rec substitute_expr_identifier (id: identifier) (value: expr_node) (expr: ex
       Unop (op, substitute_expr_identifier id value e)
   | Tuple exprs ->
       Tuple (List.map (substitute_expr_identifier id value) exprs)
+  | Join (e1, e2) ->
+      Join (substitute_expr_identifier id value e1, substitute_expr_identifier id value e2)
   | Wait (e1, e2) ->
       Wait (substitute_expr_identifier id value e1, substitute_expr_identifier id value e2)
   | Index (arr, idx) ->
@@ -676,7 +636,7 @@ let generate_expr (id, start, end_v, offset, body) =
       | [single] -> single.d
       | hd::tl ->
           List.fold_left
-            (fun acc expr -> LetIn ([], expr, dummy_ast_node_of_data acc))
+            (fun acc expr -> Join (expr, dummy_ast_node_of_data acc))
             hd.d
             tl
     else

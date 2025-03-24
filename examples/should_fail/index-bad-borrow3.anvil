@@ -1,9 +1,10 @@
-proc top() =
-    reg r : logic[4]
-    reg r2 : logic[8]
+proc top() {
+    reg r : logic[4];
+    reg r2 : logic[8];
     loop {
-        cycle 1 =>
-        let a_select = *r[0+:2] in
-        set r := 4'd3 =>
+        cycle 1 >>
+        let a_select = *r[0+:2];
+        set r := 4'd3 >>
         set r2[a_select] := 1'b0
     }
+}

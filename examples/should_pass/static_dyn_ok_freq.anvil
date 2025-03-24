@@ -1,22 +1,23 @@
-chan ch = {
-    left req: (logic[8]@#1) @#3-@dyn // left end point is dyn, right end point is #3
+chan ch {
+    left req: (logic[8]@#1) @dyn-@#3
 }
 
-proc slave(ep : left ch) =
+proc slave(ep : left ch) {
     loop {
-        cycle 3 =>
-        let r = recv ep.req in
-        r =>
+        cycle 3 >>
+        let r = recv ep.req >>
         dprint "Value = %d" (r)
     }
+}
 
-proc static_dyn_sync() =
-    chan le -- ri : ch
-    spawn slave(le)
-    reg r : logic[8]
+proc static_dyn_sync() {
+    chan le -- ri : ch;
+    spawn slave(le);
+    reg r : logic[8];
 
     loop {
-        send ri.req(*r) =>
+        send ri.req(*r) >>
         set r := *r + 8'd1
     }
+}
 

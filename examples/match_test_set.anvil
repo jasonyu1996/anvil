@@ -1,0 +1,26 @@
+const l = 2;
+const p = 32;
+
+func add (a,b) {
+    if b==2'd0 {
+        a+2'd1
+    } else {
+        a+b
+    }
+}
+
+proc match_test_set () {
+    reg cycle_counter : logic[l];
+    reg v : logic[2];
+    loop {
+        set cycle_counter := call add (*cycle_counter, 2'd1)
+    }
+    loop {
+        match *cycle_counter {
+            2'd0 => set v := 2'd0,
+            2'd1 => set v := 2'd1,
+            _ => set v := 2'd2
+        } >>
+        dprint "Value = %d" (*v)
+    }
+}

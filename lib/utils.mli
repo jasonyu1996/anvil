@@ -153,3 +153,6 @@ If [data] and [order] are of different lengths or if the sets of strings do not 
 [None] is returned instead.
 *)
 val list_match_reorder : string list -> (string * 'a) list -> 'a list option
+
+(** Join two lists in cases where order doesn't matter. *)
+val list_unordered_join : 'a list -> 'a list -> 'a list

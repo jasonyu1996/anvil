@@ -1,0 +1,510 @@
+// Use ASID_WIDTH = 16
+// Use VMID_WIDTH = 14
+// Use GPLEN = 41
+// Use PPNW = 44
+// Use PtLevels = 3
+// Use GPPN2 = 10
+// Use RVH = 0
+// Use VpnLen = 27
+// Use HYP_EXT = 0 //based on RVH
+// Use TLB_Entries = 16
+
+
+// Lookup -----------------------------------------------------------------------------------------------------------
+
+struct tlb_lookup_in_pack {
+    s_st_enbl_i : logic,
+    lu_asid_i : logic[16],
+    lu_vaddr_i : logic[64]
+}
+
+struct tlb_lookup_out_pack {
+    // hit : logic,
+    lu_content_o : pte_cva6_t,
+    lu_is_page_o : logic[2]
+}
+
+
+// Update and Flush ------------------------------------------------------------------------------------------------
+struct flush_in {
+    flush_en : logic,
+    asid_to_be_flushed_i : logic[16],
+    vaddr_to_be_flushed_i : logic[64]
+}
+
+struct update_in {
+    update_en : logic,
+    v_st_enable : logic,
+    is_page : logic[2],
+    vpn : logic[27],
+    asid : logic[16],
+    content : pte_cva6_t
+}
+
+
+// Channels ---------------------------------------------------------------------------------------------------------
+chan tlb_lookup_ch {
+    left req : (tlb_lookup_in_pack@res) @#1 - @#1,
+    right res : (tlb_lookup_out_pack@#1) @#req - @#req,
+    right hit : (logic@#1) @#req - @#req
+}
+
+chan shared_tlb_update_ch {
+    left req : (update_in@#1) @#1 - @#1
+}
+
+chan tlb_flush_issue_ch {
+    left req : (flush_in@#1) @#1 - @#1
+}
+
+//-----------------------------------------------------------------------------------------------------------------
+type vpn_field = logic[9];
+
+struct tag {
+    asid : logic[16],
+    vpn : vpn_field[3],
+    is_page : logic[2],
+    v_st_enable : logic,
+    valid : logic
+}
+
+struct pte_cva6_t {
+    reserved : logic[10],
+    ppn : logic[44],
+    rsw : logic[2],
+    d : logic,
+    a : logic,
+    g : logic,
+    u : logic,
+    x : logic,
+    w : logic,
+    r : logic,
+    v : logic
+}
+
+
+// ------------------------------------------------------------------------------------------------
+func level_vpn_match (vaddr, tag, i) {
+    match i {
+        2'd0 => vaddr[12+:9] == tag.vpn[0],
+        2'd1 => vaddr[21+:9] == tag.vpn[1],
+        2'd2 => vaddr[30+:9] == tag.vpn[2],
+        _ => 1'd0
+    }
+}
+
+
+func page_match (tag_q,i) {
+    match i {
+        2'd0 => 1'd1,
+        2'd1 => tag_q.is_page[1] == 1'd1,
+        2'd2 => tag_q.is_page[0] == 1'd1,
+        _ =>1'd0
+    }
+}
+
+func tlb_hit (level_match, asid_match, match_stage) {
+    ((level_match[0]|level_match[1]|level_match[2]) & asid_match & match_stage)==1'd1
+}
+
+func get_level_match(vaddr,tag_q) {
+    #{
+        ((call level_vpn_match(vaddr,tag_q,2'd0))&(call level_vpn_match(vaddr,tag_q, 2'd1))&(call level_vpn_match(vaddr,tag_q, 2'd2))&(call page_match(tag_q,2'd0))),
+        ((call level_vpn_match(vaddr,tag_q,2'd1))&(call level_vpn_match(vaddr,tag_q, 2'd2))&(call page_match(tag_q,2'd1))),
+        ((call level_vpn_match(vaddr,tag_q,2'd2))&(call page_match(tag_q,2'd2)))
+    }
+}
+
+func check_tlb_hit(inp,tag_q,g) {
+    let level_match = call get_level_match (inp.lu_vaddr_i,tag_q);
+    let asid_match = ((((tag_q.asid == inp.lu_asid_i) || (g==1'd1))&&(inp.s_st_enbl_i==1'd1))||(inp.s_st_enbl_i==1'd0))&&(tag_q.valid==1'd1);
+    let match_stage = (tag_q.v_st_enable == 1'd1);
+   // //dprint "[Cycle %d] Level Match = %b (%x=%x) | %b(%x=%x) |%b (%x=%x), Page Match = %b %b, Asid Match = %b(tag_asid(%x)=inp_asid(%x)||g(%d)&valid(%d)), Match Stage = %b" (*cyc,level_match[0],inp.lu_vaddr_i[12+:9],tag_q.vpn[0],level_match[1],inp.lu_vaddr_i[21+:9],tag_q.vpn[1],level_match[2],inp.lu_vaddr_i[30+:9],tag_q.vpn[2],tag_q.is_page[1],tag_q.is_page[0],asid_match,tag_q.asid,inp.lu_asid_i,g,tag_q.valid,match_stage);
+    call tlb_hit(level_match,asid_match,match_stage)
+}
+
+func get_page_o(tag_q) {
+    #{ call page_match(tag_q,2'd1), call page_match(tag_q,2'd2) }
+}
+
+// func updateMRUstatus(k) =
+// (
+//     generate (i: 0, 15,1) =
+//     {
+//         if (i == k) then set MRUstatus[i] := 1'd1
+//         else
+//         (
+//             if((*MRUstatus|(16'd1<<k))==16'b1111111111111111) then set MRUstatus[i] := 1'd0
+//             else set MRUstatus[i] := 1'd1
+//         )
+//     };
+//     set lu_hit_o := 1'd1
+// )
+
+
+// For 16 entries, the PLRU tree indexing:
+    // lvl0           0
+    //              /   \
+    //             /     \
+    // lvl1       1       2
+    //           / \     / \
+    // lvl2     3   4   5   6
+    //         /\  /\   /\  /\
+    // lvl3   7  8 9 10 11 12 13 14
+    //       /\ /\/\/\  /\ /\ /\ /\
+    //      0 1 2 3 4 5 6 7 8 9...15
+
+    // The pattern for 16 entries would be:
+    // unique case (1'b1)
+    // lu_hit[15]: plru_tree_n[0, 2, 6, 14] = {1, 1, 1, 1};
+    // lu_hit[14]: plru_tree_n[0, 2, 6, 14] = {1, 1, 1, 0};
+    // lu_hit[13]: plru_tree_n[0, 2, 6, 13] = {1, 1, 0, 1};
+    // lu_hit[12]: plru_tree_n[0, 2, 6, 13] = {1, 1, 0, 0};
+    // lu_hit[11]: plru_tree_n[0, 2, 5, 12] = {1, 0, 1, 1};
+    // lu_hit[10]: plru_tree_n[0, 2, 5, 12] = {1, 0, 1, 0};
+    // lu_hit[9]:  plru_tree_n[0, 2, 5, 11] = {1, 0, 0, 1};
+    // lu_hit[8]:  plru_tree_n[0, 2, 5, 11] = {1, 0, 0, 0};
+    // lu_hit[7]:  plru_tree_n[0, 1, 4, 10] = {0, 1, 1, 1};
+    // lu_hit[6]:  plru_tree_n[0, 1, 4, 10] = {0, 1, 1, 0};
+    // lu_hit[5]:  plru_tree_n[0, 1, 4, 9]  = {0, 1, 0, 1};
+    // lu_hit[4]:  plru_tree_n[0, 1, 4, 9]  = {0, 1, 0, 0};
+    // lu_hit[3]:  plru_tree_n[0, 1, 3, 8]  = {0, 0, 1, 1};
+    // lu_hit[2]:  plru_tree_n[0, 1, 3, 8]  = {0, 0, 1, 0};
+    // lu_hit[1]:  plru_tree_n[0, 1, 3, 7]  = {0, 0, 0, 1};
+    // lu_hit[0]:  plru_tree_n[0, 1, 3, 7]  = {0, 0, 0, 0};
+    // default: begin /* No hit */ end
+    // endcase
+
+
+// The replace_en logic would expand to:
+// replace_en[15] = &plru_tree_q[14, 6, 2, 0];  //plru_tree_q[0,2,6,14]=={1,1,1,1}
+// replace_en[14] = &plru_tree_q[~14,6, 2, 0];  //plru_tree_q[0,2,6,14]=={1,1,1,0}
+// replace_en[13] = &plru_tree_q[13,~6, 2, 0];  //plru_tree_q[0,2,6,13]=={1,1,0,1}
+// replace_en[12] = &plru_tree_q[~13,~6,2, 0];  //plru_tree_q[0,2,6,13]=={1,1,0,0}
+// replace_en[11] = &plru_tree_q[12, 5,~2, 0];  //plru_tree_q[0,2,5,12]=={1,0,1,1}
+// replace_en[10] = &plru_tree_q[~12,5,~2, 0];  //plru_tree_q[0,2,5,12]=={1,0,1,0}
+// replace_en[9]  = &plru_tree_q[11,~5,~2, 0];  //plru_tree_q[0,2,5,11]=={1,0,0,1}
+// replace_en[8]  = &plru_tree_q[~11,~5,~2,0];  //plru_tree_q[0,2,5,11]=={1,0,0,0}
+// replace_en[7]  = &plru_tree_q[10, 4, 1,~0];  //plru_tree_q[0,1,4,10]=={0,1,1,1}
+// replace_en[6]  = &plru_tree_q[~10,4, 1,~0];  //plru_tree_q[0,1,4,10]=={0,1,1,0}
+// replace_en[5]  = &plru_tree_q[9,~4, 1,~0];   //plru_tree_q[0,1,4,9]=={0,1,0,1}
+// replace_en[4]  = &plru_tree_q[~9,~4, 1,~0];  //plru_tree_q[0,1,4,9]=={0,1,0,0}
+// replace_en[3]  = &plru_tree_q[8, 3,~1,~0];   //plru_tree_q[0,1,3,8]=={0,0,1,1}
+// replace_en[2]  = &plru_tree_q[~8, 3,~1,~0];  //plru_tree_q[0,1,3,8]=={0,0,1,0}
+// replace_en[1]  = &plru_tree_q[7,~3,~1,~0];   //plru_tree_q[0,1,3,7]=={0,0,0,1}
+// replace_en[0]  = &plru_tree_q[~7,~3,~1,~0];  //plru_tree_q[0,1,3,7]=={0,0,0,0}
+
+// func updateMRUstatus(k) =
+// (
+//     set lu_hit_o := 1'd1;
+//     match k with :
+//     |> 4'd15 -> (set PLRUtree[0]:=1'b1;set PLRUtree[2]:=1'b1;set PLRUtree[6]:=1'b1;set PLRUtree[14]:=1'b1)
+//     |> 4'd14 -> (set PLRUtree[0]:=1'b1;set PLRUtree[2]:=1'b1;set PLRUtree[6]:=1'b1;set PLRUtree[14]:=1'b0)
+//     |> 4'd13 -> (set PLRUtree[0]:=1'b1;set PLRUtree[2]:=1'b1;set PLRUtree[6]:=1'b0;set PLRUtree[13]:=1'b1)
+//     |> 4'd12 -> (set PLRUtree[0]:=1'b1;set PLRUtree[2]:=1'b1;set PLRUtree[6]:=1'b0;set PLRUtree[13]:=1'b0)
+//     |> 4'd11 -> (set PLRUtree[0]:=1'b1;set PLRUtree[2]:=1'b0;set PLRUtree[5]:=1'b1;set PLRUtree[12]:=1'b1)
+//     |> 4'd10 -> (set PLRUtree[0]:=1'b1;set PLRUtree[2]:=1'b0;set PLRUtree[5]:=1'b1;set PLRUtree[12]:=1'b0)
+//     |> 4'd9 ->  (set PLRUtree[0]:=1'b1;set PLRUtree[2]:=1'b0;set PLRUtree[5]:=1'b0;set PLRUtree[11]:=1'b1)
+//     |> 4'd8 ->  (set PLRUtree[0]:=1'b1;set PLRUtree[2]:=1'b0;set PLRUtree[5]:=1'b0;set PLRUtree[11]:=1'b0)
+//     |> 4'd7 ->  (set PLRUtree[0]:=1'b0;set PLRUtree[1]:=1'b1;set PLRUtree[4]:=1'b1;set PLRUtree[10]:=1'b1)
+//     |> 4'd6 ->  (set PLRUtree[0]:=1'b0;set PLRUtree[1]:=1'b1;set PLRUtree[4]:=1'b1;set PLRUtree[10]:=1'b0)
+//     |> 4'd5 ->  (set PLRUtree[0]:=1'b0;set PLRUtree[1]:=1'b1;set PLRUtree[4]:=1'b0;set PLRUtree[9]:=1'b1)
+//     |> 4'd4 ->  (set PLRUtree[0]:=1'b0;set PLRUtree[1]:=1'b1;set PLRUtree[4]:=1'b0;set PLRUtree[9]:=1'b0)
+//     |> 4'd3 ->  (set PLRUtree[0]:=1'b0;set PLRUtree[1]:=1'b0;set PLRUtree[3]:=1'b1;set PLRUtree[8]:=1'b1)
+//     |> 4'd2 ->  (set PLRUtree[0]:=1'b0;set PLRUtree[1]:=1'b0;set PLRUtree[3]:=1'b1;set PLRUtree[8]:=1'b0)
+//     |> 4'd1 ->  (set PLRUtree[0]:=1'b0;set PLRUtree[1]:=1'b0;set PLRUtree[3]:=1'b0;set PLRUtree[7]:=1'b1)
+//     |> _ -> (set PLRUtree[0]:=1'b0;set PLRUtree[1]:=1'b0;set PLRUtree[3]:=1'b0;set PLRUtree[7]:=1'b0)
+//     done
+
+//     // //dprint "[Cycle %d] Its a hit for index %d" (*cyc, k)
+// )
+
+// func replaceEn(k)=
+// (
+//     match k with :
+//     |> 4'd15 -> (*PLRUtree[14]&*PLRUtree[6]&*PLRUtree[2]&*PLRUtree[0])
+//     |> 4'd14 -> (~(*PLRUtree[14])&*PLRUtree[6]&*PLRUtree[2]&*PLRUtree[0])
+//     |> 4'd13 -> (*PLRUtree[13]&(~(*PLRUtree[6]))&*PLRUtree[2]&*PLRUtree[0])
+//     |> 4'd12 -> (~(*PLRUtree[13])&(~(*PLRUtree[6]))&*PLRUtree[2]&*PLRUtree[0])
+//     |> 4'd11 -> (*PLRUtree[12]&*PLRUtree[5]&(~(*PLRUtree[2]))&*PLRUtree[0])
+//     |> 4'd10 -> (~(*PLRUtree[12])&*PLRUtree[5]&(~(*PLRUtree[2]))&*PLRUtree[0])
+//     |> 4'd9 ->  (*PLRUtree[11]&(~(*PLRUtree[5]))&(~(*PLRUtree[2]))&*PLRUtree[0])
+//     |> 4'd8 ->  (~(*PLRUtree[11])&(~(*PLRUtree[5]))&(~(*PLRUtree[2]))&*PLRUtree[0])
+//     |> 4'd7 ->  (*PLRUtree[10]&*PLRUtree[4]&*PLRUtree[1]&(~(*PLRUtree[0])))
+//     |> 4'd6 ->  (~(*PLRUtree[10])&*PLRUtree[4]&*PLRUtree[1]&(~(*PLRUtree[0])))
+//     |> 4'd5 ->  (*PLRUtree[9]&(~(*PLRUtree[4]))&*PLRUtree[1]&(~(*PLRUtree[0])))
+//     |> 4'd4 ->  (~(*PLRUtree[9])&(~(*PLRUtree[4]))&*PLRUtree[1]&(~(*PLRUtree[0])))
+//     |> 4'd3 ->  (*PLRUtree[8]&*PLRUtree[3]&(~(*PLRUtree[1]))&(~(*PLRUtree[0])))
+//     |> 4'd2 ->  (~(*PLRUtree[8])&*PLRUtree[3]&(~(*PLRUtree[1]))&(~(*PLRUtree[0])))
+//     |> 4'd1 ->  (*PLRUtree[7]&(~(*PLRUtree[3]))&(~(*PLRUtree[1]))&(~(*PLRUtree[0])))
+//     |> _ -> (~(*PLRUtree[7])&(~(*PLRUtree[3]))&(~(*PLRUtree[1]))&(~(*PLRUtree[0])))
+//     done
+// )
+//------------------------------------------------------------------------------------------------
+
+proc anvil_tlb(lu_ch : left tlb_lookup_ch,
+               flush_issue_ch : left tlb_flush_issue_ch,
+               update_ch : left shared_tlb_update_ch)
+{
+    reg tag_q : tag[16];
+    reg content_q : pte_cva6_t[16];
+    reg cyc : logic[20];
+    reg PLRUtree : logic[30];
+
+    loop {
+        set cyc := *cyc + 20'd1
+    }
+
+    loop { // Lookup
+        let inp = recv lu_ch.req >>
+        let hit0 = call check_tlb_hit(inp,*tag_q[0],*content_q[0].g) >>
+        let hit1 = call check_tlb_hit(inp,*tag_q[1],*content_q[1].g) >>
+        let hit2 = call check_tlb_hit(inp,*tag_q[2],*content_q[2].g) >>
+        let hit3 = call check_tlb_hit(inp,*tag_q[3],*content_q[3].g) >>
+        let hit4 = call check_tlb_hit(inp,*tag_q[4],*content_q[4].g) >>
+        let hit5 = call check_tlb_hit(inp,*tag_q[5],*content_q[5].g) >>
+        let hit6 = call check_tlb_hit(inp,*tag_q[6],*content_q[6].g) >>
+        let hit7 = call check_tlb_hit(inp,*tag_q[7],*content_q[7].g) >>
+        let hit8 = call check_tlb_hit(inp,*tag_q[8],*content_q[8].g) >>
+        let hit9 = call check_tlb_hit(inp,*tag_q[9],*content_q[9].g) >>
+        let hit10 = call check_tlb_hit(inp,*tag_q[10],*content_q[10].g) >>
+        let hit11 = call check_tlb_hit(inp,*tag_q[11],*content_q[11].g) >>
+        let hit12 = call check_tlb_hit(inp,*tag_q[12],*content_q[12].g) >>
+        let hit13 = call check_tlb_hit(inp,*tag_q[13],*content_q[13].g) >>
+        let hit14 = call check_tlb_hit(inp,*tag_q[14],*content_q[14].g) >>
+        let hit15 = call check_tlb_hit(inp,*tag_q[15],*content_q[15].g) >>
+
+        let is_hit = hit0 || hit1 || hit2 || hit3
+                  || hit4 || hit5 || hit6 || hit7
+                  || hit8 || hit9 || hit10 || hit11
+                  || hit12 || hit13 || hit14 || hit15 >>
+
+        if hit0 {
+            (send lu_ch.hit(1'd1);send lu_ch.res(tlb_lookup_out_pack::{lu_content_o = *content_q[0];lu_is_page_o = call get_page_o(*tag_q[0])})) >>
+            (set PLRUtree[0]:=1'b1;set PLRUtree[1]:=1'b1;set PLRUtree[3]:=1'b1;set PLRUtree[7]:=1'b1)
+        } else if hit1 {
+            (send lu_ch.hit(1'd1);send lu_ch.res(tlb_lookup_out_pack::{lu_content_o = *content_q[1]; lu_is_page_o = call get_page_o(*tag_q[1])})) >>
+            (set PLRUtree[0]:=1'b1;set PLRUtree[1]:=1'b1;set PLRUtree[3]:=1'b1;set PLRUtree[7]:=1'b0)
+        } else if hit2 {
+            (send lu_ch.hit(1'd1);send lu_ch.res(tlb_lookup_out_pack::{lu_content_o = *content_q[2]; lu_is_page_o = call get_page_o(*tag_q[2])})) >>
+            (set PLRUtree[0]:=1'b1;set PLRUtree[1]:=1'b1;set PLRUtree[3]:=1'b0;set PLRUtree[8]:=1'b1)
+        } else if hit3 {
+            (send lu_ch.hit(1'd1);send lu_ch.res(tlb_lookup_out_pack::{lu_content_o = *content_q[3]; lu_is_page_o = call get_page_o(*tag_q[3])})) >>
+            (set PLRUtree[0]:=1'b1;set PLRUtree[1]:=1'b1;set PLRUtree[3]:=1'b0;set PLRUtree[8]:=1'b0)
+        } else if hit4 {
+            (send lu_ch.hit(1'd1);send lu_ch.res(tlb_lookup_out_pack::{lu_content_o = *content_q[4]; lu_is_page_o = call get_page_o(*tag_q[4])})) >>
+            (set PLRUtree[0]:=1'b1;set PLRUtree[1]:=1'b0;set PLRUtree[4]:=1'b1;set PLRUtree[9]:=1'b1)
+        } else if hit5 {
+            (send lu_ch.hit(1'd1);send lu_ch.res(tlb_lookup_out_pack::{lu_content_o = *content_q[5]; lu_is_page_o = call get_page_o(*tag_q[5])})) >>
+            (set PLRUtree[0]:=1'b1;set PLRUtree[1]:=1'b0;set PLRUtree[4]:=1'b1;set PLRUtree[9]:=1'b0)
+        } else if hit6 {
+            (send lu_ch.hit(1'd1);send lu_ch.res(tlb_lookup_out_pack::{lu_content_o = *content_q[6]; lu_is_page_o = call get_page_o(*tag_q[6])})) >>
+            (set PLRUtree[0]:=1'b1;set PLRUtree[1]:=1'b0;set PLRUtree[4]:=1'b0;set PLRUtree[10]:=1'b1)
+        } else if hit7 {
+            (send lu_ch.hit(1'd1);send lu_ch.res(tlb_lookup_out_pack::{lu_content_o = *content_q[7]; lu_is_page_o = call get_page_o(*tag_q[7])})) >>
+            (set PLRUtree[0]:=1'b1;set PLRUtree[1]:=1'b0;set PLRUtree[4]:=1'b0;set PLRUtree[10]:=1'b0)
+        } else if hit8 {
+            (send lu_ch.hit(1'd1);send lu_ch.res(tlb_lookup_out_pack::{lu_content_o = *content_q[8]; lu_is_page_o = call get_page_o(*tag_q[8])})) >>
+            (set PLRUtree[0]:=1'b0;set PLRUtree[2]:=1'b1;set PLRUtree[5]:=1'b1;set PLRUtree[11]:=1'b1)
+        } else if hit9 {
+            (send lu_ch.hit(1'd1);send lu_ch.res(tlb_lookup_out_pack::{lu_content_o = *content_q[9]; lu_is_page_o = call get_page_o(*tag_q[9])})) >>
+            (set PLRUtree[0]:=1'b0;set PLRUtree[2]:=1'b1;set PLRUtree[5]:=1'b1;set PLRUtree[11]:=1'b0)
+        } else if hit10 {
+            (send lu_ch.hit(1'd1);send lu_ch.res(tlb_lookup_out_pack::{lu_content_o = *content_q[10]; lu_is_page_o = call get_page_o(*tag_q[10])})) >>
+            (set PLRUtree[0]:=1'b0;set PLRUtree[2]:=1'b1;set PLRUtree[5]:=1'b0;set PLRUtree[12]:=1'b1)
+        } else if hit11 {
+            (send lu_ch.hit(1'd1);send lu_ch.res(tlb_lookup_out_pack::{lu_content_o = *content_q[11]; lu_is_page_o = call get_page_o(*tag_q[11])})) >>
+            (set PLRUtree[0]:=1'b0;set PLRUtree[2]:=1'b1;set PLRUtree[5]:=1'b0;set PLRUtree[12]:=1'b0)
+        } else if hit12 {
+            (send lu_ch.hit(1'd1);send lu_ch.res(tlb_lookup_out_pack::{lu_content_o = *content_q[12]; lu_is_page_o = call get_page_o(*tag_q[12])})) >>
+            (set PLRUtree[0]:=1'b0;set PLRUtree[2]:=1'b0;set PLRUtree[6]:=1'b1;set PLRUtree[13]:=1'b1)
+        } else if hit13 {
+            (send lu_ch.hit(1'd1);send lu_ch.res(tlb_lookup_out_pack::{lu_content_o = *content_q[13]; lu_is_page_o = call get_page_o(*tag_q[13])})) >>
+            (set PLRUtree[0]:=1'b0;set PLRUtree[2]:=1'b0;set PLRUtree[6]:=1'b1;set PLRUtree[13]:=1'b0)
+        } else if hit14 {
+            (send lu_ch.hit(1'd1);send lu_ch.res(tlb_lookup_out_pack::{lu_content_o = *content_q[14]; lu_is_page_o = call get_page_o(*tag_q[14])})) >>
+            (set PLRUtree[0]:=1'b0;set PLRUtree[2]:=1'b0;set PLRUtree[6]:=1'b0;set PLRUtree[14]:=1'b1)
+        } else if hit15 {
+            (send lu_ch.hit(1'd1);send lu_ch.res(tlb_lookup_out_pack::{lu_content_o = *content_q[15]; lu_is_page_o = call get_page_o(*tag_q[15])})) >>
+            (set PLRUtree[0]:=1'b0;set PLRUtree[2]:=1'b0;set PLRUtree[6]:=1'b0;set PLRUtree[14]:=1'b0)
+        } else {
+            (send lu_ch.hit(1'd0); send lu_ch.res(tlb_lookup_out_pack::{lu_content_o = (pte_cva6_t::{reserved = 10'd0;ppn=44'd0;rsw=2'd0;d=1'd0;a=1'd0;g=1'd0;u=1'd0;x=1'd0;w=1'd0;r=1'd0;v=1'd0}); lu_is_page_o = 2'd0})) >>
+            cycle 1
+        };
+
+        let inp = recv flush_issue_ch.req >>
+        let update = recv update_ch.req >>
+
+        if inp.flush_en {
+            if (inp.asid_to_be_flushed_i == 16'd0) && (inp.vaddr_to_be_flushed_i == 64'd0) {
+                generate (i: 0, 15,1) {
+                    set tag_q[i] := tag::{asid = 16'd0; vpn = #{9'd0,9'd0,9'd0}; is_page = 2'd0; v_st_enable = 1'd0; valid = 1'd0}
+                }
+            } else {
+                generate (i: 0, 15,1) {
+                    let level_match = call get_level_match(inp.vaddr_to_be_flushed_i,*tag_q[i]);
+                    if((inp.asid_to_be_flushed_i==16'd0) && ((level_match[0]|level_match[1]|level_match[2])==1'd1) && (inp.vaddr_to_be_flushed_i!=64'd0) ) {
+                        set tag_q[i] := tag::{asid = 16'd0; vpn = #{9'd0,9'd0,9'd0}; is_page = 2'd0; v_st_enable = 1'd0; valid = 1'd0}
+                    } else if ((*tag_q[i].asid == inp.asid_to_be_flushed_i)
+                                && (inp.asid_to_be_flushed_i != 16'd0)
+                                && ((level_match[0]|level_match[1]|level_match[2])==1'd1)
+                                && (inp.vaddr_to_be_flushed_i!=64'd0)&&(*content_q[i].g==1'd0))
+                    {
+                        set tag_q[i] := tag::{asid = 16'd0; vpn = #{9'd0,9'd0,9'd0}; is_page = 2'd0; v_st_enable = 1'd0; valid = 1'd0}
+                    } else if ((*tag_q[i].asid == inp.asid_to_be_flushed_i)
+                                && (inp.asid_to_be_flushed_i != 16'd0)
+                                && ((level_match[0]|level_match[1]|level_match[2])==1'd1)
+                                && (inp.vaddr_to_be_flushed_i==64'd0)
+                                && (*content_q[i].g==1'd0))
+                    {
+                        set tag_q[i] := tag::{asid = 16'd0; vpn = #{9'd0,9'd0,9'd0}; is_page = 2'd0; v_st_enable = 1'd0; valid = 1'd0}
+                    }
+                    else {
+                        cycle 1
+                    }
+                }
+            }
+        } else if update.update_en && (is_hit == 1'b0) {
+            if ((~*PLRUtree[0])&(~*PLRUtree[1])&(~*PLRUtree[3])&(~*PLRUtree[7])) {
+                set tag_q[0] := tag::{asid = update.asid; vpn=#{update.vpn[18+:9],update.vpn[9+:9],update.vpn[0+:9]};
+                                    is_page = update.is_page; v_st_enable = update.v_st_enable; valid = 1'd1};
+                set content_q[0] := update.content
+            } else { cycle 1 };
+            if ((~*PLRUtree[0])&(~*PLRUtree[1])&(~*PLRUtree[3])&(*PLRUtree[7])) {
+                set tag_q[1] := tag::{asid = update.asid; vpn=#{update.vpn[18+:9],update.vpn[9+:9],update.vpn[0+:9]};
+                                    is_page = update.is_page; v_st_enable = update.v_st_enable; valid = 1'd1};
+                set content_q[1] := update.content
+            } else { cycle 1 };
+            if ((~*PLRUtree[0])&(~*PLRUtree[1])&(*PLRUtree[3])&(~*PLRUtree[8])) {
+                set tag_q[2] := tag::{asid = update.asid; vpn=#{update.vpn[18+:9],update.vpn[9+:9],update.vpn[0+:9]};
+                                    is_page = update.is_page; v_st_enable = update.v_st_enable; valid = 1'd1};
+                set content_q[2] := update.content
+            } else { cycle 1 };
+            if ((~*PLRUtree[0])&(~*PLRUtree[1])&(*PLRUtree[3])&(*PLRUtree[8])) {
+                set tag_q[3] := tag::{asid = update.asid; vpn=#{update.vpn[18+:9],update.vpn[9+:9],update.vpn[0+:9]};
+                                    is_page = update.is_page; v_st_enable = update.v_st_enable; valid = 1'd1};
+                set content_q[3] := update.content
+            } else { cycle 1 };
+            if ((~*PLRUtree[0])&(*PLRUtree[1])&(~*PLRUtree[4])&(~*PLRUtree[9])) {
+                set tag_q[4] := tag::{asid = update.asid; vpn=#{update.vpn[18+:9],update.vpn[9+:9],update.vpn[0+:9]};
+                                    is_page = update.is_page; v_st_enable = update.v_st_enable; valid = 1'd1};
+                set content_q[4] := update.content
+            } else { cycle 1 };
+            if ((~*PLRUtree[0])&(*PLRUtree[1])&(~*PLRUtree[4])&(*PLRUtree[9])) {
+                set tag_q[5] := tag::{asid = update.asid; vpn=#{update.vpn[18+:9],update.vpn[9+:9],update.vpn[0+:9]};
+                                    is_page = update.is_page; v_st_enable = update.v_st_enable; valid = 1'd1};
+                set content_q[5] := update.content
+            } else { cycle 1 };
+            if ((~*PLRUtree[0])&(*PLRUtree[1])&(*PLRUtree[4])&(~*PLRUtree[10])) {
+                set tag_q[6] := tag::{asid = update.asid; vpn=#{update.vpn[18+:9],update.vpn[9+:9],update.vpn[0+:9]};
+                                    is_page = update.is_page; v_st_enable = update.v_st_enable; valid = 1'd1};
+                set content_q[6] := update.content
+            } else { cycle 1 };
+            if ((~*PLRUtree[0])&(*PLRUtree[1])&(*PLRUtree[4])&(*PLRUtree[10])) {
+                set tag_q[7] := tag::{asid = update.asid; vpn=#{update.vpn[18+:9],update.vpn[9+:9],update.vpn[0+:9]};
+                                    is_page = update.is_page; v_st_enable = update.v_st_enable; valid = 1'd1};
+                set content_q[7] := update.content
+            } else { cycle 1 };
+            if ((*PLRUtree[0])&(~*PLRUtree[2])&(~*PLRUtree[5])&(~*PLRUtree[11])) {
+                set tag_q[8] := tag::{asid = update.asid; vpn=#{update.vpn[18+:9],update.vpn[9+:9],update.vpn[0+:9]};
+                                    is_page = update.is_page; v_st_enable = update.v_st_enable; valid = 1'd1};
+                set content_q[8] := update.content
+            } else { cycle 1 };
+            if ((*PLRUtree[0])&(~*PLRUtree[2])&(~*PLRUtree[5])&(*PLRUtree[11])) {
+                set tag_q[9] := tag::{asid = update.asid; vpn=#{update.vpn[18+:9],update.vpn[9+:9],update.vpn[0+:9]};
+                                    is_page = update.is_page; v_st_enable = update.v_st_enable; valid = 1'd1};
+                set content_q[9] := update.content
+            } else { cycle 1 };
+            if ((*PLRUtree[0])&(~*PLRUtree[2])&(*PLRUtree[5])&(~*PLRUtree[12])) {
+                set tag_q[10] := tag::{asid = update.asid; vpn=#{update.vpn[18+:9],update.vpn[9+:9],update.vpn[0+:9]};
+                                    is_page = update.is_page; v_st_enable = update.v_st_enable; valid = 1'd1};
+                set content_q[10] := update.content
+            } else { cycle 1 };
+            if ((*PLRUtree[0])&(~*PLRUtree[2])&(*PLRUtree[5])&(*PLRUtree[12])) {
+                set tag_q[11] := tag::{asid = update.asid; vpn=#{update.vpn[18+:9],update.vpn[9+:9],update.vpn[0+:9]};
+                                    is_page = update.is_page; v_st_enable = update.v_st_enable; valid = 1'd1};
+                set content_q[11] := update.content
+            } else { cycle 1 };
+            if ((*PLRUtree[0])&(*PLRUtree[2])&(~*PLRUtree[6])&(~*PLRUtree[13])) {
+                set tag_q[12] := tag::{asid = update.asid; vpn=#{update.vpn[18+:9],update.vpn[9+:9],update.vpn[0+:9]};
+                                    is_page = update.is_page; v_st_enable = update.v_st_enable; valid = 1'd1};
+                set content_q[12] := update.content
+            } else { cycle 1 };
+            if ((*PLRUtree[0])&(*PLRUtree[2])&(~*PLRUtree[6])&(*PLRUtree[13])) {
+                set tag_q[13] := tag::{asid = update.asid; vpn=#{update.vpn[18+:9],update.vpn[9+:9],update.vpn[0+:9]};
+                                    is_page = update.is_page; v_st_enable = update.v_st_enable; valid = 1'd1};
+                set content_q[13] := update.content
+            } else { cycle 1 };
+            if ((*PLRUtree[0])&(*PLRUtree[2])&(*PLRUtree[6])&(~*PLRUtree[14])) {
+                set tag_q[14] := tag::{asid = update.asid; vpn=#{update.vpn[18+:9],update.vpn[9+:9],update.vpn[0+:9]};
+                                    is_page = update.is_page; v_st_enable = update.v_st_enable; valid = 1'd1};
+                set content_q[14] := update.content
+            } else { cycle 1 };
+            if ((*PLRUtree[0])&(*PLRUtree[2])&(*PLRUtree[6])&(*PLRUtree[14])) {
+                set tag_q[15] := tag::{asid = update.asid; vpn=#{update.vpn[18+:9],update.vpn[9+:9],update.vpn[0+:9]};
+                                    is_page = update.is_page; v_st_enable = update.v_st_enable; valid = 1'd1};
+                set content_q[15] := update.content
+            } else { cycle 1 }
+            // //dprint "[Cycle %d] Update TLB: vpn=%x, content = %x" (*cyc, update.vpn, update.content);
+        // //dprint "[Cycle %d] Update dummy node testing" (*cyc)
+        } else {
+            cycle 1
+        } ////dprint "[Cycle %d Flush or Update Logic] Update or Flush cant be done right now" (*cyc)
+    }
+
+
+    //-------------------------------------------Debug-----------------------------------------------------
+    // loop{
+    //     generate (i: 0, 15,1) =
+    //     {
+    //         ////dprint "[Cycle %d] TLB State [Tag[%d] => ASID=%x, VPN=%x, IsPage=%x, VSTEnable=%x, Valid=%x]| [Content =%x]" (*cyc,i, *tag_q[i].asid, *tag_q[i].vpn, *tag_q[i].is_page, *tag_q[i].v_st_enable, *tag_q[i].valid, *content_q[i])
+    //     };
+    //     cycle 1
+    // }
+    //------------------------------------------------------------------------------------------------
+}
+
+proc tlb_tb () {
+    chan lookup_le -- lookup_ri : tlb_lookup_ch;
+    chan flush_issue_le -- flush_issue_ri : tlb_flush_issue_ch;
+    chan update_le -- update_ri : shared_tlb_update_ch;
+
+    spawn anvil_tlb(lookup_le, flush_issue_le, update_le);
+    reg vaddr : logic[64];
+    reg cyc : logic[6];
+
+    loop {
+        set cyc := *cyc + 6'd1
+    }
+    // loop { // Lookup Operation
+
+    //     (
+    //         //dprint "[Cycle %d] Lookup Operation" (*cyc);
+    //         let send_vaddr = 64'b1111111111111111111111111111111111111111111111111111111111111111 in
+    //         send lookup_ri.req(tlb_lookup_in_pack::{s_st_enbl_i=1'd0;lu_asid_i = 16'd1; lu_vaddr_i = send_vaddr })=>
+    //         let result = recv lookup_ri.res in
+    //             result =>
+    //         if (result.hit==1'd1) then (
+
+    //             //dprint "[Cycle %d] TLB Hit: Content=%x, Page=%x" (*cyc, result.lu_content_o, result.lu_is_page_o)
+    //         ) else //dprint "[Cycle %d] TLB Miss %b" (*cyc, send_vaddr)
+    //     );
+    //     cycle 4
+    // }
+
+    // loop {
+    //     (
+    //     //dprint "[Cycle %d] Update Operation" (*cyc);
+    //     let test_pte = pte_cva6_t::{reserved = 10'd1023; ppn = 44'b11111111111111111111111111111111111111111111; rsw = 2'd0; d = 1'd1; a = 1'd1; g = 1'd0; u = 1'd1; x = 1'd1; w = 1'd1; r = 1'd1; v = 1'd1} in
+    //     send update_ri.req(update_in::{v_st_enable =1'd1;asid = 16'd1; vpn = {9'b111111111,9'b111111111,9'b111111111}; is_page = 3'b111; content = test_pte})
+    //     );
+    //     cycle 4
+    // }
+
+    // loop {
+    //         //dprint "[Cycle %d] Flush Issue Operation" (*cyc);
+    //         send flush_issue_ri.req(flush_in::{asid_to_be_flushed_i = 16'd0; vaddr_to_be_flushed_i = 64'd0})=>
+    //         //dprint "[Cycle %d] Flush signal sent" (*cyc);
+    //         cycle 9
+    // }
+}

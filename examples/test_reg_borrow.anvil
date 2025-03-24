@@ -1,29 +1,30 @@
-chan ch = {
+chan ch {
     left req : (logic@#1),
     right res : (logic@#1)
 }
-func flag () = 
-(
-    let x = recv ch.req in
-    x=>
+
+func flag () {
+    let x = recv ch.req >>
     dprint "recv  x = %d" (x)
-)
-
-proc foo(ch : left ch) = 
-reg r : logic
-loop{
-    (if(1'd1 == 1'd1) then send ch.res(1'd1)=>call flag()
-    else (set r := 1'd0));
-    cycle 1
-
 }
 
-proc test_reg_borrow()=
-chan ch_le -- ch_ri : ch
-spawn foo(ch_le)
-reg r : logic[1]
-loop{
-    (send ch_ri.req(*r)=>
-    set r:=1'd1);
-    cycle 1
+proc foo(ch : left ch) {
+    reg r : logic;
+    loop {
+        if 1'd1 == 1'd1 {
+            send ch.res(1'd1)>>call flag() >> cycle 1
+        }  else {
+            set r := 1'd0
+        }
+    }
+}
+
+proc test_reg_borrow() {
+    chan ch_le -- ch_ri : ch;
+    spawn foo(ch_le);
+    reg r : logic[1];
+    loop {
+        send ch_ri.req(*r) >>
+        set r:=1'd1
+    }
 }

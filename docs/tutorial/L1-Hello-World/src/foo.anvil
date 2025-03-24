@@ -1,0 +1,8 @@
+proc foo() {
+    reg counter : logic[8];
+    loop {
+        let temp = *counter + 1;
+        set counter := temp;
+        dprint"[Cycle %d] Hello World in Anvil!" (temp)
+    }
+}

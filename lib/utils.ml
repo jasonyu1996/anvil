@@ -34,3 +34,9 @@ let list_match_reorder (order : string list)
       else
         Some (List.map snd data_ordered)
     with _ -> None
+
+let list_unordered_join a b =
+  if List.compare_lengths a b < 0 then
+    a @ b
+  else
+    b @ a

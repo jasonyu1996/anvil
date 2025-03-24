@@ -1,22 +1,22 @@
-chan ch = {
-    left req: (logic[8]@#1) @#1-@dyn
+chan ch {
+    left req: (logic[8]@#1) @dyn-@#1
 }
 
-proc slave(ep : left ch) =
+proc slave(ep : left ch) {
     loop {
-        let r = recv ep.req in
-        r =>
+        let r = recv ep.req >>
         dprint "Value = %d" (r);
         cycle 2
     }
+}
 
-proc top() =
-    chan le -- ri : ch
-    spawn slave(le)
-    reg r : logic[8]
+proc top() {
+    chan le -- ri : ch;
+    spawn slave(le);
+    reg r : logic[8];
 
     loop {
-        send ri.req(*r) =>
+        send ri.req(*r) >>
         set r := *r + 8'd1
     }
-
+}

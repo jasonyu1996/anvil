@@ -13,7 +13,6 @@
 %token KEYWORD_CALL                (* call *)
 %token SHARP                (* # *)
 %token EQUAL                (* = *)
-%token POINT_TO             (* -> *)
 %token COLON_EQ             (* := *)
 %token LEFT_ABRACK          (* < *)
 %token RIGHT_ABRACK         (* > *)
@@ -21,13 +20,12 @@
 %token RIGHT_ABRACK_EQ      (* >= *)
 %token DOUBLE_LEFT_ABRACK   (* << *)
 %token DOUBLE_RIGHT_ABRACK  (* << *)
-%token KEYWORD_USE          (* << *)
+%token KEYWORD_CONST        (* const *)
 %token KEYWORD_READY        (* ready *)
 %token DOUBLE_EQ            (* == *)
 %token EQ_GT                (* => *)
+%token DOUBLE_GT            (* >> *)
 %token EXCL_EQ              (* != *)
-%token OR_GT                (* |> *)
-%token EXCL                 (* ! *)
 %token ASTERISK             (* * *)
 %token PLUS                 (* + *)
 %token MINUS                (* - *)
@@ -41,7 +39,6 @@
 %token KEYWORD_LOOP         (* loop *)
 %token KEYWORD_PROC         (* proc *)
 %token KEYWORD_CHAN         (* chan *)
-%token KEYWORD_IN           (* in *)
 %token KEYWORD_LEFT         (* left *)
 %token KEYWORD_RIGHT        (* right *)
 %token KEYWORD_PUT          (* put *)
@@ -49,34 +46,28 @@
 %token KEYWORD_FOREIGN      (* foreign *)
 %token KEYWORD_GENERATE     (* generate *)
 %token KEYWORD_IF           (* if *)
-%token KEYWORD_THEN         (* then *)
 %token KEYWORD_ELSE         (* else *)
-%token KEYWORD_WHILE        (* while *)
 %token KEYWORD_LET          (* let *)
 %token KEYWORD_SEND         (* send *)
 %token KEYWORD_RECV         (* recv *)
 %token KEYWORD_ETERNAL      (* eternal *)
-%token KEYWORD_DONE         (* done *)
 %token KEYWORD_TYPE         (* type *)
-%token KEYWORD_OF           (* of *)
 %token KEYWORD_SET          (* set *)
 %token KEYWORD_MATCH        (* match *)
-%token KEYWORD_WITH         (* with *)
 %token KEYWORD_SYNC         (* sync *)
 %token KEYWORD_DYN          (* dyn *)
-%token KEYWORD_WAIT         (* wait *)
 %token KEYWORD_CYCLE        (* cycle *)
 %token KEYWORD_REG          (* reg *)
 %token KEYWORD_SPAWN        (* spawn *)
-%token KEYWORD_TRY          (* try *)
 %token KEYWORD_DPRINT       (* dprint *)
 %token KEYWORD_DFINISH      (* dfinish *)
-%token KEYWORD_ENUM
 %token KEYWORD_IMPORT       (* import *)
 %token KEYWORD_EXTERN       (* extern *)
 %token KEYWORD_INT          (* int *)
 %token KEYWORD_RECURSIVE    (* recursive *)
 %token KEYWORD_RECURSE      (* recurse *)
+%token KEYWORD_STRUCT       (* struct *)
+%token KEYWORD_ENUM         (* enum *)
 %token <int>INT             (* int literal *)
 %token <string>IDENT        (* identifier *)
 %token <string>BIT_LITERAL  (* bit literal *)
@@ -88,11 +79,8 @@
 %token KEYWORD_BY           (* by *)
 %right LEFT_ABRACK RIGHT_ABRACK LEFT_ABRACK_EQ RIGHT_ABRACK_EQ
 %right EXCL_EQ DOUBLE_EQ
-%right KEYWORD_IN
-%right EQ_GT SEMICOLON
-%right KEYWORD_ELSE
-%right COLON_EQ
-%right CONSTRUCT
+%right DOUBLE_GT SEMICOLON
+%right KEYWORD_LET KEYWORD_SET KEYWORD_PUT
 %left LEFT_BRACKET XOR AND OR PLUS MINUS
 %left DOUBLE_LEFT_ABRACK DOUBLE_RIGHT_ABRACK
 %left PERIOD
@@ -108,8 +96,6 @@ cunit:
   { Lang.cunit_empty }
 | p = proc_def; c = cunit
   { Lang.cunit_add_proc c p }
-| en = enum_def; c = cunit
-  { Lang.cunit_add_enum_def c en }
 | macro  = macro_def;c = cunit
   { Lang.cunit_add_macro_def c macro }
 | func_def = function_def; c = cunit
@@ -137,7 +123,7 @@ import_directive:
 proc_def:
 | KEYWORD_PROC; ident = IDENT;
   LEFT_PAREN; args = proc_def_arg_list; RIGHT_PAREN;
-  EQUAL; body = proc_def_body
+  LEFT_BRACE; body = proc_def_body; RIGHT_BRACE
   {
     {
       name = ident;
@@ -148,7 +134,7 @@ proc_def:
   }
 | KEYWORD_PROC; ident = IDENT; LEFT_ABRACK; params = separated_list(COMMA, param_def); RIGHT_ABRACK;
   LEFT_PAREN; args = proc_def_arg_list; RIGHT_PAREN;
-  EQUAL; body = proc_def_body
+  LEFT_BRACE; body = proc_def_body; RIGHT_BRACE
   {
     {
       name = ident;
@@ -158,8 +144,8 @@ proc_def:
     } : Lang.proc_def
   }
 | KEYWORD_PROC; ident = IDENT; LEFT_PAREN; args = proc_def_arg_list; RIGHT_PAREN;
-  EQUAL; KEYWORD_EXTERN; LEFT_PAREN; mod_name = STR_LITERAL; RIGHT_PAREN;
-  body = proc_def_body_extern
+  KEYWORD_EXTERN; LEFT_PAREN; mod_name = STR_LITERAL; RIGHT_PAREN;
+  LEFT_BRACE; body = proc_def_body_extern; RIGHT_BRACE
   {
     {
       name = ident;
@@ -192,19 +178,19 @@ proc_def_body:
     let open Lang in
     { body with threads = thread_prog::(body.threads) }
   }
-| KEYWORD_CHAN; chan_def = node(channel_def); body = proc_def_body // For Channel Invocation and interface aquisition
+| KEYWORD_CHAN; chan_def = node(channel_def); SEMICOLON; body = proc_def_body // For Channel Invocation and interface aquisition
   {
     let open Lang in {body with channels = chan_def::(body.channels)}
   }
-| KEYWORD_REG; reg_def = node(reg_def); body = proc_def_body // For reg definition
+| KEYWORD_REG; reg_def = node(reg_def); SEMICOLON; body = proc_def_body // For reg definition
   {
     let open Lang in {body with regs = reg_def::(body.regs)}
   }
-| KEYWORD_SPAWN; spawn_def = node(spawn); body = proc_def_body // For instantiating processes
+| KEYWORD_SPAWN; spawn_def = node(spawn); SEMICOLON; body = proc_def_body // For instantiating processes
   {
     let open Lang in {body with spawns = spawn_def::(body.spawns)}
   }
-| shared_var = node(shared_var_def); body = proc_def_body
+| shared_var = node(shared_var_def); SEMICOLON; body = proc_def_body
   {
     let open Lang in {body with shared_vars = shared_var :: body.shared_vars}
   }
@@ -212,12 +198,12 @@ proc_def_body:
 
 proc_def_body_extern:
 | { let open Lang in {named_ports = []; msg_ports = []} }
-| name = IDENT; LEFT_PAREN; s = STR_LITERAL; RIGHT_PAREN; body = proc_def_body_extern
+| name = IDENT; LEFT_PAREN; s = STR_LITERAL; RIGHT_PAREN; SEMICOLON; body = proc_def_body_extern
   {
     let open Lang in {body with named_ports = (name, s)::body.named_ports}
   }
 | msg = message_specifier; LEFT_PAREN; s0 = STR_LITERAL?; COLON;
-  s1 = STR_LITERAL?; COLON; s2 = STR_LITERAL?; RIGHT_PAREN; body = proc_def_body_extern
+  s1 = STR_LITERAL?; COLON; s2 = STR_LITERAL?; RIGHT_PAREN; SEMICOLON; body = proc_def_body_extern
   {
     let open Lang in {body with msg_ports = (msg, s0, s1, s2)::body.msg_ports}
   }
@@ -234,22 +220,51 @@ param_def:
   }
 ;
 
+param_list:
+  LEFT_ABRACK; params = separated_list(COMMA, param_def); RIGHT_ABRACK;
+  { params }
+;
+
 // For defining struct for messages and message types
 type_def:
-| KEYWORD_TYPE; name = IDENT; EQUAL; dtype = data_type
+| KEYWORD_TYPE; name = IDENT; params = param_list?;
+  EQUAL; dtype = data_type; SEMICOLON
   {
-    { name = name; body = dtype; params = [] } : Lang.type_def
+    { name = name; body = dtype; params = Option.value ~default:[] params } : Lang.type_def
   }
-| KEYWORD_TYPE; name = IDENT; LEFT_ABRACK; params = separated_list(COMMA, param_def); RIGHT_ABRACK;
-  EQUAL; dtype = data_type
+| KEYWORD_ENUM; name = IDENT; params = param_list?;
+  LEFT_BRACE; variants = separated_nonempty_list(COMMA, variant_def); RIGHT_BRACE
   {
-    { name = name; body = dtype; params = params } : Lang.type_def
+    { name = name; body = `Variant variants; params = Option.value ~default:[] params } : Lang.type_def
   }
+| KEYWORD_STRUCT; name = IDENT; params = param_list?;
+  LEFT_BRACE; fields = separated_nonempty_list(COMMA, field_def); RIGHT_BRACE
+  {
+    { name = name; body = `Record (List.rev fields); params = Option.value ~default:[] params } : Lang.type_def
+  }
+;
+
+
+variant_def:
+| name = IDENT; dtype_opt = variant_type_spec?
+  { (name, dtype_opt) }
+;
+
+variant_type_spec:
+| LEFT_PAREN; dtype = data_type; RIGHT_PAREN
+  { dtype }
+| LEFT_PAREN; dtype = data_type; COMMA; more_dtypes = separated_nonempty_list(COMMA, data_type); RIGHT_PAREN
+  { `Tuple (dtype::more_dtypes) }
+;
+
+field_def:
+| name = IDENT; COLON; dtype = data_type
+  { (name, dtype) }
 ;
 
 // For channel declaration for each pair of process
 channel_class_def:
-| KEYWORD_CHAN; ident = IDENT; EQUAL; LEFT_BRACE; messages = separated_list(COMMA, message_def); RIGHT_BRACE
+| KEYWORD_CHAN; ident = IDENT; LEFT_BRACE; messages = separated_list(COMMA, message_def); RIGHT_BRACE
   {
     {
       name = ident;
@@ -259,7 +274,7 @@ channel_class_def:
     } : Lang.channel_class_def
   }
 | KEYWORD_CHAN; ident = IDENT; LEFT_ABRACK; params = separated_list(COMMA, param_def); RIGHT_ABRACK;
-  EQUAL; LEFT_BRACE; messages = separated_list(COMMA, message_def); RIGHT_BRACE
+  LEFT_BRACE; messages = separated_list(COMMA, message_def); RIGHT_BRACE
   {
     {
       name = ident;
@@ -386,9 +401,7 @@ term:
 ;
 //expressions
 expr:
-| enum_name = IDENT; DOUBLE_COLON; variant = IDENT
-  { Lang.EnumRef (enum_name, variant) }
-| KEYWORD_SET; lval = lvalue; COLON_EQ; v = node(expr) //To Ask: Where are we using set
+| KEYWORD_SET; lval = lvalue; COLON_EQ; v = node(expr) %prec KEYWORD_SET
   { Lang.Assign (lval, v) }
 | e = term
   { e }
@@ -406,24 +419,30 @@ expr:
   { Lang.Sync ident }
 | KEYWORD_READY; msg_spec = message_specifier
   { Lang.Ready msg_spec }
-| KEYWORD_PUT; ident = IDENT; COLON_EQ; v = node(expr)
+| KEYWORD_PUT; ident = IDENT; COLON_EQ; v = node(expr) %prec KEYWORD_PUT
   { Lang.SharedAssign (ident, v) }
-| KEYWORD_LET; binding = IDENT; EQUAL; v = node(expr); KEYWORD_IN; body = node(expr)
-  { Lang.LetIn ([binding], v, body) }
-| KEYWORD_LET; LEFT_PAREN; bindings = separated_list(COMMA, IDENT); RIGHT_PAREN; EQUAL; v = node(expr); KEYWORD_IN; body = node(expr)
-  { Lang.LetIn (bindings, v, body) }
+| KEYWORD_LET; binding = IDENT; EQUAL; v = node(expr) %prec KEYWORD_LET
+  { Lang.Let ([binding], v) }
+// | KEYWORD_LET; binding = IDENT; EQUAL; v = node(expr); EQ_GT; body = node(expr)
+//   {
+//     let open Lang in
+//     LetIn ([binding], v, {d = Wait ({d = Identifier binding; span = body.span}, body); span = body.span})
+//   }
+// | KEYWORD_LET; LEFT_PAREN; bindings = separated_list(COMMA, IDENT); RIGHT_PAREN; EQUAL; v = node(expr)
+//   { Lang.Let (bindings, v) }
 | v = node(expr); SEMICOLON; body = node(expr)
-  { Lang.LetIn ([], v, body) }
+  { Lang.Join (v, body) }
 | KEYWORD_SEND; send_pack = send_pack
   { Lang.Send send_pack }
 | KEYWORD_RECV; recv_pack = recv_pack
   { Lang.Recv recv_pack }
-| v = node(expr); EQ_GT; body = node(expr)
+| v = node(expr); DOUBLE_GT; body = node(expr)
   { Lang.Wait (v, body) }
-| KEYWORD_GENERATE; LEFT_PAREN; i=IDENT; COLON; start = INT; COMMA; end_v = INT; COMMA; offset = INT; RIGHT_PAREN; EQUAL; LEFT_BRACE; body = node(expr); RIGHT_BRACE
+| KEYWORD_GENERATE; LEFT_PAREN; i=IDENT; COLON; start = INT; COMMA; end_v = INT; COMMA;
+  offset = INT; RIGHT_PAREN; LEFT_BRACE; body = node(expr); RIGHT_BRACE
   { Lang.generate_expr (i,start, end_v, offset, body) }
-| KEYWORD_IF; cond = node(expr); KEYWORD_THEN; then_v = node(expr); KEYWORD_ELSE; else_v = node(expr)
-  { Lang.IfExpr (cond, then_v, else_v) }
+| e = if_branch
+  { e }
 | KEYWORD_CALL ; func = IDENT; LEFT_PAREN; args = separated_list(COMMA, node(expr)); RIGHT_PAREN
   { Lang.Call (func, args) }
 // | KEYWORD_TRY; KEYWORD_SEND; send_pack = send_pack; KEYWORD_THEN;
@@ -442,14 +461,16 @@ expr:
   { Lang.Index (e, ind) }
 | e = node(expr); PERIOD; fieldname = IDENT
   { Lang.Indirect (e, fieldname) }
-| LEFT_BRACE; components = separated_list(COMMA, node(expr)); RIGHT_BRACE
+| SHARP; LEFT_BRACE; components = separated_list(COMMA, node(expr)); RIGHT_BRACE
   { Lang.Concat components }
-| KEYWORD_MATCH; e = node(expr); KEYWORD_WITH; COLON; match_arm_list = match_arm+;KEYWORD_DONE
-  { Lang.generate_match_expression e match_arm_list }
+| LEFT_BRACE; e = expr; RIGHT_BRACE
+  { e }
+| KEYWORD_MATCH; e = node(expr); LEFT_BRACE; match_arm_list = separated_list(COMMA, match_arm); RIGHT_BRACE
+  { Lang.Match (e, match_arm_list) }
 | ASTERISK; reg_ident = IDENT
   { Lang.Read reg_ident }
-| constructor_spec = constructor_spec; e = ioption(node(expr))
-  { Lang.Construct (constructor_spec, e) } %prec CONSTRUCT
+| constructor_spec = constructor_spec; e = ioption(node(expr_in_parenthese))
+  { Lang.Construct (constructor_spec, e) }
 | record_name = IDENT; DOUBLE_COLON; LEFT_BRACE;
   record_fields = separated_nonempty_list(SEMICOLON, record_field_constr);
   RIGHT_BRACE
@@ -463,7 +484,28 @@ expr:
   { Lang.List li }
 ;
 
-//To Ask: What does this do
+expr_in_parenthese:
+  LEFT_PAREN; e = expr; RIGHT_PAREN
+  { e }
+;
+
+if_branch:
+  KEYWORD_IF; cond = node(expr); LEFT_BRACE; then_v = node(expr); RIGHT_BRACE;
+  else_v = node(else_branch)?
+  { Lang.IfExpr (cond, then_v, Option.value ~default:(Lang.dummy_ast_node_of_data @@ Lang.Tuple []) else_v) }
+;
+
+else_branch:
+| KEYWORD_ELSE; LEFT_BRACE; else_v = expr; RIGHT_BRACE
+  {
+    else_v
+  }
+| KEYWORD_ELSE; e = if_branch
+  {
+    e
+  }
+;
+
 constructor_spec:
   ty = IDENT; DOUBLE_COLON; variant = IDENT
   { let open Lang in {variant_ty_name = ty; variant} }
@@ -532,7 +574,6 @@ un_expr:
 | OR; e = node(expr)
   { Lang.Unop (Lang.OrAll, e) } %prec UOR
 ;
-//To Ask: Where is this being used
 lvalue:
 | regname = IDENT
   { Lang.Reg regname }
@@ -552,8 +593,8 @@ index:
 ;
 
 match_arm:
-| OR_GT; pattern = expr; POINT_TO body_opt = expr?
-  { (pattern, body_opt) }
+| pattern = node(expr); EQ_GT body_opt = node(expr)
+  { (pattern, Some body_opt) }
 ;
 
 // match_arm:
@@ -575,9 +616,14 @@ match_arm:
 //Definition of messages: To Do: Doesnt support custom lifetime types, just sync?
 message_def:
   dir = message_direction; ident = IDENT; COLON; LEFT_PAREN; data = separated_list(COMMA, sig_type_chan_local); RIGHT_PAREN;
-  send_sync_mode_opt = message_sync_mode_spec?;
-  recv_sync_mode_opt = recv_message_sync_mode_spec?
+  left_sync_mode_opt = message_sync_mode_spec?;
+  right_sync_mode_opt = recv_message_sync_mode_spec?
   {
+    let (send_sync_mode_opt, recv_sync_mode_opt) =
+      match dir with
+      | Lang.In -> (right_sync_mode_opt, left_sync_mode_opt)
+      | Lang.Out -> (left_sync_mode_opt, right_sync_mode_opt)
+    in
     let send_sync_mode = Option.value ~default:Lang.Dynamic send_sync_mode_opt
     and recv_sync_mode = Option.value ~default:Lang.Dynamic recv_sync_mode_opt in
     {
@@ -626,16 +672,16 @@ message_direction:
   { Lang.Out }
 ;
 
-sig_type:
-  dtype = data_type; AT; lifetime_opt = lifetime_spec?
-  {
-    let lifetime = Option.value ~default:Lang.sig_lifetime_this_cycle lifetime_opt in
-    {
-      dtype = dtype;
-      lifetime = lifetime;
-    } : Lang.sig_type
-  }
-;
+// sig_type:
+//   dtype = data_type; AT; lifetime_opt = lifetime_spec?
+//   {
+//     let lifetime = Option.value ~default:Lang.sig_lifetime_this_cycle lifetime_opt in
+//     {
+//       dtype = dtype;
+//       lifetime = lifetime;
+//     } : Lang.sig_type
+//   }
+// ;
 
 sig_type_chan_local:
   dtype = data_type; AT; lifetime_opt = lifetime_spec_chan_local?
@@ -664,10 +710,6 @@ data_type_no_array:
   { `Named (typename, []) }
 | typename = IDENT; LEFT_ABRACK; compile_params = separated_list(COMMA, param_value); RIGHT_ABRACK;
   { `Named (typename, compile_params) }
-| LEFT_BRACKET; variants = variant_def+; RIGHT_BRACKET
-  { `Variant variants }
-| LEFT_BRACE; fields = separated_nonempty_list(SEMICOLON, field_def); RIGHT_BRACE
-  { `Record (List.rev fields) }
 | LEFT_PAREN; comps = separated_list(COMMA, data_type); RIGHT_PAREN
   { `Tuple comps }
 ;
@@ -681,21 +723,6 @@ data_type:
 | dtype = data_type_no_array; ranges = data_type_array_range*
   { List.fold_right (fun n dtype_c -> `Array (dtype_c, n)) ranges dtype }
   (* We need to reverse the array ranges so logic[3][2] is 3 arrays of length 2 *)
-;
-
-variant_def:
-| OR; name = IDENT; dtype_opt = variant_type_spec?
-  { (name, dtype_opt) }
-;
-
-variant_type_spec:
-| KEYWORD_OF; dtype = data_type
-  { dtype }
-;
-
-field_def:
-| name = IDENT; COLON; dtype = data_type
-  { (name, dtype) }
 ;
 
 lifetime_spec:
@@ -756,22 +783,15 @@ shared_var_def:
   }
 ;
 
-enum_def:
-  | KEYWORD_ENUM; name = IDENT; EQUAL; LEFT_BRACE; variants = separated_list(COMMA, IDENT); RIGHT_BRACE
-    {
-      { name = name; variants = variants } : Lang.enum_def
-    }
-;
-
 macro_def:
-  | KEYWORD_USE; id = IDENT; EQUAL; value = INT
+  | KEYWORD_CONST; id = IDENT; EQUAL; value = INT; SEMICOLON
     {
       { id = id; value = value } : Lang.macro_def
     }
 ;
 
 function_def:
-  | KEYWORD_FUNCTION; name = IDENT; LEFT_PAREN; args = separated_list(COMMA, IDENT); RIGHT_PAREN; EQUAL; body = node(expr)
+  | KEYWORD_FUNCTION; name = IDENT; LEFT_PAREN; args = separated_list(COMMA, IDENT); RIGHT_PAREN; LEFT_BRACE; body = node(expr); RIGHT_BRACE
     {
       { name = name; args = args; body = body } : Lang.func_def
     }

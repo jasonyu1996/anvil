@@ -1,19 +1,20 @@
-type op = [
-    | Add
-    | Sub
-    | Or
-    | And
-    | Xor
-]
+enum op {
+    Add,
+    Sub,
+    Or,
+    And,
+    Xor
+}
 
-type data = {
-    a : logic[64];
-    b : logic[64];
+struct data {
+    a : logic[64],
+    b : logic[64],
     op : op
 }
 
-proc record () =
+proc record () {
     loop {
-        cycle 1 =>
-        let v = data.{a = 64'b0; op = op.And; b = 64'b1} in ()
+        cycle 1 >>
+        let v = data::{a = 64'b0; op = op::And; b = 64'b1}
     }
+}

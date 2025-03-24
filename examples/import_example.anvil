@@ -1,13 +1,13 @@
 extern import "imported_example.anvil.sv"
 import "imported_example.anvil"
 
-proc import_example() =
-    chan ch_le -- ch_ri : RCAch
-    spawn RCA(ch_le)
-    loop{
-
-    cycle 1 =>
-    send ch_ri.req(add4_req::{a = 4'b0100; b = 4'b1001; cr = 1'b0}) =>
-    let r = recv ch_ri.res in
-    r => dprint "Res = %d" (r.sum)
+proc import_example() {
+    chan ch_le -- ch_ri : RCAch;
+    spawn RCA(ch_le);
+    loop {
+        cycle 1 >>
+        send ch_ri.req(add4_req::{a = 4'b0100; b = 4'b1001; cr = 1'b0}) >>
+        let r = recv ch_ri.res >>
+        dprint "Res = %d" (r.sum)
     }
+}

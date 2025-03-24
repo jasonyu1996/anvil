@@ -1,30 +1,31 @@
-chan ch = {
+chan ch {
     left req : (logic@#1)
 }
 
 
-proc Reciever(ch : left ch) =
-    reg r:logic[1]
-    reg cycle_counter:logic[4]
+proc Reciever(ch : left ch) {
+    reg r:logic[1];
+    reg cycle_counter:logic[4];
     loop {
         set cycle_counter := *cycle_counter + 4'b0001
     }
     loop {
-        let x = recv ch.req in
-        x=>
+        let x = recv ch.req >>
         dprint "Recieved %d in cycle %d" (x, *cycle_counter);
         set r := x
     }
+}
 
-proc test_recvReg() =
-    chan ch_in -- ch_out : ch
-    spawn Reciever(ch_in)
-    reg cycle_counter:logic[4]
+proc test_recvReg() {
+    chan ch_in -- ch_out : ch;
+    spawn Reciever(ch_in);
+    reg cycle_counter:logic[4];
     loop {
         set cycle_counter := *cycle_counter + 4'b0001
     }
     loop {
-        send ch_out.req(1'b1)=>
+        send ch_out.req(1'b1) >>
         dprint "Sent 1 in cycle %d" (*cycle_counter);
         cycle 1
     }
+}

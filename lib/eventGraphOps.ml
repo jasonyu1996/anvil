@@ -20,13 +20,6 @@ let subreg_ranges_possibly_intersect r1 r2 =
     | _ -> true
     )
 
-let branch_other_side br_side_info =
-  (if br_side_info.branch_side_sel then
-    br_side_info.owner_branch.branch_to_false
-  else
-    br_side_info.owner_branch.branch_to_true)
-  |> Option.get
-
 let print_graph (g: event_graph) =
   List.iter (fun ev ->
     match ev.source with
@@ -42,10 +35,12 @@ let print_graph (g: event_graph) =
     | `Branch (ev', _) -> Printf.eprintf "> %d: branch %d\n" ev.id ev'.id
     | `Root None -> Printf.eprintf "> %d: root\n" ev.id
     | `Root (Some (ev', br_side_info)) ->
-        Printf.eprintf "> %d: branch-root %b %d\n" ev.id br_side_info.branch_side_sel ev'.id
+        Printf.eprintf "> %d: branch-root %d %d\n" ev.id br_side_info.branch_side_sel ev'.id
   ) g.events
 
 let print_dot_graph g out =
+  Printf.fprintf out "// BEGIN GRAPH IN DOT FORMAT\n";
+  Printf.fprintf out "// can render to PDF with 'dot -Tpdf -O <filename>'\n";
   Printf.fprintf out "digraph {\n";
   let ev_node_name ev = Printf.sprintf "event%d" ev.id in
   let print_edge e1 e2 label =
@@ -55,6 +50,8 @@ let print_dot_graph g out =
       label
   in
   List.iter (fun ev ->
+    if ev.is_recurse then
+      Printf.fprintf out "  %s [peripheries=2];\n" @@ ev_node_name ev;
     match ev.source with
     | `Later (e1, e2) ->
       print_edge e1 ev "L";
@@ -68,16 +65,15 @@ let print_dot_graph g out =
       in
       print_edge ev' ev label
     | `Branch (_, br_info) ->
-      let e1 = Option.get br_info.branch_val_true in
-      let e2 = Option.get br_info.branch_val_false in
-      print_edge e1 ev "B";
-      print_edge e2 ev "B"
+      List.iter (fun e ->
+        print_edge e ev "B"
+      ) br_info.branches_val
     | `Root None -> ()
     | `Root (Some (ev', br_side_info)) ->
-      (if br_side_info.branch_side_sel then "T" else "F")
-        |> print_edge ev' ev
+      print_edge ev' ev @@ string_of_int br_side_info.branch_side_sel
   ) g.events;
-  Printf.fprintf out "}\n"
+  Printf.fprintf out "}\n";
+  Printf.fprintf out "// END GRAPH IN DOT FORMAT\n"
 
 let find_last_event g =
   List.find (

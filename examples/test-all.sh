@@ -25,6 +25,7 @@ TESTS=(
     param_type_chan
     if_comb
     match_test
+    match_test_set
     enum_test
     test_multicycle
     branch_borrow
@@ -34,12 +35,13 @@ TESTS=(
     arbiter
     arbiter2
     generate_test
-    static_sync
     bug_stuck
     static_dyn_sync
     static_sync
     simple_usereg_pipeline
     AluExample
+    general_recurse_assign
+    general_recurse_simple
 )
 
 passed=0

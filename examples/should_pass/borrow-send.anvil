@@ -1,22 +1,21 @@
-
-chan reg_itfc = {
+chan reg_itfc {
     right req : (logic@#2)
 }
 
-proc reggg(e : right reg_itfc) =
+proc reggg(e : right reg_itfc) {
     loop {
-        let a = recv e.req in
-        a =>
-        dprint "Received %d" (a);
+        let a = recv e.req >>
+        dprint "Received %d" (a) >>
         cycle 1
     }
+}
 
-proc top (e : left reg_itfc) =
-    reg r : logic
+proc top (e : left reg_itfc) {
+    reg r : logic;
     loop {
-        set r := 1'b0 =>
-        send e.req (*r) =>
-        cycle 1 =>
+        set r := 1'b0 >>
+        send e.req (*r) >>
+        cycle 1 >>
         set r := 1'b1
     }
-
+}

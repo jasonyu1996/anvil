@@ -1,0 +1,397 @@
+//Use INDEX_WIDTH = 6
+// localparam CVA6ConfigDcacheByteSize = 32768;
+//localparam CVA6ConfigDcacheSetAssoc = 8; Therefore INDEX_WIDTH = 12
+
+
+struct mmu_out {
+    ptw_error_o : logic,
+    ptw_access_exception_o : logic,
+    bad_paddr_o : logic[56]
+}
+
+struct pte_cva6_t {
+    reserved : logic[10],
+    ppn : logic[44],
+    rsw : logic[2],
+    d : logic[1],
+    a : logic[1],
+    g : logic[1],
+    u : logic[1],
+    x : logic[1],
+    w : logic[1],
+    r : logic[1],
+    v : logic[1]
+}
+
+struct update_in {
+    is_page : logic[2],
+    vpn : logic[27],
+    asid : logic[16],
+    content : pte_cva6_t
+}
+
+struct dcache_out_t {
+    data_rdata : logic[64]
+}
+
+struct dcache_in_t {
+    address_index : logic[12],
+    address_tag : logic[44],
+    // data_wdata : logic[XLEN],
+    //data_wuser : logic[DCACHE_USER_WIDTH],
+    //data_be : logic[8], //XLEN/8
+    data_size : logic[2]
+    // data_id : logic[DcacheIdWidth]
+}
+
+
+struct shared_tlb_in {
+    shared_tlb_hit_i : logic,
+    itlb_req_i : logic,
+    update_vaddr_i : logic[64]
+}
+
+
+enum stageEnum {
+    IDLE,
+    WAIT_GRANT,
+    SEND_DCACHE_REQ,
+    POLL_DCACHE_RESP,
+    PTE_LOOKUP,
+    WAIT_RVALID,
+    PROPAGATE_ERROR,
+    PROPAGATE_ACCESS_ERROR,
+    LATENCY
+}
+
+// enum pmp_access_t {
+//     ACCESS_NONE,
+//     ACCESS_READ,
+//     ACCESS_WRITE,
+//     NA,
+//     ACCESS_EXEC
+//   }
+
+// struct pmpcfg_t {
+//     locked : logic,
+//     reserved : logic[2],
+//     addr_mode : logic[2],
+//     access_type : logic[3]
+// }
+struct csr_in {
+    asid_i : logic[16],
+    satp_ppn_i : logic[44],
+    mxr_i : logic
+    // enable_translation_i : logic,
+    // en_ld_st_translation_i : logic
+}
+
+chan ptw_flush_ctl_ch {
+    left req : (logic@#1)
+}
+
+chan ptw_csr_ch {
+    left req : (csr_in@#1)
+}
+
+chan ptw_lsu_ch {
+    left req : (logic@#1)
+}
+chan ptw_shared_tlb_ch {
+    left req : (shared_tlb_in@res),
+    right res : (update_in@#1) @dyn - @#1,
+    right miss : (logic@#1) @#req-@#req,
+    right update_vaddr_o : (logic[64]@#1) @dyn-@#1
+}
+
+chan dcache_ptw_ch {
+    left req : (logic@#1) @#1 - @dyn,
+    right gnt : (logic@#1) @dyn - @dyn,
+    left data_req : (dcache_in_t@#1) @#1 - @dyn,
+    right data_res : (dcache_out_t@#1)
+}
+
+chan ptw_mmu_ch<PLEN : int> {
+    right res : (mmu_out@#1) @dyn - @#1,
+    right status : (logic@#1) @dyn - @#1,
+    right walking_instr_o : (logic@#1) @dyn - @#1
+}
+
+chan ptw_pmp_ch {
+    left req : (logic[56]@#1) @#1 - @dyn,
+    right res : (logic@#1) @#req - @#req
+}
+
+func get_vaddr_lvl(x) {
+    if x == 2'd0 {
+        *vaddr[21+:9]
+    } else if x == 2'd1 {
+        *vaddr[12+:9]
+    } else {
+        9'd0
+    }
+}
+
+func missaligned_page(pte) {
+    let misaligned_flag = #{ ((*ptw_lvl==2'd1)&&(pte.ppn[0+:9]!=9'd0)),
+                            ((*ptw_lvl==2'd0)&&(pte.ppn[0+:18]!=18'd0))};
+    ((misaligned_flag[0]|misaligned_flag[1])==1'd1)
+}
+
+func is_page(x) {
+    *ptw_lvl == x
+}
+
+func generate_shared_tlb_update(pte) {
+    update_in::{vpn = *vaddr[12+:27];is_page = #{call is_page(2'd1), call is_page(2'd0)};content=(pte);asid = *tlb_update_asid}
+}
+func get_pte_rdata(){
+    pte_cva6_t::{v=*data_rdata[0];r=*data_rdata[1];w=*data_rdata[2];x=*data_rdata[3];u=*data_rdata[4];g=*data_rdata[5];a=*data_rdata[6];d=*data_rdata[7];rsw=*data_rdata[8+:2];ppn=*data_rdata[10+:44];reserved=*data_rdata[54+:10]}
+}
+
+func IDLE() {
+    if ready flush_ctl_ch.req ==1'd1 {
+        let _ = recv flush_ctl_ch.req >> cycle 1;
+        set stage := stageEnum::LATENCY
+    } else if ready tlb_ch.req {
+        let inp = recv tlb_ch.req >>
+        if inp.shared_tlb_hit_i == 1'd0 {
+            send tlb_ch.miss(1'd1) >>
+            set is_instr_ptw := inp.itlb_req_i;
+            set vaddr := inp.update_vaddr_i;
+            let csr_in = recv csr_ch.req >>
+            set ptw_pptr := #{csr_in.satp_ppn_i, inp.update_vaddr_i[30+:9],3'd0};
+            set tlb_update_asid := csr_in.asid_i;
+            set ptw_lvl := 2'd0;
+            set mxr := csr_in.mxr_i; //extra overhead
+            set stage := stageEnum::WAIT_GRANT
+        } else {
+            send tlb_ch.miss(1'd0) >>
+            cycle 1
+        }
+    } else {
+        set is_instr_ptw := 1'd0
+    }
+}
+
+func WAIT_GRANT() {
+    send tlb_ch.update_vaddr_o(*vaddr) >>
+    send mmu_ch.walking_instr_o(*is_instr_ptw) >>
+    send dcache_ch.req(1'd1) >>
+    if (ready flush_ctl_ch.req) && (ready dcache_ch.gnt == 1'd0) {
+        let _ = recv flush_ctl_ch.req >>
+        set stage := stageEnum::LATENCY
+    } else if (ready flush_ctl_ch.req) && (ready dcache_ch.gnt) {
+        let _ = recv flush_ctl_ch.req >> cycle 1;
+        let x = recv dcache_ch.gnt >>
+        set stage := stageEnum::WAIT_RVALID
+    } else if (ready dcache_ch.gnt) && (ready flush_ctl_ch.req == 1'd0) {
+        let _ = recv dcache_ch.gnt >>
+        set stage := stageEnum::SEND_DCACHE_REQ
+    } else {
+        cycle 1
+    }
+}
+
+func POLL_DCACHE_RESP() {
+    if (ready dcache_ch.data_res == 1'd0) && (ready flush_ctl_ch.req == 1'd1) {
+        let f = recv flush_ctl_ch.req >>
+        let x = recv dcache_ch.data_res >>
+        {
+            set data_rvalid := 1'd1;
+            set data_rdata := x.data_rdata
+        } >>
+        set stage := stageEnum::IDLE
+    } else if (ready dcache_ch.data_res == 1'd1) && (ready flush_ctl_ch.req == 1) {
+        let f = recv flush_ctl_ch.req >>
+        let x = recv dcache_ch.data_res >>
+        {
+            set data_rvalid := 1'd1;
+            set data_rdata := x.data_rdata
+        } >>
+        set stage := stageEnum::IDLE
+    } else if (ready dcache_ch.data_res == 1'd1) && (ready flush_ctl_ch.req == 1'd0) {
+        let x = recv dcache_ch.data_res >>
+        set data_rvalid := 1'd1;
+        set data_rdata := x.data_rdata;
+        set stage := stageEnum::PTE_LOOKUP
+    } else {
+        set stage := stageEnum::POLL_DCACHE_RESP
+    }
+}
+
+func SEND_DCACHE_REQ() {
+    if ready flush_ctl_ch.req {
+        let x = recv flush_ctl_ch.req >>
+        let address_index = *ptw_pptr[0+:12];
+        let address_tag = *ptw_pptr[12+:44];
+        send dcache_ch.data_req(dcache_in_t::{address_index=address_index;address_tag=address_tag;data_size = 2'd3}) >>
+        let x = recv dcache_ch.data_res >>
+        set data_rvalid := 1'd1 >>//registered in original code
+        set stage := stageEnum::IDLE
+    } else {
+        let address_index = *ptw_pptr[0+:12];
+        let address_tag = *ptw_pptr[12+:44];
+        send dcache_ch.data_req(dcache_in_t::{address_index=address_index;address_tag=address_tag;data_size = 2'd3}) >>
+        call POLL_DCACHE_RESP()
+    }
+}
+
+func PTE_LOOKUP() {
+    if ready flush_ctl_ch.req {
+        let _ = recv flush_ctl_ch.req >> cycle 1;
+        set stage := stageEnum::LATENCY
+    } else {
+        let pte = call get_pte_rdata();
+        // (if(pte.g ==1'd1) then set global_mapping := 1'd1
+        // else ());
+        if((pte.v==1'd0)||(((~pte.r)&pte.w)==1'd1)||(pte.reserved != 10'd0)) {
+            set stage := stageEnum::PROPAGATE_ERROR
+        } else {
+            send pmp_ch.req(*ptw_pptr) >> // To Do:  add pmpcfg logic and add after changin pmp
+            let pmp_access_allow = recv pmp_ch.res >>
+            if pmp_access_allow ==1'd0 {
+                set stage := stageEnum::PROPAGATE_ACCESS_ERROR
+            } else if (pte.r==1'd1) || (pte.x == 1'd1) {
+                if call missaligned_page(pte) {
+                    set stage := stageEnum::PROPAGATE_ERROR
+                } else if *is_instr_ptw == 1'd1 {
+                    if((pte.x == 1'd0) || (pte.a ==1'd0)) {
+                        set stage := stageEnum::PROPAGATE_ERROR
+                    } else {
+                        let y= *vaddr[12+:27];
+                        let page= #{call is_page(2'd1), call is_page(2'd0)};
+                        let x = update_in::{vpn = y;is_page = page;content=pte;asid = *tlb_update_asid};
+                        send tlb_ch.res(x) >>
+                        set stage := stageEnum::LATENCY
+                    }
+                } else {
+                    let lsu_is_store_i = recv lsu_ch.req >>
+                    if (lsu_is_store_i == 1'd1)&&((pte.w==1'd0)||(pte.d==1'd0)) {
+                        set stage := stageEnum::PROPAGATE_ERROR
+                    } else if((pte.a ==1'd1)&&((pte.r == 1'd1)||((pte.x ==1'd1)&&(*mxr ==1'd1)))) {
+                        let y= *vaddr[12+:27];
+                        let page= #{call is_page(2'd1), call is_page(2'd0)};
+                        let x = update_in::{vpn = y;is_page = page;content=(pte);asid = *tlb_update_asid};
+                        send tlb_ch.res(x) >>
+                        set stage := stageEnum::LATENCY
+                    } else {
+                        set stage := stageEnum::PROPAGATE_ERROR
+                    }
+                }
+            } else if *ptw_lvl == 2'd2 {
+                set stage := stageEnum::PROPAGATE_ERROR
+            } else {
+                let x = call get_vaddr_lvl(*ptw_lvl);
+                set ptw_pptr := #{pte.ppn, x,3'd0};
+                set stage := stageEnum::WAIT_GRANT;
+                set ptw_lvl := *ptw_lvl + 2'd1
+            }
+        }
+    }
+}
+
+func PROPAGATE_ERROR() {
+    send mmu_ch.res(mmu_out::{ptw_error_o=1'd1;ptw_access_exception_o =1'd0;bad_paddr_o = 56'd0}) >>
+    set stage := stageEnum::LATENCY
+}
+
+func LATENCY() {
+    set stage := stageEnum::IDLE
+}
+
+func PROPAGATE_ACCESS_ERROR() {
+    send mmu_ch.res(mmu_out::{ptw_error_o=1'd0;ptw_access_exception_o =1'd1;bad_paddr_o = *ptw_pptr }) >>
+    set stage := stageEnum::LATENCY
+}
+
+func WAIT_RVALID() {
+    let address_index = *ptw_pptr[0+:12];
+    let address_tag = *ptw_pptr[12+:44];
+    send dcache_ch.data_req(dcache_in_t::{address_index=address_index;address_tag=address_tag;data_size = 2'd3}) >>
+    let x = recv dcache_ch.data_res >>
+    set data_rvalid := 1'd1 >>//registered in original code
+    set stage := stageEnum::IDLE
+}
+
+proc anvil_ptw (tlb_ch : left ptw_shared_tlb_ch, csr_ch : left ptw_csr_ch,
+                mmu_ch : left ptw_mmu_ch, dcache_ch : right dcache_ptw_ch,
+                lsu_ch : left ptw_lsu_ch, flush_ctl_ch : left ptw_flush_ctl_ch,
+                pmp_ch: right ptw_pmp_ch)
+{
+    reg ptw_pptr : logic[56];
+    reg data_rdata : logic[64];
+    reg data_rvalid : logic;
+    reg is_instr_ptw : logic;
+    reg stage : logic[4];
+    reg vaddr : logic[64];
+    reg tlb_update_asid : logic[16];
+    reg cyc : logic[20];
+    // reg global_mapping : logic;
+    reg pmp_access_allow : logic;
+    reg ptw_lvl : logic[2];
+    reg mxr : logic;
+
+    loop{
+        set cyc := *cyc + 20'd1
+    }
+
+    // Debugging code
+    // loop{
+    //     match *stage with:
+    //     |> stageEnum::IDLE -> dprint "[Cycle %d] IDLE" (*cyc)
+    //     |> stageEnum::WAIT_GRANT -> dprint "[Cycle %d] Wait Grant" (*cyc)
+    //     |> stageEnum::SEND_DCACHE_REQ -> dprint "[Cycle %d] Send Dcache Req" (*cyc)
+    //     |> stageEnum::POLL_DCACHE_RESP -> dprint "[Cycle %d] Poll Dcache Resp" (*cyc)
+    //     |> stageEnum::PTE_LOOKUP -> dprint "[Cycle %d] PTE Lookup" (*cyc)
+    //     |> stageEnum::WAIT_RVALID -> dprint "[Cycle %d] Wait Rvalid" (*cyc)
+    //     |> stageEnum::PROPAGATE_ERROR -> dprint "[Cycle %d] Propagate Error" (*cyc)
+    //     |> stageEnum::PROPAGATE_ACCESS_ERROR -> dprint "[Cycle %d] Propagate Access Error" (*cyc)
+    //     |> stageEnum::LATENCY -> dprint "[Cycle %d] Latency" (*cyc)
+    //     |> _ -> dprint "[Cycle %d] IDLE" (*cyc)
+    //     done;
+    //     cycle 1
+
+
+    // }
+
+
+    loop {
+        {
+            send mmu_ch.status((*stage!=stageEnum::IDLE)) >>
+            match *stage {
+                stageEnum::IDLE => call IDLE(),
+                stageEnum::WAIT_GRANT => call WAIT_GRANT(),
+                stageEnum::SEND_DCACHE_REQ => call SEND_DCACHE_REQ(),
+                stageEnum::POLL_DCACHE_RESP => call POLL_DCACHE_RESP(),
+                stageEnum::PTE_LOOKUP => call PTE_LOOKUP(),
+                stageEnum::PROPAGATE_ERROR => call PROPAGATE_ERROR(),
+                stageEnum::PROPAGATE_ACCESS_ERROR => call PROPAGATE_ACCESS_ERROR(),
+                stageEnum::WAIT_RVALID => call WAIT_RVALID(),
+                stageEnum::LATENCY => call LATENCY(),
+                _  => call IDLE()
+            }
+        };
+        cycle 1
+    }
+
+
+}
+
+
+proc cva6_ptw_tb() {
+    chan tlb_le -- tlb_ri : ptw_shared_tlb_ch;
+    chan csr_le -- csr_ri : ptw_csr_ch;
+    chan mmu_le -- mmu_ri : ptw_mmu_ch;
+    chan dcache_le -- dcache_ri : dcache_ptw_ch;
+    chan lsu_le -- lsu_ri : ptw_lsu_ch;
+    chan flush_le -- flush_ri : ptw_flush_ctl_ch;
+    chan pmp_le -- pmp_ri : ptw_pmp_ch;
+    spawn anvil_ptw(tlb_le,csr_le,mmu_le,dcache_ri,lsu_le,flush_le,pmp_ri);
+    reg cyc : logic[6];
+
+    loop {
+        set cyc := *cyc + 6'd1
+    }
+}
+
