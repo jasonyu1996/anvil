@@ -18,6 +18,9 @@ Anvil has the following design goals:
     It thus allows the designer to retain low-level control and
     is suitable for general purposes.
 
+The motivation and design are discussed and evaluated
+in greater depth in the [research paper](https://arxiv.org/abs/2503.19447).
+
 ### Status
 
 Currently, AnvilHDL is _experimental._
@@ -106,6 +109,13 @@ To host them locally through Python's embedded web server:
 ```
 sh host-docs.sh
 ```
+
+#### Research Paper
+
+* J. Z. Yu, A. R. Jha, U. Mathur, T. E. Carlson, and P. Saxena,
+  ‘[Anvil: A General-Purpose Timing-Safe Hardware Description Language](https://arxiv.org/abs/2503.19447)’,
+  Mar. 25, 2025, arXiv: arXiv:2503.19447. doi: 10.48550/arXiv.2503.19447.
+
 
 ### Contributing
 
