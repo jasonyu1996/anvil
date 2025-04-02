@@ -265,7 +265,8 @@ let generate_preamble out =
   [
     "/* verilator lint_off UNOPTFLAT */";
     "/* verilator lint_off WIDTHTRUNC */";
-    "/* verilator lint_off WIDTHEXPAND */"
+    "/* verilator lint_off WIDTHEXPAND */";
+    "/* verilator lint_off WIDTHCONCAT */"
   ] |> List.iter (Printf.fprintf out "%s\n")
 
 let generate_extern_import out file_name =
