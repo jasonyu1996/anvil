@@ -1,4 +1,6 @@
-## Anvil HDL
+**Try out AnvilHDL in the [online playground](https://anvil.capstone.kisp-lab.org/).**
+
+## AnvilHDL
 
 Anvil is a hardware description language (HDL) which
 describes digital circuit designs at register-transfer level (RTL).
@@ -23,19 +25,40 @@ in greater depth in the [research paper](https://arxiv.org/abs/2503.19447).
 
 ### Status
 
-Currently, AnvilHDL is _experimental._
+Currently, AnvilHDL is _experimental_ and under active development.
+Many aspects of the language may change in the future.
+Seen something you don't like? Feel free to contribute your ideas or code.
 
-- Many aspects of the language might change in
-  the future. Use at your own risk.
-- Seen something you don't like? Feel free to contribute your ideas or code!
 
-### Dependencies
+### Getting Started
+
+#### Online Playground
+
+The easiest way to try out AnvilHDL is to use the [online playground](https://anvil.capstone.kisp-lab.org/).
+You don't need to install anything on your machine.
+
+#### Local Installation
+
+If you want to explore AnvilHDL in depth or contribute to the project,
+you will need to install it locally.
+
+##### Dependencies
 
 Development: OCaml 5.2.0
 
 Software simulation tested with Verilator 5.024.
 
-### Usage
+##### Installation
+
+Ensure that you have [opam](https://opam.ocaml.org/) installed.
+Clone the repository and run the following commands:
+
+```bash
+opam install . --deps-only
+eval $(opam env) && dune build # or for release build: dune build --release
+```
+
+##### Usage
 
 ```
 dune exec anvil -- [-verbose] [-disable-lt-checks] [-O <opt-level>] [-two-round] <anvil-source-file>
@@ -45,7 +68,7 @@ NOTE: To disable lifetime-related checks, pass `-disable-lt-checks`. The `-two-r
 generates code for two rounds of each thread (previously used to
 work around some [combinational loop issues](https://github.com/jasonyu1996/anvil/issues/33) codegen had, now no more useful).
 
-### Examples
+##### Examples
 
 Example designs are located in the `examples` directory.
 To try them out, make sure Verilator is installed and in
@@ -69,7 +92,7 @@ make clean MODULE_NAME=<name>
 `MODULE_NAME` defaults to `top` if unspecified.
 
 
-### Tests
+##### Tests
 
 To run all tests, use
 ```
@@ -83,12 +106,10 @@ sh typecheck-test.sh
 bash test-all.sh
 ```
 
-### Editor Support
+##### Editor Support
 
-#### Visual Studio Code
-
-We have an extension for Visual Studio Code that provides syntax highlighting.
-See how to install [here](editors/vscode/README.md).
+* **Visual Studio Code:** We have an extension for Visual Studio Code that provides syntax highlighting.
+  See how to install [here](editors/vscode/README.md).
 
 ### Documentations
 
