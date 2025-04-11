@@ -347,7 +347,9 @@ and visit_expr (graph : event_graph) (ci : cunit_info)
         |> unwrap_or_err ("Undefined function: " ^ id) e.span in
       let td_args = List.map (visit_expr graph ci ctx) arg_list in
       let ctx' = BuildContext.clear_bindings ctx |> ref in
-      List.iter2 (fun td name ->
+      if List.length td_args <> List.length func.args then
+        raise (event_graph_error_default "Arguments missing in function call" e.span);
+        List.iter2 (fun td name ->
         ctx' := BuildContext.add_binding !ctx' name td
       ) td_args func.args;
       visit_expr graph ci !ctx' func.body
