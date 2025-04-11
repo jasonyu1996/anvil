@@ -139,7 +139,7 @@ and branch_info = {
 
 (** Information about the branch condition of one side of a branch. *)
 and branch_side_info = {
-  mutable branch_event : event option;
+  mutable branch_event : event option; (** completion event of branches. Should NOT be used in codegen. *)
   owner_branch : branch_info;
   branch_side_sel : int; (** an index in {!branches_to} and {!branches_val} *)
 }

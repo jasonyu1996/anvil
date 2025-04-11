@@ -168,8 +168,7 @@ let codegen_next printer (graphs : EventGraph.event_graph_collection)
           if br_side_info.branch_side_sel + 1 = br_side_info.owner_branch.branch_count then (
             CodegenPrinter.print_line ~lvl_delta_post:1 printer
               @@ Printf.sprintf "always_comb begin: _match_cases_%d_%d"
-                g.thread_id
-                (Option.get br_side_info.branch_event).id;
+                g.thread_id e.id;
 
             List.iter (fun (e : EventGraph.event) ->
               CodegenPrinter.print_line printer @@ Printf.sprintf "%s = '0;"
