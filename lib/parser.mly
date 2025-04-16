@@ -45,6 +45,7 @@
 %token KEYWORD_LOGIC        (* logic *)
 %token KEYWORD_FOREIGN      (* foreign *)
 %token KEYWORD_GENERATE     (* generate *)
+%token KEYWORD_GENERATE_SEQ     (* generate *)
 %token KEYWORD_IF           (* if *)
 %token KEYWORD_ELSE         (* else *)
 %token KEYWORD_LET          (* let *)
@@ -441,6 +442,9 @@ expr:
 | KEYWORD_GENERATE; LEFT_PAREN; i=IDENT; COLON; start = INT; COMMA; end_v = INT; COMMA;
   offset = INT; RIGHT_PAREN; LEFT_BRACE; body = node(expr); RIGHT_BRACE
   { Lang.generate_expr (i,start, end_v, offset, body) }
+| KEYWORD_GENERATE_SEQ; LEFT_PAREN; i=IDENT; COLON; start = INT; COMMA; end_v = INT; COMMA;
+  offset = INT; RIGHT_PAREN; LEFT_BRACE; body = node(expr); RIGHT_BRACE
+  { Lang.generate_expr_seq (i,start, end_v, offset, body) }
 | e = if_branch
   { e }
 | KEYWORD_CALL ; func = IDENT; LEFT_PAREN; args = separated_list(COMMA, node(expr)); RIGHT_PAREN

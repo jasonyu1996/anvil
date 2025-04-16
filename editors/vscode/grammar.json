@@ -294,7 +294,7 @@
 				},
 				{
 					"name": "keyword.other.anvil",
-					"match": "\\b(import|generate)\\b"
+					"match": "\\b(import|generate|generate_seq)\\b"
 				},
 				{
 					"name": "entity.name.type.timing.anvil",

@@ -1,0 +1,11 @@
+proc gen_seq_test(){
+    reg counter : logic[5];
+loop{
+    generate_seq(i: 0, 32, 1){
+        set counter := *counter + 1;
+        dprint "Counter: %d " (*counter)
+    }>>
+    dfinish
+}
+
+}

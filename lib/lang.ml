@@ -647,6 +647,23 @@ let generate_expr (id, start, end_v, offset, body) =
   in
   generate_exprs start []
 
+  let generate_expr_seq (id, start, end_v, offset, body) =
+    let rec generate_exprs_seq (curr:int) acc =
+      if curr > end_v then
+        match List.rev acc with
+        | [] -> Tuple []
+        | [single] -> single.d
+        | hd::tl ->
+            List.fold_left
+              (fun acc expr -> Wait(expr, dummy_ast_node_of_data acc))
+              hd.d
+              tl
+      else 
+        let bit_length = Utils.int_log2 (end_v + 1) in
+        let substituted = substitute_expr_identifier id (dummy_ast_node_of_data(Literal(WithLength(bit_length, curr)))) body in
+        generate_exprs_seq (curr + offset) (substituted :: acc);
+    in
+    generate_exprs_seq start []
 
 (** A span that includes only the ending position of the given span. *)
 let span_to_end span = {span with st = span.ed}

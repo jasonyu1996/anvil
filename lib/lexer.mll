@@ -84,6 +84,7 @@ rule read =
   | "extern"  { KEYWORD_EXTERN }
   | "int"     { KEYWORD_INT }
   | "generate" { KEYWORD_GENERATE }
+  | "generate_seq" { KEYWORD_GENERATE_SEQ }
   | "recursive" { KEYWORD_RECURSIVE }
   | "recurse" { KEYWORD_RECURSE }
   | "struct"  { KEYWORD_STRUCT }
