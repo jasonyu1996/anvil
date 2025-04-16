@@ -10,7 +10,7 @@ module EventStateFormatter = struct
   let format_current thread_id ev_id =
     Printf.sprintf "EVENTS%d[%d].event_current" thread_id ev_id
 end
-let match_counter = ref 0
+
 let collect_reg_states g =
   let open EventGraph in
   List.concat_map (fun e ->
@@ -166,12 +166,9 @@ let codegen_next printer (graphs : EventGraph.event_graph_collection)
               Printf.sprintf "assign %s = %s && !%s;" cn cn' wn
         | MatchCases pats ->
           if br_side_info.branch_side_sel + 1 = br_side_info.owner_branch.branch_count then (
-            match_counter := !match_counter + 1;
             CodegenPrinter.print_line ~lvl_delta_post:1 printer
-              @@ Printf.sprintf "always_comb begin: _match_cases_%d_%d_u%d"
-                g.thread_id
-                (Option.get br_side_info.branch_event).id
-                !match_counter;
+              @@ Printf.sprintf "always_comb begin: _match_cases_%d_%d"
+                g.thread_id e.id;
 
             List.iter (fun (e : EventGraph.event) ->
               CodegenPrinter.print_line printer @@ Printf.sprintf "%s = '0;"
