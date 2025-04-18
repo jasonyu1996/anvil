@@ -314,7 +314,8 @@ let events_reachable events ev =
       if event_is_reachable.(e.id) then (
         let reachable =
           match e.source with
-          | `Root _ -> true
+          | `Root None -> true
+          | `Root (Some (e', _)) -> event_is_reachable.(e'.id)
           | `Later (e1, e2) -> event_is_reachable.(e1.id) && event_is_reachable.(e2.id)
           | `Seq (e', _) -> event_is_reachable.(e'.id)
           | `Branch (_, {branches_val; _}) ->

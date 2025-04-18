@@ -1,0 +1,38 @@
+chan ch{
+    left req : (logic@res),
+    right res : (logic@req)
+}
+func get_val(){
+    set l := 1>>
+    send ch.req(*l)>>
+    let x = recv ch.res>>
+    dprint "received value: %d" (x)
+}
+func get_val3(){
+    let l = 2'd3;
+    match l{
+        2'd0 => cycle 1,
+        2'd1 => cycle 1,
+        2'd2 => call get_val(),
+        _ => cycle 2
+    }
+}
+func get_val2(){
+    set l := 1>>
+    send ch2.req(*l)>>
+    let x = recv ch2.res>>
+    dprint "received value: %d" (x)
+}
+proc test(ch : right ch, ch2 : right ch, ch3: left ch){
+    reg l : logic[1];
+    loop{
+        let x = recv ch3.req>>
+        let y = #{2'd2,x};
+        match y{
+            3'd0 => call get_val2(),
+            3'd1 => call get_val3(),
+            _ => cycle 3
+        } >>
+        cycle 1
+    }
+}
