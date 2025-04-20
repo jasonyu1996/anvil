@@ -26,6 +26,7 @@ module Wire = struct
     | RegRead of Lang.identifier
     | MessagePort of Lang.message_specifier * int (* index of the port *)
     | MessageValidPort of Lang.message_specifier (* New wire source for message valid port *)
+    | MessageAckPort of Lang.message_specifier (* New wire source for message ack port *)
     | Concat of t list
     | Slice of t * t MaybeConst.maybe_int_const * int (** third component is size *)
 
@@ -163,6 +164,14 @@ module Wire = struct
       size = 1;
       is_const = false;
     }
+  let new_msg_ack_port id thread_id _typedefs msg_spec =
+    {
+      id;
+      thread_id;
+      source = MessageAckPort msg_spec;
+      size = 1;
+      is_const = false;
+    }
 end
 
 type wire = Wire.t
@@ -236,3 +245,9 @@ let add_list thread_id (typedefs : TypedefMap.t) (ws : wire list) (wc : t) : (t 
   let id = wc.wire_last_id + 1 in
   Wire.new_list id thread_id typedefs ws
   |> Option.map (fun w -> (add_wire wc w, w))
+
+let add_msg_ack_port thread_id (typedefs : TypedefMap.t)
+  (msg_spec : Lang.message_specifier) (wc : t) : t * wire =
+  let id = wc.wire_last_id + 1 in
+  let w = Wire.new_msg_ack_port id thread_id typedefs msg_spec in
+  (add_wire wc w, w)

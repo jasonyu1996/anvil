@@ -380,6 +380,7 @@ and expr =
   | Indirect of expr_node * identifier (** a member of a record ([a.b]) *)
   | Concat of expr_node list
   | Ready of message_specifier (** [ready(a, b)] *)
+  | Probe of message_specifier (** [probe(a, b)] *)
   | Match of expr_node * ((expr_node * expr_node option) list)
   | Read of identifier (** reading a value from a register (leading to a borrow) *)
   | Debug of debug_op

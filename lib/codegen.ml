@@ -131,6 +131,8 @@ let codegen_wire_assignment printer (graphs : event_graph_collection) (g : event
       | MessageValidPort msg ->
         (* FIXME: sync pat *)
         CodegenFormat.format_msg_valid_signal_name (CodegenFormat.canonicalize_endpoint_name msg.endpoint g) msg.msg
+      | MessageAckPort msg ->
+        CodegenFormat.format_msg_ack_signal_name (CodegenFormat.canonicalize_endpoint_name msg.endpoint g) msg.msg
       | Cases _ -> failwith "Something went wrong!"
     in
     CodegenPrinter.print_line printer

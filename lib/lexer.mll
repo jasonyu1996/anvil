@@ -50,6 +50,7 @@ rule read =
   | "=="      { DOUBLE_EQ }
   | "!="      { EXCL_EQ }
   | "ready"   { KEYWORD_READY }
+  | "probe"   { KEYWORD_PROBE }
   | "put"     { KEYWORD_PUT }
   | "shared"  { KEYWORD_SHARED }
   | "assigned" { KEYWORD_ASSIGNED }

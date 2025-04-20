@@ -214,7 +214,7 @@ let rec recurse_unfold expr_full_node expr_node =
     let expr' = match expr_node.d with
     | Literal _ | Identifier _
     | Cycle _ | Sync _
-    | Ready _ | Read _
+    | Ready _ | Read _ | Probe _
     | Debug DebugFinish
     | Recv _ -> expr_node.d
     | Call (ident, expr_nodes) ->
@@ -421,6 +421,12 @@ and visit_expr (graph : event_graph) (ci : cunit_info)
     let wires, msg_valid_port = WireCollection.add_msg_valid_port graph.thread_id ci.typedefs msg_spec graph.wires in
     graph.wires <- wires;
     Typing.immediate_data graph (Some msg_valid_port) `Logic ctx.current
+  | Probe msg_spec ->
+    let _ = MessageCollection.lookup_message graph.messages msg_spec ci.channel_classes
+    |> unwrap_or_err "Invalid message specifier in probe" e.span in
+    let wires, msg_ack_port = WireCollection.add_msg_ack_port graph.thread_id ci.typedefs msg_spec graph.wires in
+    graph.wires <- wires;
+    Typing.immediate_data graph (Some msg_ack_port) `Logic ctx.current
   | Cycle n -> Typing.cycles_data graph n ctx.current
   | IfExpr (e1, e2, e3) ->
     let td1 = visit_expr graph ci ctx e1 in

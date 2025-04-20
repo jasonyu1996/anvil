@@ -22,6 +22,7 @@
 %token DOUBLE_RIGHT_ABRACK  (* << *)
 %token KEYWORD_CONST        (* const *)
 %token KEYWORD_READY        (* ready *)
+%token KEYWORD_PROBE        (* probe *)
 %token DOUBLE_EQ            (* == *)
 %token EQ_GT                (* => *)
 %token DOUBLE_GT            (* >> *)
@@ -420,6 +421,8 @@ expr:
   { Lang.Sync ident }
 | KEYWORD_READY; msg_spec = message_specifier
   { Lang.Ready msg_spec }
+| KEYWORD_PROBE; msg_spec = message_specifier
+  { Lang.Probe msg_spec }
 | KEYWORD_PUT; ident = IDENT; COLON_EQ; v = node(expr) %prec KEYWORD_PUT
   { Lang.SharedAssign (ident, v) }
 | KEYWORD_LET; binding = IDENT; EQUAL; v = node(expr) %prec KEYWORD_LET
