@@ -598,7 +598,7 @@ and visit_expr (graph : event_graph) (ci : cunit_info)
     let td = visit_expr graph ci ctx e' in
     let w = unwrap_or_err "Invalid value in indirection" e'.span td.w in
     let (offset_le, len, new_dtype) = TypedefMap.data_type_indirect ci.typedefs ci.macro_defs td.dtype fieldname
-      |> unwrap_or_err "Invalid indirection" e.span in
+      |> unwrap_or_err (Printf.sprintf "Invalid indirection %s" fieldname) e.span in
     let (wires', new_w) = WireCollection.add_slice graph.thread_id w (Const offset_le) len graph.wires in
     graph.wires <- wires';
     {
