@@ -375,7 +375,7 @@ and expr =
   | Sync of identifier (** synchronise on a shared value *)
   | IfExpr of expr_node * expr_node * expr_node
   | Construct of constructor_spec * expr_node option (** construct a variant type value with a constructor *)
-  | Record of identifier * (identifier * expr_node) list (** constructing a record-type value *)
+  | Record of identifier * (identifier * expr_node) list * expr_node option (** constructing a record-type value *)
   | Index of expr_node * index (** an element of an array ([a[3]]) *)
   | Indirect of expr_node * identifier (** a member of a record ([a.b]) *)
   | Concat of expr_node list
@@ -561,10 +561,14 @@ let rec substitute_expr_identifier (id: identifier) (value: expr_node) (expr: ex
   | Let (ids, e) ->
       if List.mem id ids then expr.d
       else Let (ids, substitute_expr_identifier id value e)
-  | Record (name, fields) ->
-      Record (name, List.map (fun (field_name, field_expr) ->
-        (field_name, substitute_expr_identifier id value field_expr)
-      ) fields)
+  | Record (name, fields, base) ->
+      Record (
+        name,
+        List.map (fun (field_name, field_expr) ->
+          (field_name, substitute_expr_identifier id value field_expr)
+        ) fields,
+        Option.map (substitute_expr_identifier id value) base
+      )
   | Binop (op, e1, e2) ->
       Binop (op, substitute_expr_identifier id value e1, substitute_expr_identifier id value e2)
   | Unop (op, e) ->
@@ -659,7 +663,7 @@ let generate_expr (id, start, end_v, offset, body) =
               (fun acc expr -> Wait(expr, dummy_ast_node_of_data acc))
               hd.d
               tl
-      else 
+      else
         let bit_length = Utils.int_log2 (end_v + 1) in
         let substituted = substitute_expr_identifier id (dummy_ast_node_of_data(Literal(WithLength(bit_length, curr)))) body in
         generate_exprs_seq (curr + offset) (substituted :: acc);

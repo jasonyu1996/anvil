@@ -317,6 +317,10 @@
 					"match": "(?<!\\$)\\b(call|loop|recursive|if|else|recurse|recv|send|dprint|dfinish|set|cycle|sync|match|put|ready)\\b(?!\\$)"
 				},
 				{
+					"name": "keyword.other.anvil",
+					"match": "\\b(with)\\b"
+				},
+				{
 					"name": "keyword.other.anvil storage.type.anvil",
 					"match": "\\b(let)\\b"
 				},

@@ -94,6 +94,19 @@ let codegen_wire_assignment printer (graphs : event_graph_collection) (g : event
     CodegenPrinter.print_line ~lvl_delta_pre:(-1) printer "endcase";
     CodegenPrinter.print_line ~lvl_delta_pre:(-1) printer "end"
   )
+  | Update (base_w, updates) -> (
+    CodegenPrinter.print_line ~lvl_delta_post:1 printer
+      @@ Printf.sprintf "always_comb begin: _%s_assign" @@ Format.format_wirename w.thread_id w.id;
+    CodegenPrinter.print_line printer
+      @@ Printf.sprintf "%s = %s;" (Format.format_wirename w.thread_id w.id)
+      @@ (Format.format_wirename base_w.thread_id base_w.id);
+    List.iter (fun (offset, size, (update_w : EventGraph.wire)) ->
+      CodegenPrinter.print_line printer
+      @@ Printf.sprintf "%s[%d +: %d] = %s;" (Format.format_wirename w.thread_id w.id)
+        offset size @@ (Format.format_wirename update_w.thread_id update_w.id);
+    ) updates;
+    CodegenPrinter.print_line ~lvl_delta_pre:(-1) printer "end"
+  )
   | _ -> (
     let expr =
       match w.source with
@@ -133,7 +146,7 @@ let codegen_wire_assignment printer (graphs : event_graph_collection) (g : event
         CodegenFormat.format_msg_valid_signal_name (CodegenFormat.canonicalize_endpoint_name msg.endpoint g) msg.msg
       | MessageAckPort msg ->
         CodegenFormat.format_msg_ack_signal_name (CodegenFormat.canonicalize_endpoint_name msg.endpoint g) msg.msg
-      | Cases _ -> failwith "Something went wrong!"
+      | Cases _ | Update _ -> failwith "Something went wrong!"
     in
     CodegenPrinter.print_line printer
       @@

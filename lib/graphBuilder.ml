@@ -237,9 +237,10 @@ let rec recurse_unfold expr_full_node expr_node =
       IfExpr (unfold e1, unfold e2, unfold e3)
     | Construct (cs, e') ->
       Construct (cs, Option.map unfold e')
-    | Record (ident, vs) ->
+    | Record (ident, vs, base) ->
       Record (ident,
-        List.map (fun (i, e) -> (i, unfold e)) vs
+        List.map (fun (i, e) -> (i, unfold e)) vs,
+        Option.map unfold base
       )
     | Index (e', idx) ->
       Index (unfold e', idx)
@@ -625,7 +626,7 @@ and visit_expr (graph : event_graph) (ci : cunit_info)
       | NonConst td_offset ->
           Typing.merged_data graph (Some new_w) new_dtype ctx.current [td; td_offset]
     )
-  | Record (record_ty_name, field_exprs) ->
+  | Record (record_ty_name, field_exprs, None) ->
     (
       match TypedefMap.data_type_name_resolve ci.typedefs @@ `Named (record_ty_name, []) with
       | Some (`Record record_fields) ->
@@ -642,6 +643,20 @@ and visit_expr (graph : event_graph) (ci : cunit_info)
         )
       | _ -> raise (event_graph_error_default "Invalid record type name!" e.span)
     )
+  | Record (record_ty_name, field_exprs, Some field_base) ->
+      (* record update *)
+      let td_base = visit_expr graph ci ctx field_base in
+      let tds = List.map (fun (field_ident, e') -> (field_ident, e', visit_expr graph ci ctx e')) field_exprs in
+      let updates =
+        (* bruteforce *)
+        List.map (fun (field_ident, _e', td) ->
+          match TypedefMap.data_type_indirect ci.typedefs ci.macro_defs (`Named (record_ty_name, [])) field_ident with
+          | None -> raise (event_graph_error_default "Invalid record!" e.span)
+          | Some (offset_le, len, _dtype) -> (offset_le, len, Option.get td.w)
+        ) tds in
+      let (wires', w) = WireCollection.add_update graph.thread_id ci.typedefs (Option.get td_base.w) updates graph.wires in
+      graph.wires <- wires';
+      Typing.merged_data graph (Some w) (`Named (record_ty_name, [])) ctx.current (td_base::(List.map (fun (_, _, td) -> td) tds))
   | Construct (cstr_spec, cstr_expr_opt) ->
     (
       match TypedefMap.data_type_name_resolve ci.typedefs @@ `Named (cstr_spec.variant_ty_name, []) with

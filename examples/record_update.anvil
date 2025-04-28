@@ -1,0 +1,23 @@
+enum op {
+    Add,
+    Sub,
+    Or,
+    And,
+    Xor
+}
+
+struct data {
+    a : logic[64],
+    b : logic[64],
+    op : op
+}
+
+proc record_update () {
+    loop {
+        cycle 1 >>
+        let v = data::{a = 64'b0; op = op::And; b = 64'b1};
+        let v_update = data::{v with op = op::Xor; b = 64'b0};
+        dprint "v = %d %d %d" (v.a, v.op, v.b);
+        dprint "v_update = %d %d %d" (v_update.a, v_update.op, v_update.b)
+    }
+}
