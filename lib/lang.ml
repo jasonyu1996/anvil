@@ -374,6 +374,8 @@ and expr =
   | Cycle of int
   | Sync of identifier (** synchronise on a shared value *)
   | IfExpr of expr_node * expr_node * expr_node
+  | TryRecv of identifier * recv_pack * expr_node * expr_node (** try recv *)
+  | TrySend of send_pack * expr_node * expr_node (** try send *)
   | Construct of constructor_spec * expr_node option (** construct a variant type value with a constructor *)
   | Record of identifier * (identifier * expr_node) list * expr_node option (** constructing a record-type value *)
   | Index of expr_node * index (** an element of an array ([a[3]]) *)
@@ -609,7 +611,7 @@ let rec substitute_expr_identifier (id: identifier) (value: expr_node) (expr: ex
       Indirect (substitute_expr_identifier id value e, field)
   | Call (name, args) ->
       Call (name, List.map (substitute_expr_identifier id value) args)
-  | _ -> expr.d
+  | _ -> expr.d  (* FIXME: missing cases (avoid using _) *)
   in
   { expr with d = new_expr }
 

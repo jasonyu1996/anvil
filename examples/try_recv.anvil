@@ -1,0 +1,34 @@
+/* This is for the redesigned Anvil language */
+
+chan reg_itfc {
+    right req : (logic@#1)
+}
+
+proc reggg(e : right reg_itfc) {
+    loop {
+        try a = recv e.req {
+            dprint "Received %d" (a);
+            cycle 1
+        } else {
+            dprint "Not received" ();
+            cycle 1
+        }
+    }
+}
+
+proc try_recv() {
+    chan reg_le -- reg_ri : reg_itfc;
+    spawn reggg(reg_ri);
+    loop {
+        let a = 4'b1;
+        cycle 1 >>
+        let b = if 1'b1 { dprint "Hello true" (); a + a } else { dprint "Hello false" (); a } >>
+        dprint "Value a = %d, b = %d" (a, b);
+        cycle 1 >>
+        dprint "Concat result = %d" (#{a, a});
+        send reg_le.req (1'b1) >>
+        dprint "Sent" ();
+        cycle 1 >>
+        dfinish
+    }
+}

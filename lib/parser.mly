@@ -71,6 +71,7 @@
 %token KEYWORD_STRUCT       (* struct *)
 %token KEYWORD_ENUM         (* enum *)
 %token KEYWORD_WITH         (* with *)
+%token KEYWORD_TRY          (* try *)
 %token <int>INT             (* int literal *)
 %token <string>IDENT        (* identifier *)
 %token <string>BIT_LITERAL  (* bit literal *)
@@ -503,9 +504,15 @@ expr_in_parenthese:
 ;
 
 if_branch:
-  KEYWORD_IF; cond = node(expr); LEFT_BRACE; then_v = node(expr); RIGHT_BRACE;
+| KEYWORD_IF; cond = node(expr); LEFT_BRACE; then_v = node(expr); RIGHT_BRACE;
   else_v = node(else_branch)?
   { Lang.IfExpr (cond, then_v, Option.value ~default:(Lang.dummy_ast_node_of_data @@ Lang.Tuple []) else_v) }
+| KEYWORD_TRY; ident = IDENT; EQUAL; KEYWORD_RECV; recv_pack = recv_pack;
+  LEFT_BRACE; then_v = node(expr); RIGHT_BRACE; else_v = node(else_branch)?
+  { Lang.TryRecv (ident, recv_pack, then_v, Option.value ~default:(Lang.dummy_ast_node_of_data @@ Lang.Tuple []) else_v) }
+| KEYWORD_TRY; KEYWORD_SEND; send_pack = send_pack;
+  LEFT_BRACE; then_v = node(expr); RIGHT_BRACE; else_v = node(else_branch)?
+  { Lang.TrySend (send_pack, then_v, Option.value ~default:(Lang.dummy_ast_node_of_data @@ Lang.Tuple []) else_v) }
 ;
 
 else_branch:
