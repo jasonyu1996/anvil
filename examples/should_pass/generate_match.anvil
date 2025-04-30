@@ -1,0 +1,13 @@
+proc main () {
+    loop {
+        generate (i : 0,2,1) {
+           match i {
+            0 => dprint "Is zero" (),
+            1 => dprint "Is one" (),
+            _ => dprint "What is this?" ()
+           }
+        } >>
+        cycle 1 >>
+        dfinish
+    }
+}

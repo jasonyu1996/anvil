@@ -557,61 +557,95 @@ and string_of_literal (lit : literal) : string =
   | NoLength v -> "NoLength " ^ string_of_int v
 
 let rec substitute_expr_identifier (id: identifier) (value: expr_node) (expr: expr_node) : expr_node =
+  let subst = substitute_expr_identifier id value in
   let new_expr = match expr.d with
   | Identifier name when name = id ->
       value.d
   | Let (ids, e) ->
       if List.mem id ids then expr.d
-      else Let (ids, substitute_expr_identifier id value e)
+      else Let (ids, subst e)
   | Record (name, fields, base) ->
       Record (
         name,
         List.map (fun (field_name, field_expr) ->
-          (field_name, substitute_expr_identifier id value field_expr)
+          (field_name, subst field_expr)
         ) fields,
-        Option.map (substitute_expr_identifier id value) base
+        Option.map subst base
       )
   | Binop (op, e1, e2) ->
-      Binop (op, substitute_expr_identifier id value e1, substitute_expr_identifier id value e2)
+      Binop (op, subst e1, subst e2)
   | Unop (op, e) ->
-      Unop (op, substitute_expr_identifier id value e)
+      Unop (op, subst e)
   | Tuple exprs ->
-      Tuple (List.map (substitute_expr_identifier id value) exprs)
+      Tuple (List.map (subst) exprs)
   | Join (e1, e2) ->
-      Join (substitute_expr_identifier id value e1, substitute_expr_identifier id value e2)
+      Join (subst e1, subst e2)
   | Wait (e1, e2) ->
-      Wait (substitute_expr_identifier id value e1, substitute_expr_identifier id value e2)
+      Wait (subst e1, subst e2)
   | Index (arr, idx) ->
-      let new_arr = substitute_expr_identifier id value arr in
+      let new_arr = subst arr in
       let new_idx = match idx with
-        | Single e -> Single (substitute_expr_identifier id value e)
-        | Range (e1, e2) -> Range (substitute_expr_identifier id value e1, substitute_expr_identifier id value e2)
+        | Single e -> Single (subst e)
+        | Range (e1, e2) -> Range (subst e1, subst e2)
       in
       Index (new_arr, new_idx)
   | Concat exprs ->
-      Concat (List.map (substitute_expr_identifier id value) exprs)
+      Concat (List.map subst exprs)
   | Assign (lv, e) ->
       let new_lv = substitute_lvalue id value lv in
-      Assign (new_lv, substitute_expr_identifier id value e)
+      Assign (new_lv, subst e)
   | Send {send_msg_spec; send_data} ->
       Send {
         send_msg_spec;
-        send_data = substitute_expr_identifier id value send_data
+        send_data = subst send_data
       }
   | Debug (DebugPrint (msg, exprs)) ->
-      Debug (DebugPrint (msg, List.map (substitute_expr_identifier id value) exprs))
+      Debug (DebugPrint (msg, List.map subst exprs))
   | Debug other_debug -> Debug other_debug
   | IfExpr (cond, then_expr, else_expr) ->
       IfExpr (
-        substitute_expr_identifier id value cond,
-        substitute_expr_identifier id value then_expr,
-        substitute_expr_identifier id value else_expr
+        subst cond,
+        subst then_expr,
+        subst else_expr
       )
   | Indirect (e, field) ->
-      Indirect (substitute_expr_identifier id value e, field)
+      Indirect (subst e, field)
   | Call (name, args) ->
-      Call (name, List.map (substitute_expr_identifier id value) args)
-  | _ -> expr.d  (* FIXME: missing cases (avoid using _) *)
+      Call (name, List.map subst args)
+  | Match (e, arms) ->
+    Match (
+      subst e,
+      List.map (fun (e_pat, e_body) -> (e_pat, Option.map subst e_body)) arms
+    )
+  | List ls -> List (List.map subst ls)
+  | TryRecv (ident, recv_pack, e1, e2) ->
+    TryRecv (
+      ident,
+      recv_pack,
+      subst e1,
+      subst e2
+    )
+  | TrySend (send_pack, e1, e2) ->
+    TrySend (
+      {send_pack with send_data = subst send_pack.send_data},
+      subst e1,
+      subst e2
+    )
+  | Construct (spec, e) ->
+    Construct (
+      spec,
+      Option.map subst e
+    )
+  | SharedAssign (ident, e) ->
+    SharedAssign (
+      ident,
+      subst e
+    )
+  | Recurse | Literal _ | Cycle _
+  | Identifier _ | Ready _ | Probe _
+  | Read _ | Recv _
+  | Sync _ -> expr.d
+
   in
   { expr with d = new_expr }
 
