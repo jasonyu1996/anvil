@@ -706,6 +706,11 @@ let generate_expr (id, start, end_v, offset, body) =
     in
     generate_exprs_seq start []
 
+(** An expression that does nothing and evaluates to a singleton unit value. *)
+let unit_expr = Tuple []
+
+let dummy_unit_node = dummy_ast_node_of_data unit_expr
+
 (** A span that includes only the ending position of the given span. *)
 let span_to_end span = {span with st = span.ed}
 

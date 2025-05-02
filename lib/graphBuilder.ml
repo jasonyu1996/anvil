@@ -477,7 +477,6 @@ and visit_expr (graph : event_graph) (ci : cunit_info)
     (* data to send *)
     let td_send_data = visit_expr graph ci ctx send_pack.send_data in
 
-    (* condition is ack port. FIXME: handle messages without ack ports *)
     let wires, w_cond = WireCollection.add_msg_ack_port graph.thread_id ci.typedefs send_pack.send_msg_spec graph.wires in
     let td_cond = {
       w = Some w_cond;
@@ -525,7 +524,6 @@ and visit_expr (graph : event_graph) (ci : cunit_info)
       | _ -> raise (event_graph_error_default "Invalid try send expression!" e.span)
     )
   | TryRecv (ident, recv_pack, e1, e2) ->
-    (* condition is valid port. FIXME: handle messages without valid ports *)
     let wires, w_cond = WireCollection.add_msg_valid_port graph.thread_id ci.typedefs recv_pack.recv_msg_spec graph.wires in
     let td_cond = {
       w = Some w_cond;
