@@ -1,0 +1,12 @@
+proc Top() {
+  loop {
+    let unused = 1'b1;
+    if 1'b1 {
+      cycle 1
+    } else {
+      dprint "Value is %d" (unused);
+      cycle 1
+    } >>
+    dfinish
+  }
+}

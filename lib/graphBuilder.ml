@@ -390,8 +390,9 @@ and visit_expr (graph : event_graph) (ci : cunit_info)
           let td = visit_expr graph ci ctx' e2 in
           (* check if the binding is used *)
           let binding = Typing.context_lookup ctx'.typing_ctx ident |> Option.get in
-          if not binding.binding_used then (
-            raise (event_graph_error_default "Unused value!" e1.span)
+          (* no need to wait if the value is current *)
+          if td1.lt.live.id <> ctx.current.id && not binding.binding_used then (
+            raise (event_graph_error_default "Value is potentially not awaited!" e1.span)
           );
           td
       | Let _ -> raise (event_graph_error_default "Discarding expression results!" e.span)
