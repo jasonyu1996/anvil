@@ -24,7 +24,7 @@ $(MODULE_NAME)_driver.cpp: $(TEST_DRIVER)
 	sed "s/Vtop/V$(MODULE_NAME)/g" $< > $@
 
 run: obj_dir/V$(MODULE_NAME)
-	$<
+	@ $< $(TIMEOUT)
 
 clean:
 	rm -rf $(MODULE_NAME).sv $(MODULE_NAME)_driver.cpp obj_dir

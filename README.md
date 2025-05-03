@@ -79,10 +79,12 @@ To build an example design,
 make MODULE_NAME=<name>
 ```
 
-To run a design,
+To simulate a design,
 ```
 make run MODULE_NAME=<name>
 ```
+
+You can specify `TIMEOUT` to limit the number of cycles to simulate.
 
 To clean up,
 ```

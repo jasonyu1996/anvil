@@ -9,3 +9,4 @@
 .codegpt
 *.pdf
 *.dot
+/*.error

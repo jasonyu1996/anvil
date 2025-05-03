@@ -18,6 +18,11 @@
 double sc_time_stamp() { return 0; }
 
 int main(int argc, char** argv) {
+    unsigned timeout = -1;
+    if (argc > 1) {
+        timeout = std::atoi(argv[1]);
+    }
+
     // This is a more complicated example, please also see the simpler examples/make_hello_c.
 
     // Create logs/ directory in case we have traces to put under it
@@ -57,8 +62,10 @@ int main(int argc, char** argv) {
     top->clk_i = 0;
     top->rst_ni = !0;
 
+    unsigned time_cnt = 0;
+
     // Simulate until $finish
-    while (!contextp->gotFinish()) {
+    while (!contextp->gotFinish() && time_cnt < timeout) {
         // Historical note, before Verilator 4.200 Verilated::gotFinish()
         // was used above in place of contextp->gotFinish().
         // Most of the contextp-> calls can use Verilated:: calls instead;
@@ -89,6 +96,7 @@ int main(int argc, char** argv) {
 
         top->eval();
 
+        ++ time_cnt;
     }
 
     // Final model cleanup
