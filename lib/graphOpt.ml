@@ -13,8 +13,8 @@ module CombSimplPass = struct
   (* Creates a new union-find set. *)
   let create_ufs n = Dynarray.init n (fun i -> i)
   let rec find_ufs ufs i =
-    if i < 0 then
-      i
+    if i < 0 || i >= Dynarray.length ufs then
+      -1
     else (
       let f = ufs.!(i) in
       if f == i || f < 0 then (* < 0 for special use *)
