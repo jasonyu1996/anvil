@@ -73,6 +73,7 @@ let codegen_endpoints printer (graphs : event_graph_collection) (g : event_graph
   List.iter print_port_signal_decl
 
 let codegen_wire_assignment printer (graphs : event_graph_collection) (g : event_graph) (w : WireCollection.wire) =
+  let lookup_msg_def msg = MessageCollection.lookup_message g.messages msg graphs.channel_classes in
   match w.source with
   | Cases (vw, sw, d) -> (
     CodegenPrinter.print_line ~lvl_delta_post:1 printer
@@ -92,6 +93,19 @@ let codegen_wire_assignment printer (graphs : event_graph_collection) (g : event
       @@ Printf.sprintf "%s = %s;" (Format.format_wirename w.thread_id w.id)
       @@ (Format.format_wirename d.thread_id d.id);
     CodegenPrinter.print_line ~lvl_delta_pre:(-1) printer "endcase";
+    CodegenPrinter.print_line ~lvl_delta_pre:(-1) printer "end"
+  )
+  | Update (base_w, updates) -> (
+    CodegenPrinter.print_line ~lvl_delta_post:1 printer
+      @@ Printf.sprintf "always_comb begin: _%s_assign" @@ Format.format_wirename w.thread_id w.id;
+    CodegenPrinter.print_line printer
+      @@ Printf.sprintf "%s = %s;" (Format.format_wirename w.thread_id w.id)
+      @@ (Format.format_wirename base_w.thread_id base_w.id);
+    List.iter (fun (offset, size, (update_w : EventGraph.wire)) ->
+      CodegenPrinter.print_line printer
+      @@ Printf.sprintf "%s[%d +: %d] = %s;" (Format.format_wirename w.thread_id w.id)
+        offset size @@ (Format.format_wirename update_w.thread_id update_w.id);
+    ) updates;
     CodegenPrinter.print_line ~lvl_delta_pre:(-1) printer "end"
   )
   | _ -> (
@@ -139,11 +153,16 @@ let codegen_wire_assignment printer (graphs : event_graph_collection) (g : event
           (Format.format_wire_maybe_const base_i)
           len
       | MessageValidPort msg ->
-        (* FIXME: sync pat *)
-        CodegenFormat.format_msg_valid_signal_name (CodegenFormat.canonicalize_endpoint_name msg.endpoint g) msg.msg
+        let m = Option.get @@ lookup_msg_def msg in
+        if CodegenPort.message_has_valid_port m then
+          CodegenFormat.format_msg_valid_signal_name (CodegenFormat.canonicalize_endpoint_name msg.endpoint g) msg.msg
+        else "1'b1"
       | MessageAckPort msg ->
-        CodegenFormat.format_msg_ack_signal_name (CodegenFormat.canonicalize_endpoint_name msg.endpoint g) msg.msg
-      | Cases _ -> failwith "Something went wrong!"
+        let m = Option.get @@ lookup_msg_def msg in
+        if CodegenPort.message_has_valid_port m then
+          CodegenFormat.format_msg_ack_signal_name (CodegenFormat.canonicalize_endpoint_name msg.endpoint g) msg.msg
+        else "1'b1"
+      | Cases _ | Update _ -> failwith "Something went wrong!"
     in
     CodegenPrinter.print_line printer
       @@

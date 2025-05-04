@@ -381,8 +381,10 @@ and expr =
   | Cycle of int
   | Sync of identifier (** synchronise on a shared value *)
   | IfExpr of expr_node * expr_node * expr_node
+  | TryRecv of identifier * recv_pack * expr_node * expr_node (** try recv *)
+  | TrySend of send_pack * expr_node * expr_node (** try send *)
   | Construct of constructor_spec * expr_node option (** construct a variant type value with a constructor *)
-  | Record of identifier * (identifier * expr_node) list (** constructing a record-type value *)
+  | Record of identifier * (identifier * expr_node) list * expr_node option (** constructing a record-type value *)
   | Index of expr_node * index (** an element of an array ([a[3]]) *)
   | Indirect of expr_node * identifier (** a member of a record ([a.b]) *)
   | Concat of expr_node list
@@ -562,61 +564,99 @@ and string_of_literal (lit : literal) : string =
   | NoLength v -> "NoLength " ^ string_of_int v
 
 let rec substitute_expr_identifier (id: identifier) (value: expr_node) (expr: expr_node) : expr_node =
+  let subst = substitute_expr_identifier id value in
   let new_expr = match expr.d with
   | Identifier name when name = id ->
       value.d
   | Let (ids, e) ->
       if List.mem id ids then expr.d
       else Let (ids, substitute_expr_identifier id value e)
-  | Record (name, fields) ->
-      Record (name, List.map (fun (field_name, field_expr) ->
-        (field_name, substitute_expr_identifier id value field_expr)
-      ) fields)
+  | Record (name, fields, base) ->
+      Record (
+        name,
+        List.map (fun (field_name, field_expr) ->
+          (field_name, subst field_expr)
+        ) fields,
+        Option.map subst base
+      )
   | Binop (op, e1, e2_opt) ->
-    let new_e2_opt = match e2_opt with
-    | `Single e2 -> `Single (substitute_expr_identifier id value e2)
-    | `List exprs -> `List (List.map (substitute_expr_identifier id value) exprs)
-    in
-    Binop (op, substitute_expr_identifier id value e1, new_e2_opt)
+      let new_e2_opt = match e2_opt with
+        | `Single e2 -> `Single (substitute_expr_identifier id value e2)
+        | `List exprs -> `List (List.map (substitute_expr_identifier id value) exprs)
+        in
+      Binop (op, substitute_expr_identifier id value e1, new_e2_opt)
   | Unop (op, e) ->
-      Unop (op, substitute_expr_identifier id value e)
+      Unop (op, subst e)
   | Tuple exprs ->
-      Tuple (List.map (substitute_expr_identifier id value) exprs)
+      Tuple (List.map (subst) exprs)
   | Join (e1, e2) ->
-      Join (substitute_expr_identifier id value e1, substitute_expr_identifier id value e2)
+      Join (subst e1, subst e2)
   | Wait (e1, e2) ->
-      Wait (substitute_expr_identifier id value e1, substitute_expr_identifier id value e2)
+      Wait (subst e1, subst e2)
   | Index (arr, idx) ->
-      let new_arr = substitute_expr_identifier id value arr in
+      let new_arr = subst arr in
       let new_idx = match idx with
-        | Single e -> Single (substitute_expr_identifier id value e)
-        | Range (e1, e2) -> Range (substitute_expr_identifier id value e1, substitute_expr_identifier id value e2)
+        | Single e -> Single (subst e)
+        | Range (e1, e2) -> Range (subst e1, subst e2)
       in
       Index (new_arr, new_idx)
   | Concat exprs ->
-      Concat (List.map (substitute_expr_identifier id value) exprs)
+      Concat (List.map subst exprs)
   | Assign (lv, e) ->
       let new_lv = substitute_lvalue id value lv in
-      Assign (new_lv, substitute_expr_identifier id value e)
+      Assign (new_lv, subst e)
   | Send {send_msg_spec; send_data} ->
       Send {
         send_msg_spec;
-        send_data = substitute_expr_identifier id value send_data
+        send_data = subst send_data
       }
   | Debug (DebugPrint (msg, exprs)) ->
-      Debug (DebugPrint (msg, List.map (substitute_expr_identifier id value) exprs))
+      Debug (DebugPrint (msg, List.map subst exprs))
   | Debug other_debug -> Debug other_debug
   | IfExpr (cond, then_expr, else_expr) ->
       IfExpr (
-        substitute_expr_identifier id value cond,
-        substitute_expr_identifier id value then_expr,
-        substitute_expr_identifier id value else_expr
+        subst cond,
+        subst then_expr,
+        subst else_expr
       )
   | Indirect (e, field) ->
-      Indirect (substitute_expr_identifier id value e, field)
+      Indirect (subst e, field)
   | Call (name, args) ->
-      Call (name, List.map (substitute_expr_identifier id value) args)
-  | _ -> expr.d
+      Call (name, List.map subst args)
+  | Match (e, arms) ->
+    Match (
+      subst e,
+      List.map (fun (e_pat, e_body) -> (e_pat, Option.map subst e_body)) arms
+    )
+  | List ls -> List (List.map subst ls)
+  | TryRecv (ident, recv_pack, e1, e2) ->
+    TryRecv (
+      ident,
+      recv_pack,
+      subst e1,
+      subst e2
+    )
+  | TrySend (send_pack, e1, e2) ->
+    TrySend (
+      {send_pack with send_data = subst send_pack.send_data},
+      subst e1,
+      subst e2
+    )
+  | Construct (spec, e) ->
+    Construct (
+      spec,
+      Option.map subst e
+    )
+  | SharedAssign (ident, e) ->
+    SharedAssign (
+      ident,
+      subst e
+    )
+  | Recurse | Literal _ | Cycle _
+  | Identifier _ | Ready _ | Probe _
+  | Read _ | Recv _
+  | Sync _ -> expr.d
+
   in
   { expr with d = new_expr }
 
@@ -670,12 +710,17 @@ let generate_expr (id, start, end_v, offset, body) =
               (fun acc expr -> Wait(expr, dummy_ast_node_of_data acc))
               hd.d
               tl
-      else 
+      else
         let bit_length = Utils.int_log2 (end_v + 1) in
         let substituted = substitute_expr_identifier id (dummy_ast_node_of_data(Literal(WithLength(bit_length, curr)))) body in
         generate_exprs_seq (curr + offset) (substituted :: acc);
     in
     generate_exprs_seq start []
+
+(** An expression that does nothing and evaluates to a singleton unit value. *)
+let unit_expr = Tuple []
+
+let dummy_unit_node = dummy_ast_node_of_data unit_expr
 
 (** A span that includes only the ending position of the given span. *)
 let span_to_end span = {span with st = span.ed}

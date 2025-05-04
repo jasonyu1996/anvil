@@ -27,6 +27,7 @@ module Wire = struct
     | MessagePort of Lang.message_specifier * int (* index of the port *)
     | MessageValidPort of Lang.message_specifier (* New wire source for message valid port *)
     | MessageAckPort of Lang.message_specifier (* New wire source for message ack port *)
+    | Update of t * (int * int * t) list (** update to existing value *)
     | Concat of t list
     | Slice of t * t MaybeConst.maybe_int_const * int (** third component is size *)
 
@@ -122,6 +123,15 @@ module Wire = struct
       source = Concat ws;
       size = sz;
       is_const;
+    }
+
+  let new_update id thread_id _typedefs base updates  =
+    {
+      id;
+      thread_id;
+      source = Update (base, updates);
+      size = base.size;
+      is_const = false;
     }
 
   let new_list id thread_id _typedefs ws =
@@ -225,6 +235,12 @@ let add_cases thread_id (typedefs : TypedefMap.t) (v : wire) (sw : (wire * wire)
               (default : wire) (wc : t) : t * wire =
   let id = wc.wire_last_id + 1 in
   let w = Wire.new_cases id thread_id typedefs v sw default in
+  (add_wire wc w, w)
+
+let add_update thread_id (typedefs : TypedefMap.t) (base : wire)
+              (updates : (int * int * wire) list) (wc : t) : t * wire =
+  let id = wc.wire_last_id + 1 in
+  let w = Wire.new_update id thread_id typedefs base updates in
   (add_wire wc w, w)
 
 let add_reg_read thread_id (typedefs : TypedefMap.t) (macro_defs: Lang.macro_def list) (r : Lang.reg_def) (wc : t) : t * wire =

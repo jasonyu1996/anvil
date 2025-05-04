@@ -243,11 +243,17 @@ let rec recurse_unfold expr_full_node expr_node =
       Wait (unfold e1, unfold e2)
     | IfExpr (e1, e2, e3) ->
       IfExpr (unfold e1, unfold e2, unfold e3)
+    | TrySend (sp, e1, e2) ->
+      let sp = {sp with send_data = unfold sp.send_data} in
+      TrySend (sp, unfold e1, unfold e2)
+    | TryRecv (ident, rp, e1, e2) ->
+      TryRecv (ident, rp, unfold e1, unfold e2)
     | Construct (cs, e') ->
       Construct (cs, Option.map unfold e')
-    | Record (ident, vs) ->
+    | Record (ident, vs, base) ->
       Record (ident,
-        List.map (fun (i, e) -> (i, unfold e)) vs
+        List.map (fun (i, e) -> (i, unfold e)) vs,
+        Option.map unfold base
       )
     | Index (e', idx) ->
       Index (unfold e', idx)
@@ -471,7 +477,7 @@ and visit_expr (graph : event_graph) (ci : cunit_info)
     let td3 = visit_expr graph ci ctx_false e3 in
 
     branch_info.branches_to <- [ctx_true.current; ctx_false.current];
-    branch_info.branches_val <- [td3.lt.live; td2.lt.live];
+    branch_info.branches_val <- [td2.lt.live; td3.lt.live];
 
     BuildContext.branch_merge ctx' [ctx_true; ctx_false];
 
@@ -486,11 +492,124 @@ and visit_expr (graph : event_graph) (ci : cunit_info)
       | None, None -> {w = None; lt; reg_borrows = reg_borrows'; dtype = unit_dtype}
       | Some w2, Some w3 ->
       (* TODO: check that the data types are the same *)
-        let (wires', w) = WireCollection.add_switch graph.thread_id ci.typedefs [(w1, w2)] w3 graph.wires in
+        let (wires', w) = WireCollection.add_switch graph.thread_id ci.typedefs [(w2, w3)] w1 graph.wires in
         graph.wires <- wires';
         {w = Some w; lt; reg_borrows = reg_borrows'; dtype = td2.dtype}
       | _ -> raise (event_graph_error_default "Invalid if expression!" e.span)
     )
+  | TrySend (send_pack, e1, e2) ->
+    (* data to send *)
+    let td_send_data = visit_expr graph ci ctx send_pack.send_data in
+
+    let wires, w_cond = WireCollection.add_msg_ack_port graph.thread_id ci.typedefs send_pack.send_msg_spec graph.wires in
+    let td_cond = {
+      w = Some w_cond;
+      lt = {live = ctx.current; dead = [(ctx.current, `Cycles 1)]};
+      reg_borrows = [];
+      dtype = `Logic;
+    } in
+    graph.wires <- wires;
+
+    (* TODO: dedup *)
+    let branch_info = {
+      branch_cond_v = td_cond;
+      branch_cond = TrueFalse;
+      branch_count = 2;
+      branches_to = [];
+      branches_val = [];
+    } in
+
+    let (br_side_true, ctx_true) = BuildContext.branch_side graph ctx branch_info 0 in
+    let td1 = visit_expr graph ci ctx_true e1 in
+    let (br_side_false, ctx_false) = BuildContext.branch_side graph ctx branch_info 1 in
+    let td2 = visit_expr graph ci ctx_false e2 in
+
+    branch_info.branches_to <- [ctx_true.current; ctx_false.current];
+    branch_info.branches_val <- [td1.lt.live; td2.lt.live];
+
+    BuildContext.branch_merge ctx [ctx_true; ctx_false];
+
+    ctx_true.current.actions <- (ImmediateSend (send_pack.send_msg_spec, td_send_data) |> tag_with_span e.span)::ctx_true.current.actions;
+
+    let ctx_br = BuildContext.branch graph ctx branch_info in
+    br_side_true.branch_event <- Some ctx_br.current;
+    br_side_false.branch_event <- Some ctx_br.current;
+    let lt = {live = ctx_br.current; (* branch event is reached when either split event is reached *)
+      dead = Utils.list_unordered_join td1.lt.dead td2.lt.dead |> Utils.list_unordered_join td_cond.lt.dead} in
+    let reg_borrows' = Utils.list_unordered_join td1.reg_borrows td2.reg_borrows |> Utils.list_unordered_join td_cond.reg_borrows in
+    (
+      match td1.w, td2.w with
+      | None, None -> {w = None; lt; reg_borrows = reg_borrows'; dtype = unit_dtype}
+      | Some w1, Some w2 ->
+      (* TODO: check that the data types are the same *)
+        let (wires', w) = WireCollection.add_switch graph.thread_id ci.typedefs [(w1, w2)] w_cond graph.wires in
+        graph.wires <- wires';
+        {w = Some w; lt; reg_borrows = reg_borrows'; dtype = td2.dtype}
+      | _ -> raise (event_graph_error_default "Invalid try send expression!" e.span)
+    )
+  | TryRecv (ident, recv_pack, e1, e2) ->
+    let wires, w_cond = WireCollection.add_msg_valid_port graph.thread_id ci.typedefs recv_pack.recv_msg_spec graph.wires in
+    let td_cond = {
+      w = Some w_cond;
+      lt = {live = ctx.current; dead = [(ctx.current, `Cycles 1)]};
+      reg_borrows = [];
+      dtype = `Logic;
+    } in
+    graph.wires <- wires;
+
+    (* TODO: dedup *)
+    let branch_info = {
+      branch_cond_v = td_cond;
+      branch_cond = TrueFalse;
+      branch_count = 2;
+      branches_to = [];
+      branches_val = [];
+    } in
+
+    let (br_side_true, ctx_true_no_binding) = BuildContext.branch_side graph ctx branch_info 0 in
+
+    (* message *)
+    let msg = MessageCollection.lookup_message graph.messages recv_pack.recv_msg_spec ci.channel_classes
+      |> unwrap_or_err "Invalid message specifier in try receive" e.span in
+    let (wires', w_recv) = WireCollection.add_msg_port graph.thread_id ci.typedefs ci.macro_defs recv_pack.recv_msg_spec 0 msg graph.wires in
+    graph.wires <- wires';
+    let stype = List.hd msg.sig_types in
+    let d_recv = delay_pat_globalise recv_pack.recv_msg_spec.endpoint stype.lifetime.e in
+    let td_recv = {
+      w = Some w_recv;
+      lt = {live = ctx_true_no_binding.current; dead = [(ctx_true_no_binding.current, d_recv)]};
+      reg_borrows = [];
+      dtype = stype.dtype;
+    } in
+    let ctx_true = BuildContext.add_binding ctx_true_no_binding ident td_recv in
+    let td1 = visit_expr graph ci ctx_true e1 in
+    let (br_side_false, ctx_false) = BuildContext.branch_side graph ctx branch_info 1 in
+    let td2 = visit_expr graph ci ctx_false e2 in
+
+    branch_info.branches_to <- [ctx_true.current; ctx_false.current];
+    branch_info.branches_val <- [td1.lt.live; td2.lt.live];
+
+    BuildContext.branch_merge ctx [ctx_true_no_binding; ctx_false];
+
+    ctx_true.current.actions <- (ImmediateRecv recv_pack.recv_msg_spec |> tag_with_span e.span)::ctx_true.current.actions;
+
+    let ctx_br = BuildContext.branch graph ctx branch_info in
+    br_side_true.branch_event <- Some ctx_br.current;
+    br_side_false.branch_event <- Some ctx_br.current;
+    let lt = {live = ctx_br.current; (* branch event is reached when either split event is reached *)
+      dead = Utils.list_unordered_join td1.lt.dead td2.lt.dead |> Utils.list_unordered_join td_cond.lt.dead} in
+    let reg_borrows' = Utils.list_unordered_join td1.reg_borrows td2.reg_borrows |> Utils.list_unordered_join td_cond.reg_borrows in
+    (
+      match td1.w, td2.w with
+      | None, None -> {w = None; lt; reg_borrows = reg_borrows'; dtype = unit_dtype}
+      | Some w1, Some w2 ->
+      (* TODO: check that the data types are the same *)
+        let (wires', w) = WireCollection.add_switch graph.thread_id ci.typedefs [(w1, w2)] w_cond graph.wires in
+        graph.wires <- wires';
+        {w = Some w; lt; reg_borrows = reg_borrows'; dtype = td2.dtype}
+      | _ -> raise (event_graph_error_default "Invalid try recv expression!" e.span)
+    )
+
   | Match (match_v, match_arms) ->
     let td_v = visit_expr graph ci ctx match_v in
     let w_v = unwrap_or_err "Invalid match expression" match_v.span td_v.w in
@@ -649,7 +768,7 @@ and visit_expr (graph : event_graph) (ci : cunit_info)
       | NonConst td_offset ->
           Typing.merged_data graph (Some new_w) new_dtype ctx.current [td; td_offset]
     )
-  | Record (record_ty_name, field_exprs) ->
+  | Record (record_ty_name, field_exprs, None) ->
     (
       match TypedefMap.data_type_name_resolve ci.typedefs @@ `Named (record_ty_name, []) with
       | Some (`Record record_fields) ->
@@ -666,6 +785,20 @@ and visit_expr (graph : event_graph) (ci : cunit_info)
         )
       | _ -> raise (event_graph_error_default "Invalid record type name!" e.span)
     )
+  | Record (record_ty_name, field_exprs, Some field_base) ->
+      (* record update *)
+      let td_base = visit_expr graph ci ctx field_base in
+      let tds = List.map (fun (field_ident, e') -> (field_ident, e', visit_expr graph ci ctx e')) field_exprs in
+      let updates =
+        (* bruteforce *)
+        List.map (fun (field_ident, _e', td) ->
+          match TypedefMap.data_type_indirect ci.typedefs ci.macro_defs (`Named (record_ty_name, [])) field_ident with
+          | None -> raise (event_graph_error_default "Invalid record!" e.span)
+          | Some (offset_le, len, _dtype) -> (offset_le, len, Option.get td.w)
+        ) tds in
+      let (wires', w) = WireCollection.add_update graph.thread_id ci.typedefs (Option.get td_base.w) updates graph.wires in
+      graph.wires <- wires';
+      Typing.merged_data graph (Some w) (`Named (record_ty_name, [])) ctx.current (td_base::(List.map (fun (_, _, td) -> td) tds))
   | Construct (cstr_spec, cstr_expr_opt) ->
     (
       match TypedefMap.data_type_name_resolve ci.typedefs @@ `Named (cstr_spec.variant_ty_name, []) with
@@ -754,7 +887,7 @@ and visit_expr (graph : event_graph) (ci : cunit_info)
   | Recurse ->
     ctx.current.is_recurse <- true;
     Typing.const_data graph None unit_dtype ctx.current
-  | _ -> raise (event_graph_error_default "Unimplemented expression!" e.span)
+  | Tuple _ -> raise (event_graph_error_default "Unimplemented expression!" e.span)
 
 
 module IntHashTbl = Hashtbl.Make(Int)

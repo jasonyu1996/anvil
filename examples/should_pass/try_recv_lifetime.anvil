@@ -1,0 +1,14 @@
+chan ch {
+    left req : (logic@#1)
+}
+
+proc main(ep1 : left ch, ep2 : left ch) {
+    loop {
+        let r1 = recv ep1.req >>
+        try r2 = recv ep2.req { // this should be immediate
+            dprint "r1 and r2 are both live %d, %d" (r1, r2)
+        } >>
+        dprint "Even after this r1 is live %d" (r1);
+        cycle 1
+    }
+}

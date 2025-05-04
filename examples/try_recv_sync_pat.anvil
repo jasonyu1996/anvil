@@ -1,0 +1,38 @@
+/* This is for the redesigned Anvil language */
+
+chan reg_itfc {
+    right req : (logic@#1) @#1-@#1
+}
+
+proc reggg(e : right reg_itfc) {
+    loop {
+        try a = recv e.req {
+            dprint "Received %d" (a);
+            cycle 1
+        } else {
+            dprint "Not received" ();
+            cycle 1
+        } >>
+        try a = recv e.req {
+            dprint "Received %d" (a);
+            cycle 1
+        } else {
+            dprint "Not received" ();
+            cycle 1
+        }
+    }
+}
+
+proc try_recv_sync_pat() {
+    chan reg_le -- reg_ri : reg_itfc;
+    spawn reggg(reg_ri);
+    loop {
+        try send reg_le.req (1'b1) { () } >>
+        dprint "Sent 1" ();
+        cycle 1 >>
+        try send reg_le.req (1'b0) { () } >>
+        dprint "Sent 2" ();
+        cycle 1 >>
+        dfinish
+    }
+}

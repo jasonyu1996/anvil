@@ -71,6 +71,8 @@
 %token KEYWORD_RECURSE      (* recurse *)
 %token KEYWORD_STRUCT       (* struct *)
 %token KEYWORD_ENUM         (* enum *)
+%token KEYWORD_WITH         (* with *)
+%token KEYWORD_TRY          (* try *)
 %token <int>INT             (* int literal *)
 %token <string>IDENT        (* identifier *)
 %token <string>BIT_LITERAL  (* bit literal *)
@@ -480,9 +482,14 @@ expr:
 | constructor_spec = constructor_spec; e = ioption(node(expr_in_parenthese))
   { Lang.Construct (constructor_spec, e) }
 | record_name = IDENT; DOUBLE_COLON; LEFT_BRACE;
+  base = node(expr); KEYWORD_WITH;
   record_fields = separated_nonempty_list(SEMICOLON, record_field_constr);
   RIGHT_BRACE
-  { Lang.Record (record_name, record_fields) }
+  { Lang.Record (record_name, record_fields, Some base) }
+| record_name = IDENT; DOUBLE_COLON; LEFT_BRACE;
+  record_fields = separated_nonempty_list(SEMICOLON, record_field_constr);
+  RIGHT_BRACE
+  { Lang.Record (record_name, record_fields, None) }
   (* debug operations *)
 | KEYWORD_DPRINT; s = STR_LITERAL; LEFT_PAREN; v = separated_list(COMMA, node(expr)); RIGHT_PAREN
   { Lang.Debug (Lang.DebugPrint (s, v)) }
@@ -498,9 +505,19 @@ expr_in_parenthese:
 ;
 
 if_branch:
-  KEYWORD_IF; cond = node(expr); LEFT_BRACE; then_v = node(expr); RIGHT_BRACE;
+| KEYWORD_IF; cond = node(expr); LEFT_BRACE; then_v = node(expr); RIGHT_BRACE;
   else_v = node(else_branch)?
-  { Lang.IfExpr (cond, then_v, Option.value ~default:(Lang.dummy_ast_node_of_data @@ Lang.Tuple []) else_v) }
+  { Lang.IfExpr (cond, then_v, Option.value ~default:Lang.dummy_unit_node else_v) }
+// | KEYWORD_TRY; ident = IDENT; EQUAL; KEYWORD_RECV; recv_pack = recv_pack
+//   { Lang.TryRecv (ident, recv_pack, Lang.dummy_unit_node, Lang.dummy_unit_node) }
+| KEYWORD_TRY; ident = IDENT; EQUAL; KEYWORD_RECV; recv_pack = recv_pack;
+  LEFT_BRACE; then_v = node(expr); RIGHT_BRACE; else_v = node(else_branch)?
+  { Lang.TryRecv (ident, recv_pack, then_v, Option.value ~default:Lang.dummy_unit_node else_v) }
+// | KEYWORD_TRY; KEYWORD_SEND; send_pack = send_pack
+//   { Lang.TrySend (send_pack, Lang.dummy_unit_node, Lang.dummy_unit_node) }
+| KEYWORD_TRY; KEYWORD_SEND; send_pack = send_pack;
+  LEFT_BRACE; then_v = node(expr); RIGHT_BRACE; else_v = node(else_branch)?
+  { Lang.TrySend (send_pack, then_v, Option.value ~default:(Lang.dummy_ast_node_of_data @@ Lang.Tuple []) else_v) }
 ;
 
 else_branch:
