@@ -364,7 +364,7 @@ let format_dtype (ctx : codegen_context) (dtype : data_type) =
 
 let format_port (ctx : codegen_context) port =
   let inout = match port.dir with
-    | In -> "input"
+    | Inp -> "input"
     | Out -> "output"
   in Printf.sprintf "%s %s %s" inout (format_dtype ctx port.dtype) port.name
 
@@ -464,10 +464,10 @@ let gather_ports (ctx : codegen_context) (endpoints : endpoint_def list) : port_
 
 let codegen_ports (ctx : codegen_context) (endpoints : endpoint_def list) =
   let clk_port = {
-    dir = In; dtype = `Logic; name = "clk_i"
+    dir = Inp; dtype = `Logic; name = "clk_i"
   } in
   let rst_port = {
-    dir = In; dtype = `Logic; name = "rst_ni"
+    dir = Inp; dtype = `Logic; name = "rst_ni"
   } in
   let port_list = gather_ports ctx endpoints in
     print_port_list ctx ([clk_port; rst_port] @ port_list)
@@ -1154,7 +1154,7 @@ let codegen_post_declare (ctx : codegen_context) (proc : proc_def) =
 let gather_out_indicators (ctx : codegen_context) : identifier list =
   let msg_map = fun ((endpoint, msg, msg_dir) : endpoint_def * message_def * message_direction) ->
     let (indicator_formatter, checker) = match msg_dir with
-    | In -> (format_msg_ack_signal_name, message_has_ack_port)
+    | Inp -> (format_msg_ack_signal_name, message_has_ack_port)
     | Out -> (format_msg_valid_signal_name, message_has_valid_port)
     in
     if checker msg then

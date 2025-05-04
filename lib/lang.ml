@@ -200,7 +200,7 @@ type reg_def = {
 
 type reg_def_list = reg_def list
 
-type message_direction = In | Out
+type message_direction = Inp | Out
 
 (** Synchronisation mode of a message type. *)
 type message_sync_mode =
@@ -315,7 +315,7 @@ let dtype_of_literal (lit : literal) =
   `Array (`Logic, ParamEnv.Concrete n)
 
 type binop = Add | Sub | Xor | And | Or | Lt | Gt | Lte | Gte |
-             Shl | Shr | Eq | Neq | Mul
+             Shl | Shr | Eq | Neq | Mul | In
 type unop  = Neg | Not | AndAll | OrAll
 
 (* TODO: these are SV-specific; move elsewhere *)
@@ -335,6 +335,7 @@ let string_of_binop (binop: binop) : string =
   | Eq -> "=="
   | Neq -> "!="
   | Mul -> "*"
+  | In -> "inside"
 
 let string_of_unop (unop: unop) : string =
   match unop with
@@ -342,6 +343,11 @@ let string_of_unop (unop: unop) : string =
   | Not -> "~"
   | AndAll -> "&"
   | OrAll -> "|"
+
+type 'a singleton_or_list = [
+  | `Single of 'a
+  | `List of 'a list
+]
 
 (** Information specified in a message send operation. *)
 type send_pack = {
@@ -357,6 +363,7 @@ and constructor_spec = {
   variant_ty_name: identifier;
   variant: identifier;
 }
+(** A message type. This is a pair of the message type name and the direction. *)
 
 (** An expression. This is the basic building block for a program. *)
 and expr =
@@ -365,7 +372,7 @@ and expr =
   | Call of identifier *(expr_node list)
   (* send and recv *)
   | Assign of lvalue * expr_node
-  | Binop of binop * expr_node * expr_node
+  | Binop of binop * expr_node * (expr_node singleton_or_list)
   | Unop of unop * expr_node
   | Tuple of expr_node list
   | Let of identifier list * expr_node
@@ -516,8 +523,8 @@ let cunit_add_import (c : compilation_unit) (im : import_directive) : compilatio
 (** Reverse a message direction. *)
 let reverse (msg_dir : message_direction) : message_direction =
   match msg_dir with
-  | In -> Out
-  | Out -> In
+  | Inp -> Out
+  | Out -> Inp
 
 let get_message_direction (msg_dir : message_direction)
             (endpoint_dir : endpoint_direction) : message_direction =
@@ -565,8 +572,12 @@ let rec substitute_expr_identifier (id: identifier) (value: expr_node) (expr: ex
       Record (name, List.map (fun (field_name, field_expr) ->
         (field_name, substitute_expr_identifier id value field_expr)
       ) fields)
-  | Binop (op, e1, e2) ->
-      Binop (op, substitute_expr_identifier id value e1, substitute_expr_identifier id value e2)
+  | Binop (op, e1, e2_opt) ->
+    let new_e2_opt = match e2_opt with
+    | `Single e2 -> `Single (substitute_expr_identifier id value e2)
+    | `List exprs -> `List (List.map (substitute_expr_identifier id value) exprs)
+    in
+    Binop (op, substitute_expr_identifier id value e1, new_e2_opt)
   | Unop (op, e) ->
       Unop (op, substitute_expr_identifier id value e)
   | Tuple exprs ->

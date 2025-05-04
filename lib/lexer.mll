@@ -56,6 +56,7 @@ rule read =
   | "assigned" { KEYWORD_ASSIGNED }
   | "by"      { KEYWORD_BY }
   | "func"    { KEYWORD_FUNCTION }
+  | "in"      { KEYWORD_IN }
   | "call"    { KEYWORD_CALL }
   | "loop"    { KEYWORD_LOOP }
   | "proc"    { KEYWORD_PROC }

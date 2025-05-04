@@ -52,6 +52,7 @@
 %token KEYWORD_LET          (* let *)
 %token KEYWORD_SEND         (* send *)
 %token KEYWORD_RECV         (* recv *)
+%token KEYWORD_IN          (* in *)
 %token KEYWORD_ETERNAL      (* eternal *)
 %token KEYWORD_TYPE         (* type *)
 %token KEYWORD_SET          (* set *)
@@ -544,31 +545,33 @@ recv_pack:
 
 bin_expr:
 | v1 = node(expr); DOUBLE_EQ; v2 = node(expr)
-  { Lang.Binop (Lang.Eq, v1, v2) }
+  { Lang.Binop (Lang.Eq, v1, (`Single v2)) }
+| v1 = node(expr); KEYWORD_IN; LEFT_BRACE; v2 = separated_list(COMMA, node(expr)); RIGHT_BRACE
+  { Lang.Binop (Lang.In, v1, (`List v2)) }
 | v1 = node(expr); EXCL_EQ; v2 = node(expr)
-  { Lang.Binop (Lang.Neq, v1, v2) }
+  { Lang.Binop (Lang.Neq, v1, (`Single v2)) }
 | v1 = node(expr); DOUBLE_LEFT_ABRACK; v2 = node(expr)
-  { Lang.Binop (Lang.Shl, v1, v2) }
+  { Lang.Binop (Lang.Shl, v1, (`Single v2)) }
 | v1 = node(expr); DOUBLE_RIGHT_ABRACK; v2 = node(expr)
-  { Lang.Binop (Lang.Shr, v1, v2) }
+  { Lang.Binop (Lang.Shr, v1, (`Single v2)) }
 | v1 = node(expr); LEFT_ABRACK; v2 = node(expr)
-  { Lang.Binop (Lang.Lt, v1, v2) }
+  { Lang.Binop (Lang.Lt, v1, (`Single v2)) }
 | v1 = node(expr); RIGHT_ABRACK; v2 = node(expr)
-  { Lang.Binop (Lang.Gt, v1, v2) }
+  { Lang.Binop (Lang.Gt, v1, (`Single v2)) }
 | v1 = node(expr); LEFT_ABRACK_EQ; v2 = node(expr)
-  { Lang.Binop (Lang.Lte, v1, v2) }
+  { Lang.Binop (Lang.Lte, v1, (`Single v2)) }
 | v1 = node(expr); RIGHT_ABRACK_EQ; v2 = node(expr)
-  { Lang.Binop (Lang.Gte, v1, v2) }
+  { Lang.Binop (Lang.Gte, v1, (`Single v2)) }
 | v1 = node(expr); PLUS; v2 = node(expr)
-  { Lang.Binop (Lang.Add, v1, v2) }
+  { Lang.Binop (Lang.Add, v1, (`Single v2)) }
 | v1 = node(expr); MINUS; v2 = node(expr)
-  { Lang.Binop (Lang.Sub, v1, v2) }
+  { Lang.Binop (Lang.Sub, v1, (`Single v2)) }
 | v1 = node(expr); XOR; v2 = node(expr)
-  { Lang.Binop (Lang.Xor, v1, v2) }
+  { Lang.Binop (Lang.Xor, v1, (`Single v2)) }
 | v1 = node(expr); AND; v2 = node(expr)
-  { Lang.Binop (Lang.And, v1, v2) }
+  { Lang.Binop (Lang.And, v1, (`Single v2)) }
 | v1 = node(expr); OR; v2 = node(expr)
-  { Lang.Binop (Lang.Or, v1, v2) }
+  { Lang.Binop (Lang.Or, v1, (`Single v2)) }
 ;
 // What is UMinus UAND UOR
 un_expr:
@@ -628,7 +631,7 @@ message_def:
   {
     let (send_sync_mode_opt, recv_sync_mode_opt) =
       match dir with
-      | Lang.In -> (right_sync_mode_opt, left_sync_mode_opt)
+      | Lang.Inp -> (right_sync_mode_opt, left_sync_mode_opt)
       | Lang.Out -> (left_sync_mode_opt, right_sync_mode_opt)
     in
     let send_sync_mode = Option.value ~default:Lang.Dynamic send_sync_mode_opt
@@ -674,7 +677,7 @@ message_sync_mode_spec:
 
 message_direction:
 | KEYWORD_LEFT
-  { Lang.In }
+  { Lang.Inp }
 | KEYWORD_RIGHT
   { Lang.Out }
 ;

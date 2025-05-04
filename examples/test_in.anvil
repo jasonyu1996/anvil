@@ -1,0 +1,13 @@
+proc test_in(){
+    loop{
+        let a = 4'd5;
+        if(a in {4'd1,4'd2,4'd3,4'd5}){
+            dprint "In works" ()
+        }
+        else{
+            dprint "In doesn't work" ()
+        }>>
+        cycle 1
+        dprint "Looping..." ()
+    }
+}

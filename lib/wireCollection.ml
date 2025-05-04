@@ -19,7 +19,7 @@ module Wire = struct
   }
   and wire_source =
     | Literal of Lang.literal
-    | Binary of Lang.binop * t * t
+    | Binary of Lang.binop * t * (t Lang.singleton_or_list)
     | Unary of Lang.unop * t
     | Switch of (t * t) list * t (* (cond, val) list, default *)
     | Cases of t * (t * t) list * t (* (cond v, case pat, val) list, default *)
@@ -43,7 +43,9 @@ module Wire = struct
   (* TODO: error handling *)
   let new_binary id thread_id _typedefs (_macro_defs: Lang.macro_def list) binop w1 w2 =
     let sz1 = w1.size
-    and sz2 = w2.size in
+    and sz2 = match w2 with
+    | `List ws -> List.map (fun w -> w.size) ws |> List.fold_left max 0
+    | `Single w -> w.size in
     let sz = let open Lang in match binop with
     | Add | Sub | Xor | And | Or | Mul ->
       (* TODO: performance improvement *)
@@ -51,15 +53,26 @@ module Wire = struct
       (* if sz1 = sz2 then
         Some sz1
       else None *)
-    | Lt | Gt | Lte | Gte | Eq | Neq -> Some 1
+    | Lt | Gt | Lte | Gte | Eq | Neq | In -> Some 1
     | Shl | Shr -> Some sz1 in
-    {
-      id;
-      thread_id;
-      source = Binary (binop, w1, w2);
-      size = Option.get sz;
-      is_const = w1.is_const && w2.is_const;
-    }
+    match w2 with
+    | `List w2l -> 
+      let w2_const = List.for_all (fun w -> w.is_const) w2l in
+      {
+        id;
+        thread_id;
+        source = Binary (binop, w1, w2);
+        size = Option.get sz;
+        is_const = w1.is_const && w2_const;
+      }
+    | `Single w ->
+      {
+        id;
+        thread_id;
+        source = Binary (binop, w1, `Single w);
+        size = Option.get sz;
+        is_const = w1.is_const && w.is_const;
+      }
 
   let new_unary id thread_id _typedefs unop ow =
     {
@@ -191,7 +204,7 @@ let add_literal thread_id (typedefs : TypedefMap.t) (macro_defs: Lang.macro_def 
   (add_wire wc w, w)
 
 let add_binary thread_id (typedefs : TypedefMap.t) (macro_defs: Lang.macro_def list) (op : Lang.binop)
-              (w1 : wire) (w2 : wire) (wc : t) : t * wire =
+              (w1 : wire) (w2 : wire Lang.singleton_or_list) (wc : t) : t * wire =
   let id = wc.wire_last_id + 1 in
   let w = Wire.new_binary id thread_id typedefs macro_defs op w1 w2 in
   (add_wire wc w, w)
