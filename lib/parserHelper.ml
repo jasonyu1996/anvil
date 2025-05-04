@@ -52,7 +52,7 @@ let hex_literal_of_string (s : string) : literal =
     | 'f' -> `Zf
     | _ -> raise (LiteralConversionError [Text "Bad character in hexadecimal literal!"])
   in
-  let spl = String.split_on_char 'd' s in
+  let spl = String.split_on_char 'h' s in
   let base =  List.nth spl 1 |>
   String.fold_left (fun hm c -> let d = hexit_of_char c in d::hm) [] in
   let len = String.split_on_char '\'' s |> List.hd |> int_of_string in

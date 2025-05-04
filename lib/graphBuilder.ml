@@ -176,7 +176,7 @@ let binop_td_const graph (ci:cunit_info) _ctx span op n td =
   else (graph.wires, w) in
   let (wires'', wconst) = WireCollection.add_literal graph.thread_id
      ci.typedefs ci.macro_defs (WithLength (sz', n)) wires' in
-  let (wires''', wres) = WireCollection.add_binary graph.thread_id ci.typedefs ci.macro_defs op w' wconst wires'' in
+  let (wires''', wres) = WireCollection.add_binary graph.thread_id ci.typedefs ci.macro_defs op w' (`Single wconst) wires'' in
   graph.wires <- wires''';
   {td with w = Some wres; dtype = `Array (`Logic, ParamEnv.Concrete sz')}
 
@@ -200,7 +200,7 @@ let binop_td_td graph (ci:cunit_info) ctx span op td1 td2 =
     ci.typedefs ci.macro_defs (Lang.WithLength (sz' - sz2, 0)) wires' in
     WireCollection.add_concat graph.thread_id ci.typedefs ci.macro_defs [padding; w2] wires'
   else (wires', w2) in
-  let (wires', wres) = WireCollection.add_binary graph.thread_id ci.typedefs ci.macro_defs op w1' w2' wires' in
+  let (wires', wres) = WireCollection.add_binary graph.thread_id ci.typedefs ci.macro_defs op w1' (`Single w2') wires' in
   graph.wires <- wires';
   let open Typing in
   let new_dtype = (`Array (`Logic, ParamEnv.Concrete sz')) in
@@ -222,7 +222,15 @@ let rec recurse_unfold expr_full_node expr_node =
     | Assign (lval, expr_node') ->
       Assign (lval, unfold expr_node')
     | Binop (op, e1, e2) ->
-      Binop (op, unfold e1, unfold e2)
+      ( match e2 with
+        | `List es2 ->
+          let es2' = List.map unfold es2 in
+          let e1' = unfold e1 in
+          Binop (op, e1', `List es2')
+        | `Single e2' ->
+          let e2n = unfold e2' in
+          Binop (op, unfold e1, (`Single e2n))
+      )
     | Unop (op, expr_node') ->
       Unop (op, unfold expr_node')
     | Tuple expr_nodes ->
@@ -360,14 +368,30 @@ and visit_expr (graph : event_graph) (ci : cunit_info)
       ) td_args func.args;
       visit_expr graph ci !ctx' func.body
   | Binop (binop, e1, e2) ->
-    let td1 = visit_expr graph ci ctx e1
-    and td2 = visit_expr graph ci ctx e2 in
-    let w1 = unwrap_or_err "Invalid value" e1.span td1.w
-    and w2 = unwrap_or_err "Invalid value" e2.span td2.w in
-    let (wires', w) = WireCollection.add_binary graph.thread_id ci.typedefs ci.macro_defs binop w1 w2 graph.wires in
-    graph.wires <- wires';
-    let new_dtype = `Array (`Logic, ParamEnv.Concrete w.size) in
-    Typing.merged_data graph (Some w) new_dtype ctx.current [td1; td2]
+    (
+      let td1 = visit_expr graph ci ctx e1 in
+      let w1 = unwrap_or_err "Invalid value" e1.span td1.w in
+      match e2 with
+      | `List ws2 ->
+        let td2_list = List.map (fun e2 ->
+          let td2 = visit_expr graph ci ctx e2 in
+          td2
+        ) ws2 in
+        let w2_list = List.map (fun td2 ->
+          unwrap_or_err "Invalid value of second operator" e1.span td2.w
+        ) td2_list in
+        let (wires', w) = WireCollection.add_binary graph.thread_id ci.typedefs ci.macro_defs binop w1 (`List w2_list) graph.wires in
+        graph.wires <- wires';
+        let new_dtype = `Array (`Logic, ParamEnv.Concrete w.size) in
+        Typing.merged_data graph (Some w) new_dtype ctx.current (List.concat [[td1]; td2_list])
+      | `Single e ->
+        let td2 = visit_expr graph ci ctx e in
+        let w2 = unwrap_or_err "Invalid value of second operator" e1.span td2.w in
+        let (wires', w) = WireCollection.add_binary graph.thread_id ci.typedefs ci.macro_defs binop w1 (`Single w2) graph.wires in
+        graph.wires <- wires';
+        let new_dtype = `Array (`Logic, ParamEnv.Concrete w.size) in
+        Typing.merged_data graph (Some w) new_dtype ctx.current [td1; td2]
+    )
   | Unop (unop, e') ->
     let td = visit_expr graph ci ctx e' in
     let w' = unwrap_or_err "Invalid value" e'.span td.w in
@@ -703,7 +727,7 @@ and visit_expr (graph : event_graph) (ci : cunit_info)
   | Recv recv_pack ->
     let msg = MessageCollection.lookup_message graph.messages recv_pack.recv_msg_spec ci.channel_classes
       |> unwrap_or_err "Invalid message specifier in receive" e.span in
-    if msg.dir <> In then (
+    if msg.dir <> Inp then (
       (* mismatching direction *)
       raise (event_graph_error_default "Mismatching message direction!" e.span)
     );
@@ -717,7 +741,7 @@ and visit_expr (graph : event_graph) (ci : cunit_info)
     let td = visit_expr graph ci ctx e' in
     let w = unwrap_or_err "Invalid value in indirection" e'.span td.w in
     let (offset_le, len, new_dtype) = TypedefMap.data_type_indirect ci.typedefs ci.macro_defs td.dtype fieldname
-      |> unwrap_or_err "Invalid indirection" e.span in
+      |> unwrap_or_err (Printf.sprintf "Invalid indirection %s" fieldname) e.span in
     let (wires', new_w) = WireCollection.add_slice graph.thread_id w (Const offset_le) len graph.wires in
     graph.wires <- wires';
     {

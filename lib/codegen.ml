@@ -113,10 +113,20 @@ let codegen_wire_assignment printer (graphs : event_graph_collection) (g : event
       match w.source with
       | Literal lit -> Format.format_literal lit
       | Binary (binop, w1, w2) ->
-        Printf.sprintf "%s %s %s"
-          (Format.format_wirename w1.thread_id w1.id)
-          (Format.format_binop binop)
-          (Format.format_wirename w2.thread_id w2.id)
+        (
+          match w2 with
+          | `List ws2 ->
+            Printf.sprintf "%s %s {%s}"
+              (Format.format_wirename w1.thread_id w1.id)
+              (Format.format_binop binop)
+              (List.map (fun (w' : WireCollection.wire) -> Format.format_wirename w'.thread_id w'.id) ws2 |>
+            String.concat ", ")
+          | `Single w2n ->
+              Printf.sprintf "%s %s %s"
+                (Format.format_wirename w1.thread_id w1.id)
+                (Format.format_binop binop)
+                (Format.format_wirename w2n.thread_id w2n.id)
+        )
       | Unary (unop, w') ->
         Printf.sprintf "%s%s"
           (Format.format_unop unop)
@@ -253,7 +263,7 @@ let codegen_proc printer (graphs : EventGraph.event_graph_collection) (g : proc_
       List.iter (fun p ->
         let open CodegenPort in
         match p.dir with
-        | In -> ()
+        | Inp -> ()
         | Out -> (
           if Utils.StringSet.mem p.name !connected_ports |> not then (
             (* not connected, assign default values *)

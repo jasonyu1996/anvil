@@ -314,7 +314,7 @@
 				},
 				{
 					"name": "keyword.control.anvil",
-					"match": "(?<!\\$)\\b(call|loop|recursive|if|else|try|recurse|recv|send|dprint|dfinish|set|cycle|sync|match|put|ready)\\b(?!\\$)"
+					"match": "(?<!\\$)\\b(call|loop|recursive|if|else|try|recurse|recv|send|dprint|dfinish|set|cycle|sync|match|put|ready|in|probe)\\b(?!\\$)"
 				},
 				{
 					"name": "keyword.other.anvil",

@@ -37,11 +37,11 @@ let gather_ports_from_endpoint (channel_classes : channel_class_def list) (endpo
 let gather_ports (channel_classes : channel_class_def list) (endpoints : endpoint_def list) : t list =
   List.concat_map (gather_ports_from_endpoint channel_classes) endpoints
 
-let clk = {dir = In; dtype = `Logic; name = "clk_i"}
-let rst = {dir = In; dtype = `Logic; name = "rst_ni"}
+let clk = {dir = Inp; dtype = `Logic; name = "clk_i"}
+let rst = {dir = Inp; dtype = `Logic; name = "rst_ni"}
 
 let format (typedefs : TypedefMap.t) (macro_defs: macro_def list) port =
   let inout = match port.dir with
-    | In -> "input"
+    | Inp -> "input"
     | Out -> "output"
   in Printf.sprintf "%s %s %s" inout (CodegenFormat.format_dtype typedefs macro_defs port.dtype) port.name
