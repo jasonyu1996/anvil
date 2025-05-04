@@ -89,7 +89,7 @@
 %left LEFT_BRACKET XOR AND OR PLUS MINUS
 %left DOUBLE_LEFT_ABRACK DOUBLE_RIGHT_ABRACK
 %left PERIOD
-%nonassoc TILDE UMINUS UAND UOR
+%nonassoc TILDE UMINUS UAND UOR KEYWORD_IN
 %start <Lang.compilation_unit> cunit
 %%
 
@@ -590,7 +590,7 @@ bin_expr:
 | v1 = node(expr); OR; v2 = node(expr)
   { Lang.Binop (Lang.Or, v1, (`Single v2)) }
 ;
-// What is UMinus UAND UOR
+
 un_expr:
 | MINUS; e = node(expr)
   { Lang.Unop (Lang.Neg, e) } %prec UMINUS
