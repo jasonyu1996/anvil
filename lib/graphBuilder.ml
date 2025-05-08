@@ -493,7 +493,7 @@ and visit_expr (graph : event_graph) (ci : cunit_info)
       | None, None -> {w = None; lt; reg_borrows = reg_borrows'; dtype = unit_dtype}
       | Some w2, Some w3 ->
       (* TODO: check that the data types are the same *)
-        let (wires', w) = WireCollection.add_switch graph.thread_id ci.typedefs [(w2, w3)] w1 graph.wires in
+        let (wires', w) = WireCollection.add_switch graph.thread_id ci.typedefs [(w1, w2)] w3 graph.wires in
         graph.wires <- wires';
         {w = Some w; lt; reg_borrows = reg_borrows'; dtype = td2.dtype}
       | _ -> raise (event_graph_error_default "Invalid if expression!" e.span)
@@ -543,7 +543,7 @@ and visit_expr (graph : event_graph) (ci : cunit_info)
       | None, None -> {w = None; lt; reg_borrows = reg_borrows'; dtype = unit_dtype}
       | Some w1, Some w2 ->
       (* TODO: check that the data types are the same *)
-        let (wires', w) = WireCollection.add_switch graph.thread_id ci.typedefs [(w1, w2)] w_cond graph.wires in
+        let (wires', w) = WireCollection.add_switch graph.thread_id ci.typedefs [(w_cond, w1)] w2 graph.wires in
         graph.wires <- wires';
         {w = Some w; lt; reg_borrows = reg_borrows'; dtype = td2.dtype}
       | _ -> raise (event_graph_error_default "Invalid try send expression!" e.span)
@@ -605,7 +605,7 @@ and visit_expr (graph : event_graph) (ci : cunit_info)
       | None, None -> {w = None; lt; reg_borrows = reg_borrows'; dtype = unit_dtype}
       | Some w1, Some w2 ->
       (* TODO: check that the data types are the same *)
-        let (wires', w) = WireCollection.add_switch graph.thread_id ci.typedefs [(w1, w2)] w_cond graph.wires in
+        let (wires', w) = WireCollection.add_switch graph.thread_id ci.typedefs [(w_cond, w1)] w2 graph.wires in
         graph.wires <- wires';
         {w = Some w; lt; reg_borrows = reg_borrows'; dtype = td2.dtype}
       | _ -> raise (event_graph_error_default "Invalid try recv expression!" e.span)

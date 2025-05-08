@@ -57,7 +57,7 @@ module Wire = struct
     | Lt | Gt | Lte | Gte | Eq | Neq | In -> Some 1
     | Shl | Shr -> Some sz1 in
     match w2 with
-    | `List w2l -> 
+    | `List w2l ->
       let w2_const = List.for_all (fun w -> w.is_const) w2l in
       {
         id;
@@ -225,6 +225,7 @@ let add_unary thread_id (typedefs : TypedefMap.t) (op : Lang.unop)
   let w = Wire.new_unary id thread_id typedefs op ow in
   (add_wire wc w, w)
 
+(** Add a wire that is [c1 ? w1 : c2 ? w2 : ... : wd] given list of [(ci, wi)] and [wd]. *)
 let add_switch thread_id (typedefs : TypedefMap.t) (sw : (wire * wire) list)
               (default : wire) (wc : t) : t * wire =
   let id = wc.wire_last_id + 1 in

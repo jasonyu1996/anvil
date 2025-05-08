@@ -10,6 +10,8 @@ tot=0
 
 temp_result=$(mktemp)
 
+failed_cases=""
+
 for test_file in $TEST_FILES; do
     t="${test_file%.*}"
     echo "Testing $t ..."
@@ -27,6 +29,7 @@ for test_file in $TEST_FILES; do
                 passed=$(expr $passed + 1)
             else
                 echo "Failed: $t"
+                failed_cases="$failed_cases $t"
             fi
         else
             echo "Build success. Test skipped"
@@ -34,7 +37,15 @@ for test_file in $TEST_FILES; do
         fi
     else
         echo "Failed (build): $t"
+        failed_cases="$failed_cases $t"
     fi
 done
 
 echo "Testing stats = $passed/$tot"
+
+if [ -n "$failed_cases" ]; then
+    echo "Failed cases:"
+    for t in $failed_cases; do
+        echo " $t"
+    done
+fi

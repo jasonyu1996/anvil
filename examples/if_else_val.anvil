@@ -1,0 +1,12 @@
+proc if_else_val() {
+  loop {
+    let a = if 1'b1 {
+      4'b0100
+    } else {
+      4'b1000
+    } >>
+    dprint "Value is %h" (a);
+    cycle 1 >>
+    dfinish
+  }
+}
