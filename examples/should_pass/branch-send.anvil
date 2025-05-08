@@ -1,0 +1,29 @@
+chan ch {
+  left req : (logic@#1),
+  right resp : (logic@req)
+}
+
+proc Sub(e : left ch) {
+  loop {
+    try r = recv e.req {
+      if 1'b1 {
+        cycle 1 >>
+        send e.resp (1'b1)
+      } else {
+        cycle 1 >>
+        send e.resp (1'b0)
+      }
+    } else {
+      cycle 1
+    }
+  }
+}
+
+proc Top() {
+  chan le -- ri : ch;
+  spawn Sub(le);
+  loop {
+    cycle 1 >>
+    dfinish
+  }
+}

@@ -181,9 +181,12 @@ let lifetime_in_range events lookup_message (lt1 : lifetime) (lt2 : lifetime) =
 (** Definitely disjoint? *)
 let lifetime_disjoint events lookup_message lt1 lt2 =
   assert (List.length lt1.dead = 1);
+  (* if the lifetimes start at mutually unreachable events, the lifetimes are disjoint *)
+  let reachable = events_reachable events lt1.live in
   (* to be disjoint, either r1 <= l2 or r2 <= l1 *)
-  (event_pat_rel2 events lookup_message lt1.dead [(lt2.live, `Cycles 0)])
-  || (List.for_all (fun de -> event_pat_rel2 events lookup_message [de] [(lt1.live, `Cycles 0)]) lt2.dead)
+  not reachable.(lt2.live.id)
+    || (event_pat_rel2 events lookup_message lt1.dead [(lt2.live, `Cycles 0)])
+    || (List.for_all (fun de -> event_pat_rel2 events lookup_message [de] [(lt1.live, `Cycles 0)]) lt2.dead)
 
 
 (* An internal identifier for a message specifier. *)
