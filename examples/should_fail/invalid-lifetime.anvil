@@ -1,0 +1,23 @@
+chan ch {
+  left req : (logic@res)
+}
+
+proc sub(e : left ch) {
+  loop {
+    let r = recv e.req >>
+    cycle 9 >>
+    dprint "Can use it %d" (r)
+  }
+}
+
+proc Top() {
+  chan el -- er : ch;
+  spawn sub(el);
+  loop {
+    send er.req (1'b1) >>
+    cycle 1 >>
+    send er.req (1'b0) >>
+    cycle 10 >>
+    dfinish
+  }
+}

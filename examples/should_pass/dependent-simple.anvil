@@ -2,7 +2,7 @@
 
 chan Reg_itfc {
     left input_v : (logic@#1) @dyn-@#1,
-    right output : (logic@#1) @#data+1-@#data+1
+    right output : (logic@#1) @#input_v+1-@#input_v+1
 }
 
 proc Reg (endp : left Reg_itfc) {

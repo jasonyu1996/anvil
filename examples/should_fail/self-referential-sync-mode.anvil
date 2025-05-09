@@ -1,0 +1,9 @@
+chan ch {
+    left req : (logic@#1) @#req+1 // req references itself which is not allowed
+}
+
+proc Top() {
+    loop {
+        cycle 1
+    }
+}

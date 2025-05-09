@@ -2,7 +2,7 @@
 
 chan Reg_itfc<T : type> {
     left input_v : (T@#1) @#1-@dyn,
-    right output : (T@#1) @#input_v+1-@#input_v+1
+    right output : (T@#1) @#data+1-@#data+1
 }
 
 proc Reg<T : type> (endp : left Reg_itfc<T>) {
