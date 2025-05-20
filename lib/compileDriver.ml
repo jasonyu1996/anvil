@@ -115,7 +115,7 @@ let compile out config =
             (* hacky *)
             {cunit_file_name = Some file_name;
             channel_classes = all_channel_classes; type_defs = all_type_defs;
-            procs = [proc]; imports = []; _extern_procs = [];
+            procs = [proc]; imports = [];
             func_defs = all_func_defs;
             macro_defs = all_macro_defs} in
           let graph_collection =
@@ -163,7 +163,7 @@ let compile out config =
   ) !cunits;
   (* generate the code from event graphs *)
   let all_collections = Queue.to_seq graph_collection_queue |> List.of_seq in
-  let all_event_graphs = List.concat_map (fun collection -> let open EventGraph in collection.event_graphs) all_collections in
+  let all_event_graphs = List.concat_map (fun collection -> let open EventGraph in collection.procs) all_collections in
   List.iter (fun graphs ->
     Codegen.generate out config
      {graphs with EventGraph.external_event_graphs = all_event_graphs}) all_collections

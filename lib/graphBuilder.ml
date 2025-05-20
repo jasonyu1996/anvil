@@ -20,9 +20,9 @@ module Typing = struct
   type context = binding Utils.string_map
 
   type build_context = {
+    proc : proc_graph;
     typing_ctx : context;
     current : event;
-    shared_vars_info : (identifier, shared_var_info) Hashtbl.t;
     lt_check_phase : bool;
   }
 
@@ -118,10 +118,10 @@ module Typing = struct
 
   module BuildContext = struct
     type t = build_context
-    let create_empty g si lt_check_phase: t = {
+    let create_empty proc g lt_check_phase: t = {
+      proc;
       typing_ctx = context_empty;
       current = event_create g (`Root None);
-      shared_vars_info = si;
       lt_check_phase;
     }
 
@@ -282,7 +282,7 @@ let rec lvalue_info_of graph (ci:cunit_info) ctx span lval =
   and binop_td_td = binop_td_td graph ci ctx span in
   match lval with
   | Reg ident ->
-    let r = Utils.StringMap.find_opt ident graph.regs
+    let r = Utils.StringMap.find_opt ident ctx.proc.regs
       |> unwrap_or_err ("Undefined register " ^ ident) span in
     let sz = TypedefMap.data_type_size ci.typedefs ci.macro_defs r.dtype in
     {
@@ -327,7 +327,7 @@ and visit_expr (graph : event_graph) (ci : cunit_info)
     Typing.const_data graph (Some w) (dtype_of_literal lit :> data_type) ctx.current
   | Sync ident ->
     (
-      let shared_info = Hashtbl.find_opt ctx.shared_vars_info ident
+      let shared_info = Hashtbl.find_opt ctx.proc.shared_vars_info ident
         |> unwrap_or_err ("Undefined identifier: " ^ ident) e.span in
       Typing.sync_event_data graph ident shared_info.value ctx.current
     )
@@ -443,7 +443,7 @@ and visit_expr (graph : event_graph) (ci : cunit_info)
         visit_expr graph ci ctx' e2
     )
   | Ready msg_spec ->
-    let _ = MessageCollection.lookup_message graph.messages msg_spec ci.channel_classes
+    let _ = MessageCollection.lookup_message ctx.proc.messages msg_spec ci.channel_classes
       |> unwrap_or_err "Invalid message specifier in ready" e.span in
     (* if msg.dir <> In then (
       (* mismatching direction *)
@@ -453,7 +453,7 @@ and visit_expr (graph : event_graph) (ci : cunit_info)
     graph.wires <- wires;
     Typing.immediate_data graph (Some msg_valid_port) `Logic ctx.current
   | Probe msg_spec ->
-    let _ = MessageCollection.lookup_message graph.messages msg_spec ci.channel_classes
+    let _ = MessageCollection.lookup_message ctx.proc.messages msg_spec ci.channel_classes
     |> unwrap_or_err "Invalid message specifier in probe" e.span in
     let wires, msg_ack_port = WireCollection.add_msg_ack_port graph.thread_id ci.typedefs msg_spec graph.wires in
     graph.wires <- wires;
@@ -570,7 +570,7 @@ and visit_expr (graph : event_graph) (ci : cunit_info)
     let (br_side_true, ctx_true_no_binding) = BuildContext.branch_side graph ctx branch_info 0 in
 
     (* message *)
-    let msg = MessageCollection.lookup_message graph.messages recv_pack.recv_msg_spec ci.channel_classes
+    let msg = MessageCollection.lookup_message ctx.proc.messages recv_pack.recv_msg_spec ci.channel_classes
       |> unwrap_or_err "Invalid message specifier in try receive" e.span in
     let (wires', w_recv) = WireCollection.add_msg_port graph.thread_id ci.typedefs ci.macro_defs recv_pack.recv_msg_spec 0 msg graph.wires in
     graph.wires <- wires';
@@ -691,7 +691,7 @@ and visit_expr (graph : event_graph) (ci : cunit_info)
     let new_dtype = `Array (`Logic, ParamEnv.Concrete w.size) in
     List.map snd tds |> Typing.merged_data graph (Some w) new_dtype ctx.current
   | Read reg_ident ->
-    let r = Utils.StringMap.find_opt reg_ident graph.regs
+    let r = Utils.StringMap.find_opt reg_ident ctx.proc.regs
       |> unwrap_or_err ("Undefined register " ^ reg_ident) e.span in
     let (wires', w) = WireCollection.add_reg_read graph.thread_id ci.typedefs ci.macro_defs r graph.wires in
     graph.wires <- wires';
@@ -711,7 +711,7 @@ and visit_expr (graph : event_graph) (ci : cunit_info)
     )
   | Send send_pack ->
     (* just check that the endpoint and the message type is defined *)
-    let msg = MessageCollection.lookup_message graph.messages send_pack.send_msg_spec ci.channel_classes
+    let msg = MessageCollection.lookup_message ctx.proc.messages send_pack.send_msg_spec ci.channel_classes
       |> unwrap_or_err "Invalid message specifier in send" e.span in
     if msg.dir <> Out then (
       (* mismatching direction *)
@@ -726,7 +726,7 @@ and visit_expr (graph : event_graph) (ci : cunit_info)
       } |> tag_with_span e.span)::ctx.current.sustained_actions;
     ntd
   | Recv recv_pack ->
-    let msg = MessageCollection.lookup_message graph.messages recv_pack.recv_msg_spec ci.channel_classes
+    let msg = MessageCollection.lookup_message ctx.proc.messages recv_pack.recv_msg_spec ci.channel_classes
       |> unwrap_or_err "Invalid message specifier in receive" e.span in
     if msg.dir <> Inp then (
       (* mismatching direction *)
@@ -849,7 +849,7 @@ and visit_expr (graph : event_graph) (ci : cunit_info)
       | _ -> raise (event_graph_error_default "Invalid variant type name!" e.span)
     )
   | SharedAssign (id, value_expr) ->
-    let shared_info = Hashtbl.find_opt ctx.shared_vars_info id
+    let shared_info = Hashtbl.find_opt ctx.proc.shared_vars_info id
       |> unwrap_or_err ("Undefined identifier " ^ id) e.span in
     if graph.thread_id = shared_info.assigning_thread then
       let value_td = visit_expr graph ci ctx value_expr in
@@ -894,10 +894,10 @@ and visit_expr (graph : event_graph) (ci : cunit_info)
 module IntHashTbl = Hashtbl.Make(Int)
 
 (* unfold until sufficient for lifetime checks *)
-let recurse_unfold_for_checks ci shared_vars_info graph expr_node =
+let recurse_unfold_for_checks ci proc graph expr_node =
   let tmp_graph = {graph with last_event_id = -1} in
   let td = visit_expr tmp_graph ci
-    (BuildContext.create_empty tmp_graph shared_vars_info true)
+    (BuildContext.create_empty proc tmp_graph true)
     expr_node in
   (* now just check the total *)
   let root = List.find (fun e -> e.source = `Root None) tmp_graph.events in
@@ -929,11 +929,23 @@ let build_proc (config : Config.compile_config) sched module_name param_values
     let msg_collection = MessageCollection.create body.channels
                                       proc.args body.spawns ci.channel_classes in
     let spawns =
-    List.map (fun (s : spawn_def ast_node) ->
-      let module_name = BuildScheduler.add_proc_task sched ci.file_name s.span s.d.proc s.d.compile_params in
-      (module_name, s)
-    ) body.spawns in
+      List.map (fun (s : spawn_def ast_node) ->
+        let module_name = BuildScheduler.add_proc_task sched ci.file_name s.span s.d.proc s.d.compile_params in
+        (module_name, s)
+      ) body.spawns in
     let shared_vars_info = Hashtbl.create (List.length body.shared_vars) in
+    let proc_graph = {
+      name = module_name;
+      extern_module = None;
+      threads = [];
+      shared_vars_info;
+      messages = msg_collection;
+      channels = List.map data_of_ast_node body.channels;
+      proc_body = proc.body;
+      spawns = List.map (fun (ident, {d; _}) -> (ident, d)) spawns;
+      regs = List.map (fun (reg : Lang.reg_def ast_node) ->
+            (reg.d.name, reg.d)) body.regs |> Utils.StringMap.of_list;
+    } in
     List.iter (fun sv ->
       let v = {
         w = None;
@@ -952,11 +964,6 @@ let build_proc (config : Config.compile_config) sched module_name param_values
           thread_id = i;
           events = [];
           wires = WireCollection.empty;
-          channels = List.map data_of_ast_node body.channels;
-          messages = msg_collection;
-          spawns = List.map data_of_ast_node body.spawns;
-          regs = List.map (fun (reg : Lang.reg_def ast_node) ->
-                (reg.d.name, reg.d)) body.regs |> Utils.StringMap.of_list;
           last_event_id = -1;
           is_general_recursive = false;
           thread_codespan = e.span;
@@ -965,14 +972,14 @@ let build_proc (config : Config.compile_config) sched module_name param_values
         let graph_opt = if (not config.disable_lt_checks) || config.two_round_graph then (
           let tmp_graph = {graph with last_event_id = -1} in
           let td = visit_expr tmp_graph ci
-            (BuildContext.create_empty tmp_graph shared_vars_info true)
-            (recurse_unfold_for_checks ci shared_vars_info graph e) in
+            (BuildContext.create_empty proc_graph tmp_graph true)
+            (recurse_unfold_for_checks ci proc_graph graph e) in
           tmp_graph.last_event_id <- (EventGraphOps.find_last_event tmp_graph).id;
           tmp_graph.is_general_recursive <- tmp_graph.last_event_id <> td.lt.live.id;
           (* Optimisation *)
-          let tmp_graph = GraphOpt.optimize config true ci tmp_graph in
+          let tmp_graph = GraphOpt.optimize config true ci proc_graph tmp_graph in
           if not config.disable_lt_checks then (
-            LifetimeCheck.lifetime_check config ci tmp_graph
+            LifetimeCheck.lifetime_check config ci proc_graph tmp_graph
           );
           if config.two_round_graph then
             Some tmp_graph
@@ -983,21 +990,27 @@ let build_proc (config : Config.compile_config) sched module_name param_values
         | Some graph -> graph
         | None -> (
             (* discard after type checking *)
-            let ctx = (BuildContext.create_empty graph shared_vars_info false) in
+            let ctx = (BuildContext.create_empty proc_graph graph false) in
             let td = visit_expr graph ci ctx e in
             graph.last_event_id <- (EventGraphOps.find_last_event graph).id;
             graph.is_general_recursive <- graph.last_event_id <> td.lt.live.id;
-            GraphOpt.optimize config false ci graph
+            GraphOpt.optimize config false ci proc_graph graph
         )
       ) body.threads in
-      {name = module_name; extern_module = None;
-        threads = proc_threads; shared_vars_info; messages = msg_collection;
-        proc_body = proc.body; spawns = List.map (fun (ident, {d; _}) -> (ident, d)) spawns}
+      {proc_graph with threads = proc_threads}
     | Extern (extern_mod, _extern_body) ->
       let msg_collection = MessageCollection.create [] proc.args [] ci.channel_classes in
-      {name = module_name; extern_module = Some extern_mod; threads = [];
-        shared_vars_info = Hashtbl.create 0; messages = msg_collection;
-        proc_body = proc.body; spawns = []}
+      {
+        name = module_name;
+        extern_module = Some extern_mod;
+        threads = [];
+        shared_vars_info = Hashtbl.create 0;
+        messages = msg_collection;
+        channels = [];
+        proc_body = proc.body;
+        spawns = [];
+        regs = Utils.StringMap.empty
+      }
 
 let build (config : Config.compile_config) sched module_name param_values (cunit : compilation_unit) =
   let macro_defs = cunit.macro_defs in
@@ -1010,9 +1023,9 @@ let build (config : Config.compile_config) sched module_name param_values (cunit
     macro_defs;
     func_defs
   } in
-  let graphs = List.map (build_proc config sched module_name param_values ci ) cunit.procs in
+  let procs = List.map (build_proc config sched module_name param_values ci ) cunit.procs in
   {
-    event_graphs = graphs;
+    procs;
     typedefs;
     macro_defs;
     channel_classes = cunit.channel_classes;

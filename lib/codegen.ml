@@ -37,7 +37,7 @@ let codegen_spawns printer (graphs : event_graph_collection) (g : proc_graph) =
     let proc_other = CodegenHelpers.lookup_proc graphs.external_event_graphs module_name |> Option.get in
     let connect_endpoints = fun (arg_endpoint : endpoint_def) (param_ident : identifier) ->
       let endpoint_local = MessageCollection.lookup_endpoint g.messages param_ident |> Option.get in
-      let endpoint_name_local = CodegenFormat.canonicalize_endpoint_name param_ident (List.hd g.threads) in
+      let endpoint_name_local = CodegenFormat.canonicalize_endpoint_name param_ident g in
       let cc = MessageCollection.lookup_channel_class graphs.channel_classes endpoint_local.channel_class |> Option.get in
       let print_msg_con = fun (msg : message_def) ->
         let msg = ParamConcretise.concretise_message cc.params endpoint_local.channel_params msg in
@@ -63,7 +63,7 @@ let codegen_spawns printer (graphs : event_graph_collection) (g : proc_graph) =
     CodegenPrinter.print_line printer ~lvl_delta_pre:(-1) ");"
   in List.iteri gen_spawn g.spawns
 
-let codegen_endpoints printer (graphs : event_graph_collection) (g : event_graph) =
+let codegen_endpoints printer (graphs : event_graph_collection) (g : proc_graph) =
   let print_port_signal_decl = fun (port : port_def) ->
     Printf.sprintf "%s %s;" (Format.format_dtype graphs.typedefs graphs.macro_defs port.dtype) (port.name) |>
       CodegenPrinter.print_line printer
@@ -72,8 +72,8 @@ let codegen_endpoints printer (graphs : event_graph_collection) (g : event_graph
   CodegenPort.gather_ports graphs.channel_classes |>
   List.iter print_port_signal_decl
 
-let codegen_wire_assignment printer (graphs : event_graph_collection) (g : event_graph) (w : WireCollection.wire) =
-  let lookup_msg_def msg = MessageCollection.lookup_message g.messages msg graphs.channel_classes in
+let codegen_wire_assignment printer (graphs : event_graph_collection) (proc : proc_graph) (_g : event_graph) (w : WireCollection.wire) =
+  let lookup_msg_def msg = MessageCollection.lookup_message proc.messages msg graphs.channel_classes in
   match w.source with
   | Cases (vw, sw, d) -> (
     CodegenPrinter.print_line ~lvl_delta_post:1 printer
@@ -146,7 +146,7 @@ let codegen_wire_assignment printer (graphs : event_graph_collection) (g : event
         List.map (fun (w' : WireCollection.wire) -> Format.format_wirename w'.thread_id w'.id) ws |>
           String.concat ", " |> Printf.sprintf "{%s}"
       | MessagePort (msg, idx) ->
-        let msg_endpoint = CodegenFormat.canonicalize_endpoint_name msg.endpoint g in
+        let msg_endpoint = CodegenFormat.canonicalize_endpoint_name msg.endpoint proc in
         Format.format_msg_data_signal_name msg_endpoint msg.msg idx
       | Slice (w', base_i, len) ->
         Printf.sprintf "%s[%s +: %d]" (Format.format_wirename w'.thread_id w'.id)
@@ -155,12 +155,12 @@ let codegen_wire_assignment printer (graphs : event_graph_collection) (g : event
       | MessageValidPort msg ->
         let m = Option.get @@ lookup_msg_def msg in
         if CodegenPort.message_has_valid_port m then
-          CodegenFormat.format_msg_valid_signal_name (CodegenFormat.canonicalize_endpoint_name msg.endpoint g) msg.msg
+          CodegenFormat.format_msg_valid_signal_name (CodegenFormat.canonicalize_endpoint_name msg.endpoint proc) msg.msg
         else "1'b1"
       | MessageAckPort msg ->
         let m = Option.get @@ lookup_msg_def msg in
         if CodegenPort.message_has_valid_port m then
-          CodegenFormat.format_msg_ack_signal_name (CodegenFormat.canonicalize_endpoint_name msg.endpoint g) msg.msg
+          CodegenFormat.format_msg_ack_signal_name (CodegenFormat.canonicalize_endpoint_name msg.endpoint proc) msg.msg
         else "1'b1"
       | Cases _ | Update _ -> failwith "Something went wrong!"
     in
@@ -174,14 +174,14 @@ let codegen_wire_assignment printer (graphs : event_graph_collection) (g : event
         Printf.sprintf "assign %s = %s;" (Format.format_wirename w.thread_id w.id) expr
   )
 
-let codegen_post_declare printer (graphs : event_graph_collection) (g : event_graph) =
+let codegen_post_declare printer (graphs : event_graph_collection) (proc : proc_graph) (g : event_graph) =
   (* wire declarations *)
   let codegen_wire_decl = fun (w: WireCollection.wire) ->
     if not w.is_const then (* constants do not correspond to wires *)
       Printf.sprintf "%s %s;" (Format.format_dtype graphs.typedefs graphs.macro_defs (`Array (`Logic, ParamEnv.Concrete w.size))) (Format.format_wirename w.thread_id w.id) |>
         CodegenPrinter.print_line printer
   in List.iter codegen_wire_decl g.wires.wire_li;
-  List.iter (codegen_wire_assignment printer graphs g) @@ List.rev g.wires.wire_li (* reversed to generate from wire0 *)
+  List.iter (codegen_wire_assignment printer graphs proc g) @@ List.rev g.wires.wire_li (* reversed to generate from wire0 *)
   (* set send signals *)
   (* StringMap.iter (fun _ {msg_spec; select} ->
     let data_wires = gather_data_wires_from_msg ctx proc msg_spec
@@ -203,7 +203,7 @@ let codegen_post_declare printer (graphs : event_graph_collection) (g : event_gr
         List.iter (fun (buf : Buffer.t) -> Printf.printf "%s '0;\n" @@ Buffer.contents buf) ws_bufs
   ) ctx.sends *)
 
-let codegen_regs printer (graphs : event_graph_collection) (g : event_graph) =
+let codegen_regs printer (graphs : event_graph_collection) (g : proc_graph) =
   Utils.StringMap.iter
     (
       fun _ (r : reg_def) ->
@@ -273,14 +273,13 @@ let codegen_proc printer (graphs : EventGraph.event_graph_collection) (g : proc_
         )
       ) ports
     | _ ->
-      (* Generate endpoints, spawns, regs, and post-declare for the first thread *)
-      let initEvents = List.hd g.threads in
+      (* Generate endpoints, spawns, regs *)
 
-      codegen_endpoints printer graphs initEvents;
+      codegen_endpoints printer graphs g;
 
       codegen_spawns printer graphs g;
 
-      codegen_regs printer graphs initEvents;
+      codegen_regs printer graphs g;
 
       (* the init event register is shared across threads *)
       CodegenPrinter.print_line printer "logic _init;";
@@ -289,7 +288,7 @@ let codegen_proc printer (graphs : EventGraph.event_graph_collection) (g : proc_
 
       (* Iterate over all threads to print states *)
       List.iter (fun thread ->
-        codegen_post_declare printer graphs thread;
+        codegen_post_declare printer graphs g thread;
         CodegenStates.codegen_states printer graphs g thread;
       ) g.threads
   );
@@ -326,8 +325,8 @@ let generate (out : out_channel)
       List.iter (fun g ->
         EventGraphOps.print_dot_graph g Out_channel.stderr
       ) pg.threads
-    ) graphs.event_graphs;
+    ) graphs.procs;
   );
   let printer = CodegenPrinter.create out 2 in
-  List.iter (codegen_proc printer graphs) graphs.event_graphs
+  List.iter (codegen_proc printer graphs) graphs.procs
 

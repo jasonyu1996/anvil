@@ -418,16 +418,6 @@ and debug_op =
 let delay_immediate = `Cycles 0
 let delay_single_cycle = `Cycles 1
 
-type sig_def = {
-  name: identifier;
-  stype: sig_type;
-}
-
-type cycle_proc = {
-  trans_func: expr_node;
-  sigs: sig_def list;
-}
-
 (** A spawn of a process. *)
 type spawn_def = {
   proc: identifier;
@@ -497,12 +487,11 @@ type compilation_unit = {
   func_defs : func_def list;
   procs: proc_def list;
   imports : import_directive list;
-  _extern_procs : proc_def list; (** processes that are external, usable but not built *)
 }
 
 let cunit_empty : compilation_unit =
   {cunit_file_name = None; channel_classes = []; type_defs = [];
-  procs = []; imports = []; _extern_procs = []; macro_defs = [];func_defs = []}
+  procs = []; imports = []; macro_defs = [];func_defs = []}
 
 let cunit_add_channel_class
   (c : compilation_unit) (cc : channel_class_def) : compilation_unit =

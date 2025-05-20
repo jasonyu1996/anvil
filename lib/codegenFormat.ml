@@ -54,8 +54,8 @@ module Endpoint = struct
     | Left -> endpoint.name
     | Right -> Option.value ~default:endpoint.name endpoint.opp
 
-  let canonicalize_endpoint_name (endpoint_name : identifier) (g : event_graph) : identifier =
-    match MessageCollection.lookup_endpoint g.messages endpoint_name with
+  let canonicalize_endpoint_name (endpoint_name : identifier) (proc : proc_graph) : identifier =
+    match MessageCollection.lookup_endpoint proc.messages endpoint_name with
     | Some endpoint_local -> canonicalize endpoint_local
     | None -> endpoint_name
 end

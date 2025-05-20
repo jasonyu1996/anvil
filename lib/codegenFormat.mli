@@ -16,4 +16,4 @@ val format_wire_maybe_const : WireCollection.wire MaybeConst.maybe_int_const -> 
 (** When a pair of endpoints are instantiated within a process, the process has access to
 both of them although they merely mirror each other. This function {i canonicalises} a given endpoint
 name so in such cases both endpoints are transformed into the same name. *)
-val canonicalize_endpoint_name : Lang.identifier -> EventGraph.event_graph -> Lang.identifier
+val canonicalize_endpoint_name : Lang.identifier -> EventGraph.proc_graph -> Lang.identifier

@@ -94,7 +94,7 @@ let codegen_next printer (graphs : EventGraph.event_graph_collection)
           let sn = EventStateFormatter.format_syncstate g.thread_id e.id in
           let msg_def = lookup_msg_def msg |> Option.get in
           if CodegenPort.message_has_ack_port msg_def then (
-            let ack_n = CodegenFormat.format_msg_ack_signal_name (CodegenFormat.canonicalize_endpoint_name msg.endpoint g) msg.msg in
+            let ack_n = CodegenFormat.format_msg_ack_signal_name (CodegenFormat.canonicalize_endpoint_name msg.endpoint pg) msg.msg in
             [
               Printf.sprintf "assign %s = (%s || %s_q) && %s;" cn cn' sn ack_n;
               Printf.sprintf "assign %s_n = (%s || %s_q) && !%s;" sn cn' sn ack_n
@@ -109,7 +109,7 @@ let codegen_next printer (graphs : EventGraph.event_graph_collection)
           let sn = EventStateFormatter.format_syncstate g.thread_id e.id in
           let msg_def = lookup_msg_def msg |> Option.get in
           if CodegenPort.message_has_valid_port msg_def then (
-            let vld_n = CodegenFormat.format_msg_valid_signal_name (CodegenFormat.canonicalize_endpoint_name msg.endpoint g) msg.msg in
+            let vld_n = CodegenFormat.format_msg_valid_signal_name (CodegenFormat.canonicalize_endpoint_name msg.endpoint pg) msg.msg in
             [
               Printf.sprintf "assign %s = (%s || %s_q) && %s;" cn cn' sn vld_n;
               Printf.sprintf "assign %s_n = (%s || %s_q) && !%s;" sn cn' sn vld_n
@@ -248,7 +248,7 @@ let codegen_actions printer (g : EventGraph.event_graph) =
   List.iter print_event_actions g.events
 
 
-let codegen_transition printer (_graphs : EventGraph.event_graph_collection) (g : EventGraph.event_graph) =
+let codegen_transition printer (_graphs : EventGraph.event_graph_collection) (pg : EventGraph.proc_graph) (g : EventGraph.event_graph) =
   let open EventGraph in
   let print_line ?(lvl_delta_pre = 0) ?(lvl_delta_post = 0) =
     CodegenPrinter.print_line printer ~lvl_delta_pre:lvl_delta_pre ~lvl_delta_post:lvl_delta_post in
@@ -256,7 +256,7 @@ let codegen_transition printer (_graphs : EventGraph.event_graph_collection) (g 
   (* reset states *)
 
   let owned_regs = GraphAnalysis.graph_owned_regs g |> Utils.StringSet.of_list in
-  let owned_regs = Utils.StringMap.filter (fun name _ -> Utils.StringSet.mem name owned_regs) g.regs in
+  let owned_regs = Utils.StringMap.filter (fun name _ -> Utils.StringSet.mem name owned_regs) pg.regs in
 
   Printf.sprintf "always_ff @(posedge clk_i or negedge rst_ni) begin : _thread_%d_st_transition" g.thread_id |> print_line ~lvl_delta_post:1;
   print_line ~lvl_delta_post:1 "if (~rst_ni) begin";
@@ -295,7 +295,7 @@ let codegen_sustained_actions printer (graphs : EventGraph.event_graph_collectio
         let msg_def = lookup_msg_def msg |> Option.get in
         let has_ack_port = CodegenPort.message_has_ack_port msg_def in
         insert_to recv_or_assigns
-          (CodegenFormat.format_msg_ack_signal_name (CodegenFormat.canonicalize_endpoint_name msg.endpoint g) msg.msg)
+          (CodegenFormat.format_msg_ack_signal_name (CodegenFormat.canonicalize_endpoint_name msg.endpoint pg) msg.msg)
           has_ack_port
           activated
     in
@@ -304,11 +304,11 @@ let codegen_sustained_actions printer (graphs : EventGraph.event_graph_collectio
       let msg_def = lookup_msg_def msg |> Option.get in
       let has_valid_port = CodegenPort.message_has_valid_port msg_def in
       insert_to send_or_assigns
-        (CodegenFormat.format_msg_valid_signal_name (CodegenFormat.canonicalize_endpoint_name msg.endpoint g) msg.msg)
+        (CodegenFormat.format_msg_valid_signal_name (CodegenFormat.canonicalize_endpoint_name msg.endpoint pg) msg.msg)
         has_valid_port
         (
           activated,
-          CodegenFormat.format_msg_data_signal_name (CodegenFormat.canonicalize_endpoint_name msg.endpoint g) msg.msg 0,
+          CodegenFormat.format_msg_data_signal_name (CodegenFormat.canonicalize_endpoint_name msg.endpoint pg) msg.msg 0,
           CodegenFormat.format_wirename w.thread_id w.id
         )
     in
@@ -411,11 +411,10 @@ let codegen_states printer
   codegen_decl printer g;
   codegen_next printer graphs pg g;
   codegen_sustained_actions printer graphs pg g;
-  codegen_transition printer graphs g
+  codegen_transition printer graphs pg g
 
 let codegen_proc_states printer proc =
   let open EventGraph in
-  let g = List.hd proc.threads in
 
   CodegenPrinter.print_line ~lvl_delta_post:1 printer
     "always_ff @(posedge clk_i or negedge rst_ni) begin : _proc_transition";
@@ -430,7 +429,7 @@ let codegen_proc_states printer proc =
                 |> Utils.StringSet.of_list |> Utils.StringSet.union !owned_regs
   ) proc.threads;
 
-  Utils.StringMap.filter (fun name _ -> Utils.StringSet.mem name !owned_regs |> not) g.regs
+  Utils.StringMap.filter (fun name _ -> Utils.StringSet.mem name !owned_regs |> not) proc.regs
   |> Utils.StringMap.iter (
     fun _ (r : Lang.reg_def) ->
       let open CodegenFormat in

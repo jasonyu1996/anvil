@@ -168,12 +168,6 @@ and event_graph = {
   thread_id : int; (** unique identifier of the looping thread *)
   mutable events : event list;
   mutable wires : WireCollection.t;
-  channels : Lang.channel_def list; (** all channel definitions.
-          Note these do not include the channels passed from outside the process *)
-  messages : MessageCollection.t; (** all messages referenceable from within the process,
-            including those through channels passed from outside*)
-  spawns : Lang.spawn_def list;
-  regs: Lang.reg_def Utils.string_map;
   mutable last_event_id: int;
   thread_codespan : Lang.code_span;
   mutable is_general_recursive : bool; (** is this a general recursive graph? *)
@@ -182,11 +176,15 @@ and event_graph = {
 type proc_graph = {
   name: Lang.identifier;
   extern_module: string option;
-  threads: event_graph list;
+  threads: event_graph list; (** each loop thread is an {!event_graph} *)
   shared_vars_info : (Lang.identifier, shared_var_info) Hashtbl.t;
-  messages : MessageCollection.t;
+  messages : MessageCollection.t; (** all messages referenceable from within the process,
+            including those through channels passed from outside *)
+  channels : Lang.channel_def list; (** all channel definitions.
+          Note these do not include the channels passed from outside the process *)
   proc_body : Lang.proc_def_body_maybe_extern;
   spawns : (Lang.identifier * Lang.spawn_def) list;
+  regs: Lang.reg_def Utils.string_map;
 }
 
 (** A collection of event graphs, corresponding to a compilation unit.
@@ -194,7 +192,7 @@ In addition to event graphs, it also includes the associated {{!typedefs}type de
 {{!channel_classes}channel class definitions}.
 *)
 type event_graph_collection = {
-  event_graphs : proc_graph list;
+  procs : proc_graph list; (** [proc]s *)
   typedefs : TypedefMap.t;
   macro_defs : Lang.macro_def list;
   channel_classes : Lang.channel_class_def list;
