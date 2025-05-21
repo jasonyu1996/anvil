@@ -61,7 +61,7 @@ eval $(opam env) && dune build # or for release build: dune build --release
 ##### Usage
 
 ```
-dune exec anvil -- [-verbose] [-disable-lt-checks] [-O <opt-level>] [-two-round] <anvil-source-file>
+dune exec anvil -- [-verbose] [-check-only] [-disable-lt-checks] [-O <opt-level>] [-two-round] <anvil-source-file>
 ```
 
 NOTE: To disable lifetime-related checks, pass `-disable-lt-checks`. The `-two-round` flag
