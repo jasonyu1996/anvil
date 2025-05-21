@@ -194,8 +194,8 @@ let msg_ident msg = Printf.sprintf "%s@%s" msg.endpoint msg.msg
 
 module StringHashtbl = Hashtbl.Make(String)
 
-let lifetime_check (config : Config.compile_config) (ci : cunit_info) (proc : proc_graph) (g : event_graph) =
-  let lookup_message msg = MessageCollection.lookup_message proc.messages msg ci.channel_classes in
+let lifetime_check (config : Config.compile_config) (_ci : cunit_info) (gc : event_graph_collection) (proc : proc_graph) (g : event_graph) =
+  let lookup_message msg = EventGraphQuery.lookup_message gc proc msg in
 
   if config.verbose then (
     Printf.eprintf "==== Lifetime Check Details ====\n";
@@ -297,7 +297,7 @@ let lifetime_check (config : Config.compile_config) (ci : cunit_info) (proc : pr
   ) !td_to_live_until;
   (* check register and message borrows *)
   let check_send msg td ev ev_until span =
-    let msg_d = MessageCollection.lookup_message proc.messages msg ci.channel_classes |> Option.get in
+    let msg_d = EventGraphQuery.lookup_message gc proc msg |> Option.get in
     let stype = List.hd msg_d.sig_types in
     let e_dpat = delay_pat_globalise msg.endpoint stype.lifetime.e in
     let lt = {live = ev; dead = [(ev_until, e_dpat)]} in
@@ -389,7 +389,7 @@ let lifetime_check (config : Config.compile_config) (ci : cunit_info) (proc : pr
     which maps an internal message identifier to the number of cycles in delay *)
   let msg_to_check = ref Utils.StringMap.empty in
   let get_msg_gap is_send msg =
-    let msg_def = MessageCollection.lookup_message proc.messages msg ci.channel_classes |> Option.get in
+    let msg_def = EventGraphQuery.lookup_message gc proc msg |> Option.get in
     let (sync_mode, other_sync_mode) = if is_send then
       (msg_def.send_sync, msg_def.recv_sync)
     else

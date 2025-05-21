@@ -31,7 +31,9 @@ module CombSimplPass = struct
     let f_hi = find_ufs ufs hi in
     ufs.!(f_hi) <- lo
 
-  let merge_pass_simpl_comb _config for_lt_check (ci : cunit_info) (proc : proc_graph) (graph : event_graph) event_ufs event_arr_old =
+  let merge_pass_simpl_comb _config for_lt_check
+      (gc : event_graph_collection)
+      (proc : proc_graph) (graph : event_graph) event_ufs event_arr_old =
     let changed = ref false in
     List.rev graph.events
     |> List.iter (fun ev ->
@@ -59,7 +61,7 @@ module CombSimplPass = struct
       | `Seq (ev', (`Send msg as delay)) | `Seq (ev', (`Recv msg as delay)) ->
         (* check if this msg takes any bit of time *)
         if not for_lt_check then (
-          let msg_def = MessageCollection.lookup_message proc.messages msg ci.channel_classes |> Option.get in
+          let msg_def = EventGraphQuery.lookup_message gc proc msg |> Option.get in
           let immediate =
             (
               match delay with
@@ -77,7 +79,7 @@ module CombSimplPass = struct
     !changed
 
   module IntMap = Map.Make(Int)
-  let merge_pass_isomorphic _config _for_lt_check (_ci : cunit_info) _proc (graph : event_graph) event_ufs _event_arr_old =
+  let merge_pass_isomorphic _config _for_lt_check _gc _proc (graph : event_graph) event_ufs _event_arr_old =
     let changed = ref false in
     let n = List.length graph.events in
     let merged_edges = Array.make n IntMap.empty in
@@ -105,7 +107,7 @@ module CombSimplPass = struct
     !changed
 
   (* merge later to the same nodes *)
-  let merge_pass_joint _config _for_lt_check (_ci : cunit_info) _proc (graph : event_graph) event_ufs _event_arr_old =
+  let merge_pass_joint _config _for_lt_check _gc _proc (graph : event_graph) event_ufs _event_arr_old =
     let changed = ref false in
     List.rev graph.events
     |> List.iter (fun ev ->
@@ -121,7 +123,7 @@ module CombSimplPass = struct
     );
     !changed
 
-  let merge_pass_isomorphic_branch _config for_lt_check (_ci : cunit_info) _proc (graph : event_graph) event_ufs event_arr_old =
+  let merge_pass_isomorphic_branch _config for_lt_check _gc _proc (graph : event_graph) event_ufs event_arr_old =
     assert (not for_lt_check); (* this cannot be enabled for lifetime checks *)
     let changed = ref false in
     let n = List.length graph.events in
@@ -242,7 +244,7 @@ module CombSimplPass = struct
     );
     !changed
 
-  let merge_pass_branch_fuse _config for_lt_check (_ci : cunit_info) _proc (graph : event_graph) event_ufs event_arr_old =
+  let merge_pass_branch_fuse _config for_lt_check _gc _proc (graph : event_graph) event_ufs event_arr_old =
     assert (not for_lt_check); (* can only be used for codegen *)
     let changed = ref false in
     List.iter (fun ev ->
@@ -288,7 +290,7 @@ module CombSimplPass = struct
     ) graph.events;
     !changed
 
-  let merge_pass_triangle_fuse _config for_lt_check (_ci : cunit_info) _proc (graph : event_graph) event_ufs event_arr_old =
+  let merge_pass_triangle_fuse _config for_lt_check _gc _proc (graph : event_graph) event_ufs event_arr_old =
     assert (not for_lt_check);
     let changed = ref false in
     List.rev graph.events
@@ -308,7 +310,8 @@ module CombSimplPass = struct
     );
     !changed
 
-  let merge_pass_unbalanced_later _config for_lt_check (ci : cunit_info) (proc : proc_graph) (graph : event_graph) event_ufs event_arr_old =
+  let merge_pass_unbalanced_later _config for_lt_check (gc : event_graph_collection)
+      (proc : proc_graph) (graph : event_graph) event_ufs event_arr_old =
     assert (not for_lt_check);
     let changed = ref false in
     List.rev graph.events
@@ -317,7 +320,7 @@ module CombSimplPass = struct
       | `Later (e1, e2) ->
         let e1 = event_arr_old.!(find_ufs event_ufs e1.id) in
         let e2 = event_arr_old.!(find_ufs event_ufs e2.id) in
-        let lookup_message msg = MessageCollection.lookup_message proc.messages msg ci.channel_classes in
+        let lookup_message msg = EventGraphQuery.lookup_message gc proc msg in
         let order = GraphAnalysis.events_get_order graph.events lookup_message e1 e2 in
         (
           match order with
@@ -336,7 +339,7 @@ module CombSimplPass = struct
     !changed
 
 
-  let merge_pass_prune _config for_lt_check (_ci : cunit_info) _proc (graph : event_graph) event_ufs _event_arr_old =
+  let merge_pass_prune _config for_lt_check _gc _proc (graph : event_graph) event_ufs _event_arr_old =
     assert (not for_lt_check);
     let changed = ref false in
     let n = List.length graph.events in
@@ -353,12 +356,12 @@ module CombSimplPass = struct
     ) graph.events;
     !changed
 
-  let optimize_pass_merge merge_pass config for_lt_check (ci : EventGraph.cunit_info) proc changed graph =
+  let optimize_pass_merge merge_pass config for_lt_check gc proc changed graph =
     let graph = {graph with thread_id = graph.thread_id} in (* create a copy *)
     let event_ufs = create_ufs @@ List.length graph.events in
 
     let event_arr_old = List.rev graph.events |> Dynarray.of_list in
-    if merge_pass config for_lt_check ci proc graph event_ufs event_arr_old then
+    if merge_pass config for_lt_check gc proc graph event_ufs event_arr_old then
     (
       changed := true;
 
@@ -506,21 +509,21 @@ module CombSimplPass = struct
     ) else
       graph
 
-  let optimize_pass (config : Config.compile_config) for_lt_check ci proc graph =
+  let optimize_pass (config : Config.compile_config) for_lt_check gc proc graph =
     let changed = ref true in
     let codegen_only min_opt_level merge_pass graph =
       if for_lt_check || config.opt_level < min_opt_level then
         graph
       else
-        optimize_pass_merge merge_pass config for_lt_check ci proc changed graph
+        optimize_pass_merge merge_pass config for_lt_check gc proc changed graph
     in
     let graph = ref graph in
     while !changed do
       changed := false;
       graph :=
-        optimize_pass_merge merge_pass_simpl_comb config for_lt_check ci proc changed !graph
-        |> optimize_pass_merge merge_pass_isomorphic config for_lt_check ci proc changed
-        |> optimize_pass_merge merge_pass_joint config for_lt_check ci proc changed
+        optimize_pass_merge merge_pass_simpl_comb config for_lt_check gc proc changed !graph
+        |> optimize_pass_merge merge_pass_isomorphic config for_lt_check gc proc changed
+        |> optimize_pass_merge merge_pass_joint config for_lt_check gc proc changed
         |> codegen_only 1 merge_pass_isomorphic_branch
         |> codegen_only 1 merge_pass_isomorphic
         |> codegen_only 1 merge_pass_joint
@@ -532,5 +535,4 @@ module CombSimplPass = struct
     !graph
 end
 
-let optimize config for_lt_check ci graph =
-  CombSimplPass.optimize_pass config for_lt_check ci graph
+let optimize = CombSimplPass.optimize_pass

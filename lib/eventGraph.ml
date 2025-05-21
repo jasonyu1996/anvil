@@ -190,12 +190,14 @@ type proc_graph = {
 (** A collection of event graphs, corresponding to a compilation unit.
 In addition to event graphs, it also includes the associated {{!typedefs}type definitions} and
 {{!channel_classes}channel class definitions}.
+
+This is the central data structure used both in building {!event_graph}s and in codegen.
 *)
 type event_graph_collection = {
   procs : proc_graph list; (** [proc]s *)
   typedefs : TypedefMap.t;
   macro_defs : Lang.macro_def list;
-  channel_classes : Lang.channel_class_def list;
+  channel_classes : Lang.channel_class_def Utils.string_map;
   external_event_graphs : proc_graph list;
 }
 

@@ -20,6 +20,7 @@ module Typing = struct
   type context = binding Utils.string_map
 
   type build_context = {
+    gc : event_graph_collection;
     proc : proc_graph;
     typing_ctx : context;
     current : event;
@@ -118,7 +119,8 @@ module Typing = struct
 
   module BuildContext = struct
     type t = build_context
-    let create_empty proc g lt_check_phase: t = {
+    let create_empty gc proc g lt_check_phase: t = {
+      gc;
       proc;
       typing_ctx = context_empty;
       current = event_create g (`Root None);
@@ -160,6 +162,62 @@ end
 
 type build_context = Typing.build_context
 module BuildContext = Typing.BuildContext
+
+let message_sync_mode_allowed = function
+| Static (n, m) -> n >= 0 && m > 0
+| Dependent (_, n) -> n >= 0
+| Dynamic -> true
+
+
+(* [create channels args channel_classes] create a message type collection from given
+channels, passed-in endpoints, and channel classes.*)
+let create_message_collection (channels : channel_def ast_node list)
+           (args : endpoint_def ast_node list)
+           (spawns : spawn_def ast_node list)
+           (gc : EventGraph.event_graph_collection) =
+  let endpoint_in_spawns =
+    List.map data_of_ast_node spawns
+    |> List.concat_map (fun (spawn : spawn_def) -> spawn.params)
+    |> Utils.StringSet.of_list in
+  let get_foreign name = Utils.StringSet.mem name endpoint_in_spawns in
+  let codegen_chan = fun span (chan : channel_def) ->
+    (* let (left_foreign, right_foreign) =
+      match chan.visibility with
+      | BothForeign -> (true, true)
+      | LeftForeign -> (true, false)
+      | RightForeign -> (false, true)
+    in *)
+    (* We ignore the annotated foreign *)
+    let left_endpoint = { name = chan.endpoint_left; channel_class = chan.channel_class;
+                          channel_params = chan.channel_params;
+                          dir = Left; foreign = get_foreign chan.endpoint_left; opp = Some chan.endpoint_right } in
+    let right_endpoint = { name = chan.endpoint_right; channel_class = chan.channel_class;
+                          channel_params = chan.channel_params;
+                          dir = Right; foreign = get_foreign chan.endpoint_right; opp = Some chan.endpoint_left } in
+    [(left_endpoint, span); (right_endpoint, span)]
+  in
+  let endpoints = List.concat_map (fun (ch : channel_def ast_node) -> codegen_chan ch.span ch.d) channels in
+  let gather_from_endpoint ((endpoint, span): endpoint_def * code_span) =
+    match EventGraphQuery.lookup_channel_class gc endpoint.channel_class with
+    | Some cc ->
+        let msg_map = fun (msg: message_def) ->
+          (* these should have been checked earlier *)
+          assert ((message_sync_mode_allowed msg.send_sync) && (message_sync_mode_allowed msg.recv_sync));
+          let msg_dir = get_message_direction msg.dir endpoint.dir in
+          (endpoint, ParamConcretise.concretise_message cc.params endpoint.channel_params msg, msg_dir)
+        in List.map msg_map cc.messages
+    | None ->
+        raise (Except.TypeError [
+          Text (Printf.sprintf "Channel class %s not found" endpoint.channel_class);
+          Except.codespan_local span
+        ])
+  in
+  (* override the user-specified foreign in args *)
+  let args = List.map (fun ({d = ep; span} : endpoint_def ast_node) -> ({ep with foreign = get_foreign ep.name}, span)) args in
+  let local_messages = List.filter (fun ((p, _) : endpoint_def * code_span) -> not p.foreign) (args @ endpoints) |>
+  List.concat_map gather_from_endpoint in
+  let open MessageCollection in {endpoints = List.map fst endpoints; args = List.map fst args; local_messages}
+
 
 
 let binop_td_const graph (ci:cunit_info) _ctx span op n td =
@@ -443,8 +501,7 @@ and visit_expr (graph : event_graph) (ci : cunit_info)
         visit_expr graph ci ctx' e2
     )
   | Ready msg_spec ->
-    let _ = MessageCollection.lookup_message ctx.proc.messages msg_spec ci.channel_classes
-      |> unwrap_or_err "Invalid message specifier in ready" e.span in
+    let _ = EventGraphQuery.lookup_message ctx.gc ctx.proc msg_spec |> unwrap_or_err "Invalid message specifier in ready" e.span in
     (* if msg.dir <> In then (
       (* mismatching direction *)
       raise (event_graph_error_default "Mismatching message direction!" e.span)
@@ -453,8 +510,8 @@ and visit_expr (graph : event_graph) (ci : cunit_info)
     graph.wires <- wires;
     Typing.immediate_data graph (Some msg_valid_port) `Logic ctx.current
   | Probe msg_spec ->
-    let _ = MessageCollection.lookup_message ctx.proc.messages msg_spec ci.channel_classes
-    |> unwrap_or_err "Invalid message specifier in probe" e.span in
+    let _ = EventGraphQuery.lookup_message ctx.gc ctx.proc msg_spec
+      |> unwrap_or_err "Invalid message specifier in probe" e.span in
     let wires, msg_ack_port = WireCollection.add_msg_ack_port graph.thread_id ci.typedefs msg_spec graph.wires in
     graph.wires <- wires;
     Typing.immediate_data graph (Some msg_ack_port) `Logic ctx.current
@@ -570,7 +627,7 @@ and visit_expr (graph : event_graph) (ci : cunit_info)
     let (br_side_true, ctx_true_no_binding) = BuildContext.branch_side graph ctx branch_info 0 in
 
     (* message *)
-    let msg = MessageCollection.lookup_message ctx.proc.messages recv_pack.recv_msg_spec ci.channel_classes
+    let msg = EventGraphQuery.lookup_message ctx.gc ctx.proc recv_pack.recv_msg_spec
       |> unwrap_or_err "Invalid message specifier in try receive" e.span in
     let (wires', w_recv) = WireCollection.add_msg_port graph.thread_id ci.typedefs ci.macro_defs recv_pack.recv_msg_spec 0 msg graph.wires in
     graph.wires <- wires';
@@ -711,7 +768,7 @@ and visit_expr (graph : event_graph) (ci : cunit_info)
     )
   | Send send_pack ->
     (* just check that the endpoint and the message type is defined *)
-    let msg = MessageCollection.lookup_message ctx.proc.messages send_pack.send_msg_spec ci.channel_classes
+    let msg = EventGraphQuery.lookup_message ctx.gc ctx.proc send_pack.send_msg_spec
       |> unwrap_or_err "Invalid message specifier in send" e.span in
     if msg.dir <> Out then (
       (* mismatching direction *)
@@ -726,7 +783,7 @@ and visit_expr (graph : event_graph) (ci : cunit_info)
       } |> tag_with_span e.span)::ctx.current.sustained_actions;
     ntd
   | Recv recv_pack ->
-    let msg = MessageCollection.lookup_message ctx.proc.messages recv_pack.recv_msg_spec ci.channel_classes
+    let msg = EventGraphQuery.lookup_message ctx.gc ctx.proc recv_pack.recv_msg_spec
       |> unwrap_or_err "Invalid message specifier in receive" e.span in
     if msg.dir <> Inp then (
       (* mismatching direction *)
@@ -894,10 +951,10 @@ and visit_expr (graph : event_graph) (ci : cunit_info)
 module IntHashTbl = Hashtbl.Make(Int)
 
 (* unfold until sufficient for lifetime checks *)
-let recurse_unfold_for_checks ci proc graph expr_node =
+let recurse_unfold_for_checks ci gc proc graph expr_node =
   let tmp_graph = {graph with last_event_id = -1} in
   let td = visit_expr tmp_graph ci
-    (BuildContext.create_empty proc tmp_graph true)
+    (BuildContext.create_empty gc proc tmp_graph true)
     expr_node in
   (* now just check the total *)
   let root = List.find (fun e -> e.source = `Root None) tmp_graph.events in
@@ -917,7 +974,7 @@ let recurse_unfold_for_checks ci proc graph expr_node =
 
 (* Builds the graph representation for each process To Do: Add support for commands outside loop (be executed once or continuosly)*)
 let build_proc (config : Config.compile_config) sched module_name param_values
-              (ci : cunit_info) (proc : proc_def) : proc_graph =
+              (ci : cunit_info) (gc : event_graph_collection) (proc : proc_def) : proc_graph =
   let proc =
     if param_values = [] then
       proc
@@ -926,8 +983,8 @@ let build_proc (config : Config.compile_config) sched module_name param_values
   in
   match proc.body with
   | Native body ->
-    let msg_collection = MessageCollection.create body.channels
-                                      proc.args body.spawns ci.channel_classes in
+    let msg_collection = create_message_collection body.channels
+                                      proc.args body.spawns gc in
     let spawns =
       List.map (fun (s : spawn_def ast_node) ->
         let module_name = BuildScheduler.add_proc_task sched ci.file_name s.span s.d.proc s.d.compile_params in
@@ -972,14 +1029,14 @@ let build_proc (config : Config.compile_config) sched module_name param_values
         let graph_opt = if (not config.disable_lt_checks) || config.two_round_graph then (
           let tmp_graph = {graph with last_event_id = -1} in
           let td = visit_expr tmp_graph ci
-            (BuildContext.create_empty proc_graph tmp_graph true)
-            (recurse_unfold_for_checks ci proc_graph graph e) in
+            (BuildContext.create_empty gc proc_graph tmp_graph true)
+            (recurse_unfold_for_checks ci gc proc_graph graph e) in
           tmp_graph.last_event_id <- (EventGraphOps.find_last_event tmp_graph).id;
           tmp_graph.is_general_recursive <- tmp_graph.last_event_id <> td.lt.live.id;
           (* Optimisation *)
-          let tmp_graph = GraphOpt.optimize config true ci proc_graph tmp_graph in
+          let tmp_graph = GraphOpt.optimize config true gc proc_graph tmp_graph in
           if not config.disable_lt_checks then (
-            LifetimeCheck.lifetime_check config ci proc_graph tmp_graph
+            LifetimeCheck.lifetime_check config ci gc proc_graph tmp_graph
           );
           if config.two_round_graph then
             Some tmp_graph
@@ -990,16 +1047,16 @@ let build_proc (config : Config.compile_config) sched module_name param_values
         | Some graph -> graph
         | None -> (
             (* discard after type checking *)
-            let ctx = (BuildContext.create_empty proc_graph graph false) in
+            let ctx = (BuildContext.create_empty gc proc_graph graph false) in
             let td = visit_expr graph ci ctx e in
             graph.last_event_id <- (EventGraphOps.find_last_event graph).id;
             graph.is_general_recursive <- graph.last_event_id <> td.lt.live.id;
-            GraphOpt.optimize config false ci proc_graph graph
+            GraphOpt.optimize config false gc proc_graph graph
         )
       ) body.threads in
       {proc_graph with threads = proc_threads}
     | Extern (extern_mod, _extern_body) ->
-      let msg_collection = MessageCollection.create [] proc.args [] ci.channel_classes in
+      let msg_collection = create_message_collection [] proc.args [] gc in
       {
         name = module_name;
         extern_module = Some extern_mod;
@@ -1023,13 +1080,18 @@ let build (config : Config.compile_config) sched module_name param_values (cunit
     macro_defs;
     func_defs
   } in
-  let procs = List.map (build_proc config sched module_name param_values ci ) cunit.procs in
+  let gc =
+    {
+      procs = [];
+      typedefs;
+      macro_defs;
+      channel_classes = List.map (fun (cc : channel_class_def) -> (cc.name, cc)) cunit.channel_classes |> Utils.StringMap.of_list;
+      external_event_graphs = [];
+    }
+  in
+  let procs = List.map (build_proc config sched module_name param_values ci gc) cunit.procs in
   {
-    procs;
-    typedefs;
-    macro_defs;
-    channel_classes = cunit.channel_classes;
-    external_event_graphs = [];
+    gc with procs
   }
 
 let syntax_tree_precheck (_config : Config.compile_config) cunit =

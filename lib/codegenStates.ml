@@ -60,7 +60,7 @@ let codegen_next printer (graphs : EventGraph.event_graph_collection)
                          (pg : EventGraph.proc_graph) (g : EventGraph.event_graph) =
   let print_line = CodegenPrinter.print_line printer in
   let print_lines = CodegenPrinter.print_lines printer in
-  let lookup_msg_def msg = MessageCollection.lookup_message pg.messages msg graphs.channel_classes in
+  let lookup_msg_def msg = EventGraphQuery.lookup_message graphs pg msg in
   let recurse_event = List.find (fun e -> let open EventGraph in e.is_recurse) g.events in
   let print_compute_next (e : EventGraph.event) =
     let cn = EventStateFormatter.format_current g.thread_id e.id in
@@ -94,7 +94,8 @@ let codegen_next printer (graphs : EventGraph.event_graph_collection)
           let sn = EventStateFormatter.format_syncstate g.thread_id e.id in
           let msg_def = lookup_msg_def msg |> Option.get in
           if CodegenPort.message_has_ack_port msg_def then (
-            let ack_n = CodegenFormat.format_msg_ack_signal_name (CodegenFormat.canonicalize_endpoint_name msg.endpoint pg) msg.msg in
+            let ack_n = CodegenFormat.format_msg_ack_signal_name
+              (CodegenFormat.canonicalize_endpoint_name msg.endpoint graphs pg) msg.msg in
             [
               Printf.sprintf "assign %s = (%s || %s_q) && %s;" cn cn' sn ack_n;
               Printf.sprintf "assign %s_n = (%s || %s_q) && !%s;" sn cn' sn ack_n
@@ -109,7 +110,8 @@ let codegen_next printer (graphs : EventGraph.event_graph_collection)
           let sn = EventStateFormatter.format_syncstate g.thread_id e.id in
           let msg_def = lookup_msg_def msg |> Option.get in
           if CodegenPort.message_has_valid_port msg_def then (
-            let vld_n = CodegenFormat.format_msg_valid_signal_name (CodegenFormat.canonicalize_endpoint_name msg.endpoint pg) msg.msg in
+            let vld_n = CodegenFormat.format_msg_valid_signal_name
+              (CodegenFormat.canonicalize_endpoint_name msg.endpoint graphs pg) msg.msg in
             [
               Printf.sprintf "assign %s = (%s || %s_q) && %s;" cn cn' sn vld_n;
               Printf.sprintf "assign %s_n = (%s || %s_q) && !%s;" sn cn' sn vld_n
@@ -287,7 +289,7 @@ let codegen_sustained_actions printer (graphs : EventGraph.event_graph_collectio
       | Some (_has_sync_port', li) -> li := cond::!li
     )
   in
-  let lookup_msg_def msg = MessageCollection.lookup_message pg.messages msg graphs.channel_classes in
+  let lookup_msg_def msg = EventGraphQuery.lookup_message graphs pg msg in
   let open Lang in
   let print_send_recv (e : EventGraph.event) =
     let open EventGraph in
@@ -295,7 +297,7 @@ let codegen_sustained_actions printer (graphs : EventGraph.event_graph_collectio
         let msg_def = lookup_msg_def msg |> Option.get in
         let has_ack_port = CodegenPort.message_has_ack_port msg_def in
         insert_to recv_or_assigns
-          (CodegenFormat.format_msg_ack_signal_name (CodegenFormat.canonicalize_endpoint_name msg.endpoint pg) msg.msg)
+          (CodegenFormat.format_msg_ack_signal_name (CodegenFormat.canonicalize_endpoint_name msg.endpoint graphs pg) msg.msg)
           has_ack_port
           activated
     in
@@ -304,11 +306,11 @@ let codegen_sustained_actions printer (graphs : EventGraph.event_graph_collectio
       let msg_def = lookup_msg_def msg |> Option.get in
       let has_valid_port = CodegenPort.message_has_valid_port msg_def in
       insert_to send_or_assigns
-        (CodegenFormat.format_msg_valid_signal_name (CodegenFormat.canonicalize_endpoint_name msg.endpoint pg) msg.msg)
+        (CodegenFormat.format_msg_valid_signal_name (CodegenFormat.canonicalize_endpoint_name msg.endpoint graphs pg) msg.msg)
         has_valid_port
         (
           activated,
-          CodegenFormat.format_msg_data_signal_name (CodegenFormat.canonicalize_endpoint_name msg.endpoint pg) msg.msg 0,
+          CodegenFormat.format_msg_data_signal_name (CodegenFormat.canonicalize_endpoint_name msg.endpoint graphs pg) msg.msg 0,
           CodegenFormat.format_wirename w.thread_id w.id
         )
     in

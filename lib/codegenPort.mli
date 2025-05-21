@@ -15,7 +15,7 @@ val message_has_ack_port : Lang.message_def -> bool
 
 (** Produce a list of all ports to be generated for a list of end points. *)
 val gather_ports :
-  Lang.channel_class_def list -> Lang.endpoint_def list -> t list
+  EventGraph.event_graph_collection -> Lang.endpoint_def list -> t list
 
 (** Clock port. *)
 val clk : t

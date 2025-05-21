@@ -9,8 +9,8 @@ type t = {
 let message_has_valid_port (msg : message_def) : bool = msg.send_sync = Dynamic
 let message_has_ack_port (msg : message_def) : bool = msg.recv_sync = Dynamic
 
-let gather_ports_from_endpoint (channel_classes : channel_class_def list) (endpoint : endpoint_def) : t list =
-  let cc = Option.get (MessageCollection.lookup_channel_class channel_classes endpoint.channel_class) in
+let gather_ports_from_endpoint (gc : EventGraph.event_graph_collection) (endpoint : endpoint_def) : t list =
+  let cc = Option.get (EventGraphQuery.lookup_channel_class gc endpoint.channel_class) in
   let gen_endpoint_ports = fun (msg : message_def) ->
     let msg = ParamConcretise.concretise_message cc.params endpoint.channel_params msg in
     let folder_inner = fun fmt msg_dir (n, port_list) (stype : sig_type_chan_local) ->
@@ -34,8 +34,8 @@ let gather_ports_from_endpoint (channel_classes : channel_class_def list) (endpo
     else res
   in List.concat_map gen_endpoint_ports cc.messages
 
-let gather_ports (channel_classes : channel_class_def list) (endpoints : endpoint_def list) : t list =
-  List.concat_map (gather_ports_from_endpoint channel_classes) endpoints
+let gather_ports (gc : EventGraph.event_graph_collection) (endpoints : endpoint_def list) : t list =
+  List.concat_map (gather_ports_from_endpoint gc) endpoints
 
 let clk = {dir = Inp; dtype = `Logic; name = "clk_i"}
 let rst = {dir = Inp; dtype = `Logic; name = "rst_ni"}
