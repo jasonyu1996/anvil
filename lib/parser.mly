@@ -33,7 +33,9 @@
 %token DOUBLE_MINUS         (* -- *)
 %token XOR                  (* ^ *)
 %token AND                  (* & *)
+%token DOUBLE_AND           (* && *)
 %token OR                   (* | *)
+%token DOUBLE_OR            (* || *)
 %token AT                   (* @ *)
 %token TILDE                (* ~ *)
 %token PERIOD               (* . *)
@@ -83,9 +85,10 @@
 %token KEYWORD_ASSIGNED     (* assigned *)
 %token KEYWORD_BY           (* by *)
 %right LEFT_ABRACK RIGHT_ABRACK LEFT_ABRACK_EQ RIGHT_ABRACK_EQ
-%right EXCL_EQ DOUBLE_EQ
 %right DOUBLE_GT SEMICOLON
 %right KEYWORD_LET KEYWORD_SET KEYWORD_PUT
+%left DOUBLE_AND DOUBLE_OR
+%left EXCL_EQ DOUBLE_EQ
 %left LEFT_BRACKET XOR AND OR PLUS MINUS
 %left DOUBLE_LEFT_ABRACK DOUBLE_RIGHT_ABRACK
 %left PERIOD
@@ -589,6 +592,10 @@ bin_expr:
   { Lang.Binop (Lang.And, v1, (`Single v2)) }
 | v1 = node(expr); OR; v2 = node(expr)
   { Lang.Binop (Lang.Or, v1, (`Single v2)) }
+| v1 = node(expr); DOUBLE_AND; v2 = node(expr)
+  { Lang.Binop (Lang.LAnd, v1, (`Single v2)) }
+| v1 = node(expr); DOUBLE_OR; v2 = node(expr)
+  { Lang.Binop (Lang.LOr, v1, (`Single v2)) }
 ;
 
 un_expr:

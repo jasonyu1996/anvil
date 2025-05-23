@@ -1,0 +1,12 @@
+proc associativity() {
+  loop {
+    cycle 1 >>
+    dprint "%d %d" ((1'b0 == 1'b0) && (1'b0 == 1'b0),
+                      1'b0 == 1'b0 && 1'b0 == 1'b0);
+    cycle 1 >>
+    let a = 1'b0 == 1'b0;
+    dprint "%d" (a);
+    cycle 1 >>
+    dfinish
+  }
+}

@@ -124,5 +124,5 @@ let type_check_binop (type_defs : t) binop dtype1 dtype2 =
     (* if dtype1_resolved = dtype2_resolved then
       Some dtype1_resolved
     else None *)
-  | Lt | Gt | Lte | Gte | Eq | Neq | In -> Some `Logic
+  | Lt | Gt | Lte | Gte | Eq | Neq | In | LAnd | LOr -> Some `Logic
   | Shl | Shr -> Some dtype1_resolved

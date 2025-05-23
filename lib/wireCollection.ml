@@ -54,7 +54,7 @@ module Wire = struct
       (* if sz1 = sz2 then
         Some sz1
       else None *)
-    | Lt | Gt | Lte | Gte | Eq | Neq | In -> Some 1
+    | Lt | Gt | Lte | Gte | Eq | Neq | In | LAnd | LOr -> Some 1
     | Shl | Shr -> Some sz1 in
     match w2 with
     | `List w2l ->

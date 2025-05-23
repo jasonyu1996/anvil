@@ -32,7 +32,9 @@ rule read =
   | '-'       { MINUS }
   | "--"      { DOUBLE_MINUS }
   | '^'       { XOR }
+  | "&&"      { DOUBLE_AND }
   | '&'       { AND }
+  | "||"      { DOUBLE_OR }
   | '|'       { OR }
   | '@'       { AT }
   | '~'       { TILDE }

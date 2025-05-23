@@ -315,7 +315,7 @@ let dtype_of_literal (lit : literal) =
   `Array (`Logic, ParamEnv.Concrete n)
 
 type binop = Add | Sub | Xor | And | Or | Lt | Gt | Lte | Gte |
-             Shl | Shr | Eq | Neq | Mul | In
+             Shl | Shr | Eq | Neq | Mul | In | LAnd | LOr
 type unop  = Neg | Not | AndAll | OrAll
 
 (* TODO: these are SV-specific; move elsewhere *)
@@ -326,6 +326,8 @@ let string_of_binop (binop: binop) : string =
   | Xor -> "^"
   | And -> "&"
   | Or -> "|"
+  | LAnd -> "&&"
+  | LOr -> "||"
   | Lt -> "<"
   | Gt -> ">"
   | Lte -> "<="
