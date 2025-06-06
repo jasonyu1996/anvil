@@ -175,16 +175,16 @@ proc_def_body:
       shared_vars = [];
     }
   }
-| KEYWORD_LOOP; LEFT_BRACE; thread_prog = node(expr); RIGHT_BRACE; body=proc_def_body //For thread definitions
+| KEYWORD_LOOP; reset_by = message_specifier?; LEFT_BRACE; thread_prog = node(expr); RIGHT_BRACE; body=proc_def_body //For thread definitions
   {
     let open Lang in
     let thread_prog = {thread_prog with d = Wait (thread_prog, dummy_ast_node_of_data Recurse)} in
-    {body with threads = thread_prog::(body.threads) }
+    {body with threads = (thread_prog, reset_by)::(body.threads) }
   }
 | KEYWORD_RECURSIVE; LEFT_BRACE; thread_prog = node(expr); RIGHT_BRACE; body = proc_def_body
   {
     let open Lang in
-    { body with threads = thread_prog::(body.threads) }
+    { body with threads = (thread_prog, None)::(body.threads) }
   }
 | KEYWORD_CHAN; chan_def = node(channel_def); SEMICOLON; body = proc_def_body // For Channel Invocation and interface aquisition
   {

@@ -182,7 +182,7 @@ and event_graph = {
 type proc_graph = {
   name: Lang.identifier;
   extern_module: string option;
-  threads: event_graph list;
+  threads: (event_graph * Lang.message_specifier option) list;
   shared_vars_info : (Lang.identifier, shared_var_info) Hashtbl.t;
   messages : MessageCollection.t;
   proc_body : Lang.proc_def_body_maybe_extern;

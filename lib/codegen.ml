@@ -37,7 +37,7 @@ let codegen_spawns printer (graphs : event_graph_collection) (g : proc_graph) =
     let proc_other = CodegenHelpers.lookup_proc graphs.external_event_graphs module_name |> Option.get in
     let connect_endpoints = fun (arg_endpoint : endpoint_def) (param_ident : identifier) ->
       let endpoint_local = MessageCollection.lookup_endpoint g.messages param_ident |> Option.get in
-      let endpoint_name_local = CodegenFormat.canonicalize_endpoint_name param_ident (List.hd g.threads) in
+      let endpoint_name_local = CodegenFormat.canonicalize_endpoint_name param_ident (List.hd g.threads |> fst) in
       let cc = MessageCollection.lookup_channel_class graphs.channel_classes endpoint_local.channel_class |> Option.get in
       let print_msg_con = fun (msg : message_def) ->
         let msg = ParamConcretise.concretise_message cc.params endpoint_local.channel_params msg in
@@ -274,7 +274,7 @@ let codegen_proc printer (graphs : EventGraph.event_graph_collection) (g : proc_
       ) ports
     | _ ->
       (* Generate endpoints, spawns, regs, and post-declare for the first thread *)
-      let initEvents = List.hd g.threads in
+      let initEvents = fst @@ List.hd g.threads in
 
       codegen_endpoints printer graphs initEvents;
 
@@ -282,15 +282,12 @@ let codegen_proc printer (graphs : EventGraph.event_graph_collection) (g : proc_
 
       codegen_regs printer graphs initEvents;
 
-      (* the init event register is shared across threads *)
-      CodegenPrinter.print_line printer "logic _init;";
-
       CodegenStates.codegen_proc_states printer g;
 
       (* Iterate over all threads to print states *)
-      List.iter (fun thread ->
+      List.iter (fun (thread, reset_by) ->
         codegen_post_declare printer graphs thread;
-        CodegenStates.codegen_states printer graphs g thread;
+        CodegenStates.codegen_states printer graphs g thread reset_by;
       ) g.threads
   );
 
@@ -323,7 +320,7 @@ let generate (out : out_channel)
   if config.verbose then (
     Printf.eprintf "==== CodeGen Details ====\n";
     List.iter (fun (pg : proc_graph) ->
-      List.iter (fun g ->
+      List.iter (fun (g, _) ->
         EventGraphOps.print_dot_graph g Out_channel.stderr
       ) pg.threads
     ) graphs.event_graphs;

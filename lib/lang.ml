@@ -455,7 +455,7 @@ type proc_def_body = {
   regs: reg_def ast_node list;
   shared_vars: shared_var_def ast_node list;  (* New field *)
   (* prog: expr; *)
-  threads: expr_node list;
+  threads: (expr_node * message_specifier option) list; (** the second component is the optional reset signal *)
 }
 
 (** Extern process definition *)

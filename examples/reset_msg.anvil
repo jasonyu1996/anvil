@@ -1,0 +1,23 @@
+chan reset_ch {
+    left reset : (logic@#1) @#1 - @#1
+}
+
+proc test_reset(ch : left reset_ch) {
+    loop ch.reset {
+        cycle 1 >>
+        dprint "Should reach" () >>
+        cycle 1 >>
+        dprint "Should not reach" ()
+    }
+}
+
+proc reset_msg() {
+    chan reset_le -- reset_ri : reset_ch;
+    spawn test_reset(reset_le);
+    loop {
+        send reset_ri.reset(1'b0) >>
+        cycle 1 >>
+        send reset_ri.reset(1'b1) >>
+        cycle 1
+    }
+}

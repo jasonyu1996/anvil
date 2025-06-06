@@ -947,7 +947,7 @@ let build_proc (config : Config.compile_config) sched module_name param_values
       } in
         Hashtbl.add shared_vars_info sv.d.ident r
       ) body.shared_vars;
-      let proc_threads = List.mapi (fun i (e : expr_node) ->
+      let proc_threads = List.mapi (fun i ((e, reset_by) : expr_node * message_specifier option) ->
         let graph = {
           thread_id = i;
           events = [];
@@ -979,7 +979,7 @@ let build_proc (config : Config.compile_config) sched module_name param_values
           else
             None
         ) else None in
-        match graph_opt with
+        let g = match graph_opt with
         | Some graph -> graph
         | None -> (
             (* discard after type checking *)
@@ -988,7 +988,8 @@ let build_proc (config : Config.compile_config) sched module_name param_values
             graph.last_event_id <- (EventGraphOps.find_last_event graph).id;
             graph.is_general_recursive <- graph.last_event_id <> td.lt.live.id;
             GraphOpt.optimize config false ci graph
-        )
+        ) in
+        (g, reset_by)
       ) body.threads in
       {name = module_name; extern_module = None;
         threads = proc_threads; shared_vars_info; messages = msg_collection;
