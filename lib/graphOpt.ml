@@ -129,7 +129,7 @@ module CombSimplPass = struct
     let add_event source =
       let new_ev = {actions = []; sustained_actions = []; source; id = graph.last_event_id + 1;
         is_recurse = false;
-        outs = []; graph; preds = Utils.IntSet.empty } in
+        outs = []; graph; preds = Utils.IntSet.empty; removed = false } in
       graph.last_event_id <- new_ev.id;
       graph.events <- new_ev::graph.events;
       Dynarray.add_last event_ufs new_ev.id;
@@ -345,6 +345,7 @@ module CombSimplPass = struct
       if out_deg.(e.id) = 0 && not e.is_recurse && e.actions = [] && e.sustained_actions = [] then (
         (* remove *)
         union_ufs event_ufs e.id (-1);
+        e.removed <- true;
         changed := true
       ) else (
         GraphAnalysis.imm_preds e
@@ -399,8 +400,8 @@ module CombSimplPass = struct
       and replace_event ev =
         let f = find_ufs event_ufs ev.id in
         assert (f < 0 || to_keep.(f));
-        if f < 0  then
-          ev (* shouldn't matter anyway *)
+        if ev.removed || f < 0  then
+          ev
         else
           event_arr_old.(f)
       in

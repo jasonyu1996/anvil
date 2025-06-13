@@ -122,6 +122,7 @@ and event = {
                       {i Those are effectively the edges in the event graph} *)
   mutable outs : event list; (** the outbound edges, i.e., the events that directly depend on this event *)
   preds : Utils.int_set; (** set of predecessors, used for fast reachability query. Only used during the graph building process *)
+  mutable removed : bool; (** is this event removed? (used in optimisation) *)
 }
 
 and branch_cond =
