@@ -557,6 +557,27 @@ and string_of_index (idx : index) : string =
   | Single e -> "Single (" ^ string_of_expr e.d ^ ")"
   | Range (e1, e2) -> "Range (" ^ string_of_expr e1.d ^ ", " ^ string_of_expr e2.d ^ ")"
 
+and string_of_data_type (dtype : data_type) : string =
+  match dtype with
+  | `Logic -> "Logic"
+  | `Array (d,_) -> "Array (" ^ string_of_data_type d ^ ")"
+  | `Variant (id_opt_list) ->
+      "Variant (" ^ String.concat ", " (List.map (fun (id, dt_opt) ->
+        match dt_opt with
+        | Some dt -> id ^ ": " ^ string_of_data_type dt
+        | None -> id) id_opt_list) ^ ")"
+  | `Record fields ->
+      "Record (" ^ String.concat ", " (List.map (fun (field_name, field_type) ->
+        field_name ^ ": " ^ string_of_data_type field_type) fields) ^ ")"
+  | `Tuple dt_list ->
+      "Tuple (" ^ String.concat ", " (List.map string_of_data_type dt_list) ^ ")"
+  | `Opaque id -> "Opaque " ^ id
+  | `Named (name, params) ->
+      let params_str = String.concat ", " (List.map (function
+        | IntParamValue v -> string_of_int v
+        | TypeParamValue dt -> string_of_data_type dt) params) in
+      "Named (" ^ name ^ ", [" ^ params_str ^ "])"
+
 and string_of_literal (lit : literal) : string =
   match lit with
   | Binary (n, bits) -> "Binary (" ^ string_of_int n ^ ", [" ^ String.concat ";" (List.map string_of_digit bits) ^ "])"

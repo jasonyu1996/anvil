@@ -758,8 +758,8 @@ and visit_expr (graph : event_graph) (ci : cunit_info)
         (visit_expr graph ci ctx)
         (binop_td_const e.span Mul)
         td.dtype ind
-      |> unwrap_or_err "Invalid indexing" e.span in
-    let wire_of td = unwrap_or_err "Invalid indexing" e.span td.w in
+      |> unwrap_or_err (Printf.sprintf "Invalid indexing %s for datatype %s" (string_of_index ind) (Lang.string_of_data_type td.dtype)) e.span in
+    let wire_of (td:timed_data) = unwrap_or_err (Printf.sprintf "Invalid indexing for %s in data type %s" (string_of_index ind) (Lang.string_of_data_type td.dtype)) e.span td.w in
     let offset_le_w = MaybeConst.map wire_of offset_le in
     let (wires', new_w) = WireCollection.add_slice graph.thread_id w offset_le_w len graph.wires in
     graph.wires <- wires';
