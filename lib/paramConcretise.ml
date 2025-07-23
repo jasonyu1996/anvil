@@ -96,7 +96,7 @@ let concretise_proc param_values proc =
       | Extern _ -> proc
       | Native body ->
         let regs = List.map
-          (fun {d = r; span} -> {d = {r with dtype = concretise_dtype_params int_param_env type_param_env r.dtype}; span})
+          (fun {d = r; span} -> {d = {r with d_type = concretise_dtype_params int_param_env type_param_env r.d_type}; span})
           body.regs in
         let spawns = List.map
           (fun {d = sp; span} ->

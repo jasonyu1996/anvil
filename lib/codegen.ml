@@ -208,7 +208,7 @@ let codegen_regs printer (graphs : event_graph_collection) (g : event_graph) =
     (
       fun _ (r : reg_def) ->
         let open CodegenFormat in
-        Printf.sprintf "%s %s;" (format_dtype graphs.typedefs graphs.macro_defs r.dtype)
+        Printf.sprintf "%s %s;" (format_dtype graphs.typedefs graphs.macro_defs r.d_type)
           (format_regname_current r.name) |>
           CodegenPrinter.print_line printer
     )

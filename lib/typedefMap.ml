@@ -115,11 +115,15 @@ let type_check_binop (type_defs : t) binop dtype1 dtype2 =
   (* only integral types can be used here *)
   if (not @@ type_is_integral type_defs dtype1_resolved)
     || (not @@ type_is_integral type_defs dtype2_resolved) then
+  (
+    (* Printf.eprintf "[DEBUG] Binop %s: %s, %s\n" (string_of_binop binop) (string_of_data_type dtype1_resolved) (string_of_data_type dtype2_resolved); *)
     None
+  )
   else
   match binop with
   | Add | Sub | Xor | And | Or | Mul ->
     (* TODO: performance improvement *)
+    (* Printf.eprintf "[DEBUG] Binop %s: %s, %s\n" (string_of_binop binop) (string_of_data_type dtype1_resolved) (string_of_data_type dtype2_resolved); *)
     Some (max dtype1_resolved dtype2_resolved)
     (* if dtype1_resolved = dtype2_resolved then
       Some dtype1_resolved

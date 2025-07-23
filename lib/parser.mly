@@ -89,9 +89,10 @@
 %right KEYWORD_LET KEYWORD_SET KEYWORD_PUT
 %left DOUBLE_AND DOUBLE_OR
 %left EXCL_EQ DOUBLE_EQ
-%left LEFT_BRACKET XOR AND OR PLUS MINUS
+%left XOR AND OR PLUS MINUS
 %left DOUBLE_LEFT_ABRACK DOUBLE_RIGHT_ABRACK
 %left PERIOD
+%left LEFT_BRACKET RIGHT_BRACKET
 %nonassoc TILDE UMINUS UAND UOR KEYWORD_IN
 %start <Lang.compilation_unit> cunit
 %%
@@ -387,7 +388,7 @@ reg_def:
   {
     {
       name = ident;
-      dtype = dtype;
+      d_type = dtype;
       init = None;
     } : Lang.reg_def
   }
@@ -825,8 +826,18 @@ macro_def:
 ;
 
 function_def:
-  | KEYWORD_FUNCTION; name = IDENT; LEFT_PAREN; args = separated_list(COMMA, IDENT); RIGHT_PAREN; LEFT_BRACE; body = node(expr); RIGHT_BRACE
+  | KEYWORD_FUNCTION; name = IDENT; LEFT_PAREN; args = separated_list(COMMA, typed_arg); RIGHT_PAREN; LEFT_BRACE; body = node(expr); RIGHT_BRACE
     {
       { name = name; args = args; body = body } : Lang.func_def
     }
 ;
+
+typed_arg:
+  | name = IDENT; COLON; dtype = data_type
+    {
+      { arg_name = name; arg_type = Some dtype } : Lang.typed_arg
+    }
+  | name = IDENT
+    {
+      { arg_name = name; arg_type = None } : Lang.typed_arg
+    }

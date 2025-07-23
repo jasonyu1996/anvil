@@ -284,10 +284,10 @@ let rec lvalue_info_of graph (ci:cunit_info) ctx span lval =
   | Reg ident ->
     let r = Utils.StringMap.find_opt ident graph.regs
       |> unwrap_or_err ("Undefined register " ^ ident) span in
-    let sz = TypedefMap.data_type_size ci.typedefs ci.macro_defs r.dtype in
+    let sz = TypedefMap.data_type_size ci.typedefs ci.macro_defs r.d_type in
     {
       lval_range = full_reg_range ident sz;
-      lval_dtype = r.dtype
+      lval_dtype = r.d_type
     }
   | Indexed (lval', idx) ->
     (* TODO: better code reuse *)
@@ -363,8 +363,16 @@ and visit_expr (graph : event_graph) (ci : cunit_info)
       let ctx' = BuildContext.clear_bindings ctx |> ref in
       if List.length td_args <> List.length func.args then
         raise (event_graph_error_default "Arguments missing in function call" e.span);
-        List.iter2 (fun td name ->
-        ctx' := BuildContext.add_binding !ctx' name td
+        List.iter2 (fun td arg ->
+        (
+          let _ = td.w in (* added for tc*)
+          match arg.arg_type with
+            | Some gtype ->
+              if td.dtype <> gtype then
+                raise (Except.TypeError [Text ("In function call " ^ id ^ ": Invalid argument type for " ^ arg.arg_name ^ ": expected " ^ (string_of_data_type gtype) ^ " got " ^ (string_of_data_type td.dtype)); Except.codespan_local e.span])
+            | None -> ()
+        );
+        ctx' := BuildContext.add_binding !ctx' arg.arg_name td
       ) td_args func.args;
       visit_expr graph ci !ctx' func.body
   | Binop (binop, e1, e2) ->
@@ -695,9 +703,9 @@ and visit_expr (graph : event_graph) (ci : cunit_info)
       |> unwrap_or_err ("Undefined register " ^ reg_ident) e.span in
     let (wires', w) = WireCollection.add_reg_read graph.thread_id ci.typedefs ci.macro_defs r graph.wires in
     graph.wires <- wires';
-    let sz = TypedefMap.data_type_size ci.typedefs ci.macro_defs r.dtype in
+    let sz = TypedefMap.data_type_size ci.typedefs ci.macro_defs r.d_type in
     let borrow = {borrow_range = full_reg_range reg_ident sz; borrow_start = ctx.current; borrow_source_span = e.span} in
-    {w = Some w; lt = EventGraphOps.lifetime_const ctx.current; reg_borrows = [borrow]; dtype = r.dtype}
+    {w = Some w; lt = EventGraphOps.lifetime_const ctx.current; reg_borrows = [borrow]; dtype = r.d_type}
   | Debug op ->
     (
       match op with

@@ -194,7 +194,7 @@ let sig_type_globalise (endpoint : identifier) (s : sig_type_chan_local) : sig_t
 (** A register definition. {!reg_def.init} specifies the initial value of the register. *)
 type reg_def = {
   name: string;
-  dtype: data_type;
+  d_type: data_type;
   init: string option;
 }
 
@@ -484,11 +484,17 @@ type import_directive = {
   is_extern : bool; (** is this import external?
       Currently an external import means importing SystemVerilog code *)
 }
+type typed_arg = {
+  arg_name: identifier;
+  arg_type: data_type option; (** type of the argument, if any *)
+}
+
 type func_def =  {
   name: identifier;
-  args: identifier list;
+  args: typed_arg list;
   body: expr_node;
 }
+(** A channel class definition, which is a set of message types. *)
 
 (** A compilation unit, corresponding to a source file. *)
 type compilation_unit = {
