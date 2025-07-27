@@ -817,6 +817,8 @@ and visit_expr (graph : event_graph) (ci : cunit_info)
           match e_dtype_opt, cstr_expr_opt with
           | Some e_dtype, Some cstr_expr ->
             let td = visit_expr graph ci ctx cstr_expr in
+            if td.dtype <> e_dtype then
+              raise (Except.TypeError [Text ("In variant construction: Invalid data type for " ^ cstr_spec.variant ^ ": expected " ^ (string_of_data_type e_dtype) ^ " got " ^ (string_of_data_type td.dtype)); Except.codespan_local e.span]);
             let w = unwrap_or_err "Invalid value in variant construction" cstr_expr.span td.w in
             let tag_size = variant_tag_size dtype
             and data_size = TypedefMap.data_type_size ci.typedefs ci.macro_defs e_dtype
