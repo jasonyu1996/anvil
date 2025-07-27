@@ -731,7 +731,7 @@ let generate_expr (id, start, end_v, offset, body) =
   let generate_expr_seq (id, start, end_v, offset, body) =
     let rec generate_exprs_seq (curr:int) acc =
       if curr > end_v then
-        match List.rev acc with
+        match acc with
         | [] -> Tuple []
         | [single] -> single.d
         | hd::tl ->
