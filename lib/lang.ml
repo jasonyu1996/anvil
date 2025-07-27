@@ -566,7 +566,12 @@ and string_of_index (idx : index) : string =
 and string_of_data_type (dtype : data_type) : string =
   match dtype with
   | `Logic -> "Logic"
-  | `Array (d,_) -> "Array (" ^ string_of_data_type d ^ ")"
+  | `Array (d,n) ->
+    let n' = match n with
+      | ParamEnv.Concrete n -> string_of_int n
+      | ParamEnv.Param _ -> "Param"
+    in
+    "Array[" ^ n' ^ "] (" ^ string_of_data_type d ^ ")"
   | `Variant (id_opt_list) ->
       "Variant (" ^ String.concat ", " (List.map (fun (id, dt_opt) ->
         match dt_opt with
