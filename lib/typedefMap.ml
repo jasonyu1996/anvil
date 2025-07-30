@@ -89,10 +89,31 @@ let data_type_index (type_defs : t) (macro_defs : macro_def list) (expr_eval : e
       begin
         match ind with
         | Single e ->
+            begin
+              match e.d, _n with
+              | Literal n, ParamEnv.Concrete n_val ->
+                  let n_int = literal_eval n in
+                  if n_int >= n_val then
+                    raise (TypeError [Text ("Index out of bounds: " ^ string_of_int n_int ^ " for array of size " ^ string_of_int n_val); Except.codespan_local e.span])
+                  else ()
+              | _ -> ()
+            end;
             let idx = get_offset e in
             let le_off = MaybeConst.mul_const base_size mul idx in
             Some (le_off, base_size, base_type)
         | Range (e, {d = Literal lit_sz; _}) -> (* size part of the range must be constant *)
+            begin
+              match e.d, _n, lit_sz with
+              | Literal s, ParamEnv.Concrete sz, of_sz ->
+                  let st = literal_eval s in
+                  let off_sz = literal_eval of_sz in
+                  if st + off_sz > sz then
+                      raise (TypeError [Text ("Index out of bounds: " ^ string_of_int st ^ " + " ^ string_of_int off_sz ^ " > " ^ string_of_int sz); Except.codespan_local e.span])
+                  else if st >= sz then
+                    raise (TypeError [Text ("Index out of bounds: " ^ string_of_int st ^ " >= " ^ string_of_int sz); Except.codespan_local e.span])
+                  else ()
+              | _ -> ()
+            end;
             let idx = get_offset e in
             let le_off = MaybeConst.mul_const base_size mul idx in
             let sz = literal_eval lit_sz in
