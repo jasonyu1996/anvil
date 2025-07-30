@@ -397,7 +397,9 @@ and visit_expr (graph : event_graph) (ci : cunit_info)
         let w2 = unwrap_or_err "Invalid value of second operator" e1.span td2.w in
         let (wires', w) = WireCollection.add_binary graph.thread_id ci.typedefs ci.macro_defs binop w1 (`Single w2) graph.wires in
         graph.wires <- wires';
-        let new_dtype = `Array (`Logic, ParamEnv.Concrete w.size) in
+        if td1.dtype <> td2.dtype then
+          raise (Except.TypeError [Text ("In binary operation: Invalid argument types: " ^ (string_of_data_type td1.dtype) ^ " and " ^ (string_of_data_type td2.dtype)); Except.codespan_local e.span]);
+        let new_dtype = td1.dtype in
         Typing.merged_data graph (Some w) new_dtype ctx.current [td1; td2]
     )
   | Unop (unop, e') ->
@@ -696,7 +698,10 @@ and visit_expr (graph : event_graph) (ci : cunit_info)
     let ws = List.map (fun ((e', td) : expr_node * timed_data) -> unwrap_or_err "Invalid value in concat" e'.span td.w) tds in
     let (wires', w) = WireCollection.add_concat graph.thread_id ci.typedefs ci.macro_defs ws graph.wires in
     graph.wires <- wires';
-    let new_dtype = `Array (`Logic, ParamEnv.Concrete w.size) in
+    let tdtype = List.map (fun ((_, td): expr_node * timed_data) -> td.dtype) tds in
+    if not (List.for_all (fun d -> d = List.hd tdtype) tdtype) then
+      raise (Except.TypeError [Text ("In concat: Incompatible types: " ^ (String.concat ", " (List.map string_of_data_type tdtype))); Except.codespan_local e.span]);
+    let new_dtype = `Array (List.hd tdtype, ParamEnv.Concrete (List.length es)) in
     List.map snd tds |> Typing.merged_data graph (Some w) new_dtype ctx.current
   | Read reg_ident ->
     let r = Utils.StringMap.find_opt reg_ident graph.regs
