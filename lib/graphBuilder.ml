@@ -259,8 +259,8 @@ let rec recurse_unfold expr_full_node expr_node =
       Index (unfold e', idx)
     | Indirect (e', ident) ->
       Indirect (unfold e', ident)
-    | Concat es ->
-      Concat (List.map unfold es)
+    | Concat (es, is_flat) ->
+      Concat (List.map unfold es, is_flat)
     | Match (e, arms) ->
       Match (unfold e,
         List.map (fun (m, eop) -> (m, Option.map unfold eop)) arms
@@ -693,15 +693,19 @@ and visit_expr (graph : event_graph) (ci : cunit_info)
         )
       | _ -> raise @@ event_graph_error_default "Invalid match expression (exactly one default case expected)!" e.span
     )
-  | Concat es ->
+  | Concat (es, is_flat) ->
     let tds = List.map (fun e' -> (e', visit_expr graph ci ctx e')) es in
     let ws = List.map (fun ((e', td) : expr_node * timed_data) -> unwrap_or_err "Invalid value in concat" e'.span td.w) tds in
     let (wires', w) = WireCollection.add_concat graph.thread_id ci.typedefs ci.macro_defs ws graph.wires in
     graph.wires <- wires';
     let tdtype = List.map (fun ((_, td): expr_node * timed_data) -> td.dtype) tds in
-    if not (List.for_all (fun d -> d = List.hd tdtype) tdtype) then
+    if not (List.for_all (fun d -> d = List.hd tdtype) tdtype) && (not is_flat) then
       raise (Except.TypeError [Text ("In concat: Incompatible types: " ^ (String.concat ", " (List.map string_of_data_type tdtype))); Except.codespan_local e.span]);
-    let new_dtype = `Array (List.hd tdtype, ParamEnv.Concrete (List.length es)) in
+    let new_dtype = ( 
+      match is_flat with 
+      | false -> `Array (List.hd tdtype, ParamEnv.Concrete (List.length es))
+      | _ -> `Array (`Logic, ParamEnv.Concrete (w.size))
+    ) in
     List.map snd tds |> Typing.merged_data graph (Some w) new_dtype ctx.current
   | Read reg_ident ->
     let r = Utils.StringMap.find_opt reg_ident graph.regs

@@ -49,6 +49,7 @@
 %token KEYWORD_FOREIGN      (* foreign *)
 %token KEYWORD_GENERATE     (* generate *)
 %token KEYWORD_GENERATE_SEQ     (* generate *)
+%token KEYWORD_FLAT       (* flat *)
 %token KEYWORD_IF           (* if *)
 %token KEYWORD_ELSE         (* else *)
 %token KEYWORD_LET          (* let *)
@@ -476,7 +477,9 @@ expr:
 | e = node(expr); PERIOD; fieldname = IDENT
   { Lang.Indirect (e, fieldname) }
 | SHARP; LEFT_BRACE; components = separated_list(COMMA, node(expr)); RIGHT_BRACE
-  { Lang.Concat components }
+  { Lang.Concat (components, false) }
+| SHARP; KEYWORD_FLAT; LEFT_BRACE; components = separated_list(COMMA, node(expr)); RIGHT_BRACE
+  { Lang.Concat (components, true) }
 | LEFT_BRACE; e = expr; RIGHT_BRACE
   { e }
 | KEYWORD_MATCH; e = node(expr); LEFT_BRACE; match_arm_list = separated_list(COMMA, match_arm); RIGHT_BRACE
