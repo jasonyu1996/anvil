@@ -312,7 +312,9 @@ let literal_eval (lit : literal) : int =
 
 let dtype_of_literal (lit : literal) =
   let n = literal_bit_len lit |> Option.get in
-  `Array (`Logic, ParamEnv.Concrete n)
+  match n with
+  | 1 -> `Logic
+  | _ -> `Array (`Logic, ParamEnv.Concrete n)
 
 type binop = Add | Sub | Xor | And | Or | Lt | Gt | Lte | Gte |
              Shl | Shr | Eq | Neq | Mul | In | LAnd | LOr

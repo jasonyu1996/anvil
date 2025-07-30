@@ -354,6 +354,8 @@ and visit_expr (graph : event_graph) (ci : cunit_info)
   | Assign (lval, e') ->
     let td = visit_expr graph ci ctx e' in
     let lvi = lvalue_info_of graph ci ctx e.span lval in
+    if td.dtype <> lvi.lval_dtype then
+      raise (Except.TypeError [Text ("In assignment: Invalid data type for " ^ (string_of_lvalue lval) ^ ": expected " ^ (string_of_data_type lvi.lval_dtype) ^ " got " ^ (string_of_data_type td.dtype)); Except.codespan_local e.span]);
     ctx.current.actions <- (RegAssign (lvi, td) |> tag_with_span e.span)::ctx.current.actions;
     Typing.cycles_data graph 1 ctx.current
   | Call (id, arg_list) ->
@@ -735,6 +737,9 @@ and visit_expr (graph : event_graph) (ci : cunit_info)
       raise (event_graph_error_default "Mismatching message direction!" e.span)
     );
     let td = visit_expr graph ci ctx send_pack.send_data in
+    let msg_dtype = (List.hd msg.sig_types).dtype in
+    if td.dtype <> msg_dtype then
+      raise (Except.TypeError [Text ("In send: Invalid data type for message " ^ send_pack.send_msg_spec.endpoint ^ ": expected " ^ (string_of_data_type msg_dtype) ^ " got " ^ (string_of_data_type td.dtype)); Except.codespan_local e.span]);
     let ntd = Typing.send_msg_data graph send_pack.send_msg_spec ctx.current in
     ctx.current.sustained_actions <-
       ({
@@ -793,7 +798,16 @@ and visit_expr (graph : event_graph) (ci : cunit_info)
         (
           match Utils.list_match_reorder (List.map fst record_fields) field_exprs with
           | Some expr_reordered ->
-            let tds = List.map (fun e' -> (e', visit_expr graph ci ctx e')) expr_reordered in
+            let tds = List.map2 (fun (field_name, expected_dtype) e' ->
+              let td = visit_expr graph ci ctx e' in
+              if td.dtype <> expected_dtype then
+                raise (Except.TypeError [
+                  Text ("In record construction: Invalid data type for field " ^ field_name);
+                  Text ("Expected " ^ (string_of_data_type expected_dtype) ^ " but got " ^ (string_of_data_type td.dtype));
+                  Except.codespan_local e'.span
+                ]);
+              (e', td)
+            ) record_fields expr_reordered in
             let ws = List.rev_map (fun ((e', {w; _}) : expr_node * timed_data) ->
               unwrap_or_err "Invalid value in record field" e'.span w) tds in
             let (wires', w) = WireCollection.add_concat graph.thread_id ci.typedefs ci.macro_defs ws graph.wires in
@@ -826,8 +840,8 @@ and visit_expr (graph : event_graph) (ci : cunit_info)
           match e_dtype_opt, cstr_expr_opt with
           | Some e_dtype, Some cstr_expr ->
             let td = visit_expr graph ci ctx cstr_expr in
-            if td.dtype <> e_dtype then
-              raise (Except.TypeError [Text ("In variant construction: Invalid data type for " ^ cstr_spec.variant ^ ": expected " ^ (string_of_data_type e_dtype) ^ " got " ^ (string_of_data_type td.dtype)); Except.codespan_local e.span]);
+            (* if td.dtype <> e_dtype then
+              raise (Except.TypeError [Text ("In variant construction: Invalid data type for " ^ cstr_spec.variant ^ ": expected " ^ (string_of_data_type e_dtype) ^ " got " ^ (string_of_data_type td.dtype)); Except.codespan_local e.span]); *)
             let w = unwrap_or_err "Invalid value in variant construction" cstr_expr.span td.w in
             let tag_size = variant_tag_size dtype
             and data_size = TypedefMap.data_type_size ci.typedefs ci.macro_defs e_dtype
