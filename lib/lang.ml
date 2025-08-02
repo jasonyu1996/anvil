@@ -379,7 +379,7 @@ and expr =
   | Binop of binop * expr_node * (expr_node singleton_or_list)
   | Unop of unop * expr_node
   | Tuple of expr_node list
-  | Let of identifier list * expr_node
+  | Let of identifier list * data_type option * expr_node
   | Join of expr_node * expr_node (** [a; b] *)
   | Wait of expr_node * expr_node (** [a => b] *)
   | Cycle of int
@@ -550,7 +550,7 @@ let rec string_of_expr (e : expr) : string =
   match e with
   | Literal lit -> "Literal " ^ string_of_literal lit
   | Identifier id -> "Identifier " ^ id
-  | Let (ids, e) -> "Let (" ^ String.concat ", " ids ^ ", " ^ string_of_expr e.d ^ ")"
+  | Let (ids,_, e) -> "Let (" ^ String.concat ", " ids ^ ", " ^ string_of_expr e.d ^ ")"
   | Assign (lv, n) -> "Assign (" ^ string_of_lvalue lv ^ ", " ^ string_of_expr n.d ^ ")"
   | _ -> "..."
 
@@ -604,9 +604,9 @@ let rec substitute_expr_identifier (id: identifier) (value: expr_node) (expr: ex
   let new_expr = match expr.d with
   | Identifier name when name = id ->
       value.d
-  | Let (ids, e) ->
+  | Let (ids, dtype, e) ->
       if List.mem id ids then expr.d
-      else Let (ids, substitute_expr_identifier id value e)
+      else Let (ids, dtype, substitute_expr_identifier id value e)
   | Record (name, fields, base) ->
       Record (
         name,

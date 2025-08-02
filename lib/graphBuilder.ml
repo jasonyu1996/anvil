@@ -205,6 +205,12 @@ let binop_td_td graph (ci:cunit_info) ctx span op td1 td2 =
   let open Typing in
   let new_dtype = (`Array (`Logic, ParamEnv.Concrete sz')) in
   Typing.merged_data graph (Some wres) new_dtype ctx.current [td1; td2]
+let check_dtype dtype1 dtype2 span =
+  match dtype1 with
+  | Some dt1 ->
+    if dt1 <> dtype2 then
+      raise (Except.TypeError [Text ("Invalid data type: expected " ^ (string_of_data_type dt1) ^ " but got " ^ (string_of_data_type dtype2)); Except.codespan_local span])
+  | None -> ()
 
 let rec recurse_unfold expr_full_node expr_node =
   let unfold = recurse_unfold expr_full_node in
@@ -235,8 +241,8 @@ let rec recurse_unfold expr_full_node expr_node =
       Unop (op, unfold expr_node')
     | Tuple expr_nodes ->
       Tuple (List.map unfold expr_nodes)
-    | Let (idents, e) ->
-      Let (idents, unfold e)
+    | Let (idents, dtype, e) ->
+      Let (idents, dtype, unfold e)
     | Join (e1, e2) ->
       Join (unfold e1, unfold e2)
     | Wait (e1, e2) ->
@@ -411,17 +417,23 @@ and visit_expr (graph : event_graph) (ci : cunit_info)
     graph.wires <- wires';
     Typing.derived_data (Some w) td
   | Tuple [] -> Typing.const_data graph None (unit_dtype) ctx.current
-  | Let (_idents, e) -> visit_expr graph ci ctx e
+  | Let (_idents, _, e) -> visit_expr graph ci ctx e
   | Join (e1, e2) ->
     let td1 = visit_expr graph ci ctx e1 in
     (
       match e1.d with
-      | Let (["_"], _)
-      | Let ([], _) ->
+      | Let (["_"],dtype ,_) -> 
+        check_dtype dtype td1.dtype e1.span;
         let td = visit_expr graph ci ctx e2 in
         let lt = Typing.lifetime_intersect graph td1.lt td.lt in
         {td with lt} (* forcing the bound value to be awaited *)
-      | Let ([ident], _) ->
+      | Let ([], dtype, _) ->
+        check_dtype dtype td1.dtype e1.span;
+        let td = visit_expr graph ci ctx e2 in
+        let lt = Typing.lifetime_intersect graph td1.lt td.lt in
+        {td with lt} (* forcing the bound value to be awaited *)
+      | Let ([ident],dtype, _) ->
+          check_dtype dtype td1.dtype e1.span;
           let ctx' = BuildContext.add_binding ctx ident td1 in
           let td = visit_expr graph ci ctx' e2 in
           (* check if the binding is used *)
@@ -441,11 +453,17 @@ and visit_expr (graph : event_graph) (ci : cunit_info)
     let td1 = visit_expr graph ci ctx e1 in
     (
       match e1.d with
-      | Let (["_"], _)
-      | Let ([], _) ->
+      | Let (["_"], dtype, _) ->
+        check_dtype dtype td1.dtype e1.span;
         let ctx' = BuildContext.wait graph ctx td1.lt.live in
         visit_expr graph ci ctx' e2
-      | Let ([ident], _) ->
+      | Let ([], dtype, _) ->
+        check_dtype dtype td1.dtype e1.span;
+        let ctx' = BuildContext.wait graph ctx td1.lt.live in
+        visit_expr graph ci ctx' e2
+      | Let ([ident], dtype, _) ->
+        check_dtype dtype td1.dtype e1.span;
+        (* add the binding to the context *)
         let ctx' = BuildContext.wait graph ctx td1.lt.live in
         let ctx' = BuildContext.add_binding ctx' ident td1 in
         visit_expr graph ci ctx' e2

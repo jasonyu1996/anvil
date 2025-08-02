@@ -434,7 +434,9 @@ expr:
 | KEYWORD_PUT; ident = IDENT; COLON_EQ; v = node(expr) %prec KEYWORD_PUT
   { Lang.SharedAssign (ident, v) }
 | KEYWORD_LET; binding = IDENT; EQUAL; v = node(expr) %prec KEYWORD_LET
-  { Lang.Let ([binding], v) }
+  { Lang.Let ([binding], None, v) }
+| KEYWORD_LET; binding = IDENT; COLON; dtype = data_type; EQUAL; v = node(expr) %prec KEYWORD_LET
+  { Lang.Let ([binding], Some(dtype), v) }
 // | KEYWORD_LET; binding = IDENT; EQUAL; v = node(expr); EQ_GT; body = node(expr)
 //   {
 //     let open Lang in
