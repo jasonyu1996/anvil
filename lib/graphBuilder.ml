@@ -706,12 +706,12 @@ and visit_expr (graph : event_graph) (ci : cunit_info)
           {w = None; lt; reg_borrows = reg_borrows'; dtype = unit_dtype}
         else (
           let (wires', w) = WireCollection.add_cases graph.thread_id ci.typedefs w_v
-            (List.map2 (fun td_pat (_, _, td_val) -> (Option.get td_pat.w, Option.get td_val.w)) td_pats branches) (Option.get td_default.w)
+            (List.map2 (fun td_pat (_, _, td_val) -> (Option.get td_pat.w, Option.get td_val.w)) td_pats branches) (match td_default.w with | Some w -> w | None -> raise (event_graph_error_default "Invalid match expression (exactly one default case expected)!" e.span))
             graph.wires in
           graph.wires <- wires';
           {w = Some w; lt; reg_borrows = reg_borrows'; dtype = td_default.dtype}
         )
-      | _ -> raise @@ event_graph_error_default "Invalid match expression (exactly one default case expected)!" e.span
+      | _ -> raise @@ event_graph_error_default "Invalid match expression (atleast one default case expected)!" e.span
     )
   | Concat (es, is_flat) ->
     let tds = List.map (fun e' -> (e', visit_expr graph ci ctx e')) es in
