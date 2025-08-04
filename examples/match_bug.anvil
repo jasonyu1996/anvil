@@ -1,0 +1,15 @@
+proc match_bug() {
+  reg r : logic;
+
+  loop {
+    set r := 1'b1
+  }
+
+  loop {
+    match *r {
+      1'b0 => (),
+      _ => dprint "Ha" ()
+    } >>
+    cycle 1
+  }
+}
