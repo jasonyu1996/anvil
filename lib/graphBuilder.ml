@@ -406,8 +406,15 @@ and visit_expr (graph : event_graph) (ci : cunit_info)
         let (wires', w) = WireCollection.add_binary graph.thread_id ci.typedefs ci.macro_defs binop w1 (`Single w2) graph.wires in
         graph.wires <- wires';
         if td1.dtype <> td2.dtype then
-          raise (Except.TypeError [Text ("In binary operation: Invalid argument types: " ^ (string_of_data_type td1.dtype) ^ " and " ^ (string_of_data_type td2.dtype)); Except.codespan_local e.span]);
-        let new_dtype = td1.dtype in
+          raise (Except.TypeError [Text ("In binary operation("^(string_of_binop binop)^"): Invalid argument types: " ^ (string_of_data_type td1.dtype) ^ " and " ^ (string_of_data_type td2.dtype)); Except.codespan_local e.span]);
+        
+        let new_dtype = match binop with
+        | LAnd | LOr | Lt | Gt | Lte | Gte | Eq | Neq ->
+          `Array (`Logic, ParamEnv.Concrete w.size)
+        | _ ->
+          td1.dtype
+        in 
+        
         Typing.merged_data graph (Some w) new_dtype ctx.current [td1; td2]
     )
   | Unop (unop, e') ->
