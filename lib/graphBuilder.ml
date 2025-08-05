@@ -410,7 +410,7 @@ and visit_expr (graph : event_graph) (ci : cunit_info)
         
         let new_dtype = match binop with
         | LAnd | LOr | Lt | Gt | Lte | Gte | Eq | Neq ->
-          `Array (`Logic, ParamEnv.Concrete w.size)
+          `Logic
         | _ ->
           td1.dtype
         in 
