@@ -392,6 +392,7 @@ and expr =
   | Index of expr_node * index (** an element of an array ([a[3]]) *)
   | Indirect of expr_node * identifier (** a member of a record ([a.b]) *)
   | Concat of expr_node list * bool
+  | Cast of expr_node * data_type (** cast an expression to a specific data type *)
   | Ready of message_specifier (** [ready(a, b)] *)
   | Probe of message_specifier (** [probe(a, b)] *)
   | Match of expr_node * ((expr_node * expr_node option) list)
@@ -636,6 +637,8 @@ let rec substitute_expr_identifier (id: identifier) (value: expr_node) (expr: ex
         | Range (e1, e2) -> Range (subst e1, subst e2)
       in
       Index (new_arr, new_idx)
+  | Cast (e, dtype) ->
+      Cast (subst e, dtype)
   | Concat (exprs, is_flat) ->
       Concat (List.map subst exprs, is_flat)
   | Assign (lv, e) ->

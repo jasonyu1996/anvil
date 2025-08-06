@@ -482,6 +482,8 @@ expr:
   { Lang.Concat (components, false) }
 | SHARP; KEYWORD_FLAT; LEFT_BRACE; components = separated_list(COMMA, node(expr)); RIGHT_BRACE
   { Lang.Concat (components, true) }
+| LEFT_ABRACK; LEFT_PAREN; expr = node(expr); RIGHT_PAREN; DOUBLE_COLON; dtype = data_type; RIGHT_ABRACK
+  { Lang.Cast (expr, dtype) }
 | LEFT_BRACE; e = expr; RIGHT_BRACE
   { e }
 | KEYWORD_MATCH; e = node(expr); LEFT_BRACE; match_arm_list = separated_list(COMMA, match_arm); RIGHT_BRACE

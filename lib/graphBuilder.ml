@@ -265,6 +265,8 @@ let rec recurse_unfold expr_full_node expr_node =
       Index (unfold e', idx)
     | Indirect (e', ident) ->
       Indirect (unfold e', ident)
+    | Cast (e', dtype) ->
+      Cast (unfold e', dtype)
     | Concat (es, is_flat) ->
       Concat (List.map unfold es, is_flat)
     | Match (e, arms) ->
@@ -720,6 +722,12 @@ and visit_expr (graph : event_graph) (ci : cunit_info)
         )
       | _ -> raise @@ event_graph_error_default "Invalid match expression (atleast one default case expected)!" e.span
     )
+  | Cast (e', dtype) ->
+    let td = visit_expr graph ci ctx e' in
+    let w = unwrap_or_err "Invalid value in cast" e'.span td.w in
+    if w.size <> TypedefMap.data_type_size ci.typedefs ci.macro_defs dtype then
+      raise (Except.TypeError [Text ("In cast: Invalid data type size: expected " ^ (string_of_data_type dtype) ^ " got " ^ (string_of_data_type td.dtype)); Except.codespan_local e.span]);
+    Typing.merged_data graph (Some w) dtype ctx.current [td]   
   | Concat (es, is_flat) ->
     let tds = List.map (fun e' -> (e', visit_expr graph ci ctx e')) es in
     let ws = List.map (fun ((e', td) : expr_node * timed_data) -> unwrap_or_err "Invalid value in concat" e'.span td.w) tds in

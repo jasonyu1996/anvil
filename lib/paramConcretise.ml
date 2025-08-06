@@ -77,7 +77,7 @@ let build_param_envs param_values params =
           add_value p.param_name n int_env
         | TypeParamValue t, TypeParam ->
           add_value p.param_name t type_env
-        | _ -> raise (Except.TypeError [Text "Invalid parameter!"])
+        | _ -> raise (Except.TypeError [Text ("Invalid parameter: " ^ p.param_name)])
       );
   (int_env, type_env)
 
