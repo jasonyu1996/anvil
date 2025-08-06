@@ -1015,13 +1015,36 @@ let recurse_unfold_for_checks ci shared_vars_info graph expr_node =
 
 (* Builds the graph representation for each process To Do: Add support for commands outside loop (be executed once or continuosly)*)
 let build_proc (config : Config.compile_config) sched module_name param_values
-              (ci : cunit_info) (proc : proc_def) : proc_graph =
+              (ci' : cunit_info) (proc : proc_def) : proc_graph =
   let proc =
     if param_values = [] then
       proc
     else
       ParamConcretise.concretise_proc param_values proc
   in
+  let macro_defs_extended =
+    List.fold_left2 (fun acc (p : Lang.param) (pval : param_value) ->
+      match p.param_ty, pval with
+      | IntParam, IntParamValue v ->
+        {
+          id = p.param_name;
+          value = v;
+        } :: acc
+      | _ -> acc
+    ) ci'.macro_defs proc.params param_values in
+
+  let ci = {
+    file_name = ci'.file_name;
+    typedefs = ci'.typedefs;
+    channel_classes = ci'.channel_classes;
+    macro_defs = macro_defs_extended;
+    func_defs = ci'.func_defs;
+    weak_typecasts = ci'.weak_typecasts;
+  } in
+
+
+
+
   match proc.body with
   | Native body ->
     let msg_collection = MessageCollection.create body.channels
