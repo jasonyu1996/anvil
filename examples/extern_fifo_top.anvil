@@ -1,0 +1,109 @@
+extern import "fifo.sv"
+
+chan fifo_ch<T : type> {
+    left push : (T@#1) @#1 - @dyn,
+    left pop : (logic@#1) @#1 - @dyn,
+    right data_o : (T@#1) @#pop - @#pop,
+    right full : (logic[1]@#1) @dyn - @#1,
+    right empty : (logic[1]@#1) @dyn - @#1
+}
+
+proc fifo_extern (ep : left fifo_ch<logic[32]>) extern("fifo") {
+    clk_i  ("clk_i");
+    rst_ni ("rst_ni");
+    ep.push("data_i":"push_i":);
+    ep.pop(:"pop_i":);
+    ep.data_o("data_o": :);
+    ep.full(:"full_o":);
+    ep.empty(:"empty_o":);
+}
+
+proc extern_fifo_top(){
+    chan ep_le -- ep_ri : fifo_ch<logic[32]>;
+    spawn fifo_extern(ep_le);
+    reg cyc : logic[32];
+    loop{
+        set cyc := *cyc + 32'd1
+    }
+    loop{
+        send ep_ri.push(32'd51) >>
+        cycle 1 >>
+        send ep_ri.push(32'd52) >>
+        cycle 1 >>
+        send ep_ri.push(32'd53) >>
+        cycle 1 >>
+        send ep_ri.push(32'd54) >>
+        cycle 1 >>
+        send ep_ri.push(32'd55) >>
+        cycle 1 >>
+        send ep_ri.push(32'd56) >>
+        cycle 1 >>
+        send ep_ri.push(32'd57) >>
+        cycle 1 >>
+
+        send ep_ri.push(32'd58) >>
+        cycle 1 >>
+        send ep_ri.push(32'd59) >>
+        
+        cycle 1 >>
+        send ep_ri.pop(1'b1) >>
+        let data = recv ep_ri.data_o >>
+        dprint "[Cycle %d] Data recieved %d" (*cyc, data) >>
+
+
+        cycle 1 >>
+        send ep_ri.pop(1'b1) >>
+        let data = recv ep_ri.data_o >>
+        dprint "[Cycle %d] Data recieved %d" (*cyc, data) >>
+
+
+        cycle 1 >>
+        send ep_ri.pop(1'b1) >>
+        let data = recv ep_ri.data_o >>
+        dprint "[Cycle %d] Data recieved %d" (*cyc, data) >>
+
+
+        cycle 1 >>
+        send ep_ri.pop(1'b1) >>
+        let data = recv ep_ri.data_o >>
+        dprint "[Cycle %d] Data recieved %d" (*cyc, data) >>
+
+        cycle 1 >>
+        send ep_ri.pop(1'b1) >>
+        let data = recv ep_ri.data_o >>
+        dprint "[Cycle %d] Data recieved %d" (*cyc, data) >>
+
+
+        cycle 1 >>
+        send ep_ri.pop(1'b1) >>
+        let data = recv ep_ri.data_o >>
+        dprint "[Cycle %d] Data recieved %d" (*cyc, data) >>
+
+
+        cycle 1 >>
+        send ep_ri.pop(1'b1) >>
+        let data = recv ep_ri.data_o >>
+        dprint "[Cycle %d] Data recieved %d" (*cyc,data) >>
+
+
+        cycle 1 >>
+        send ep_ri.pop(1'b1) >>
+        let data = recv ep_ri.data_o >>
+        dprint "[Cycle %d] Data recieved %d" (*cyc,data) >>
+        
+        cycle 1 >>
+        dfinish
+    }
+
+    loop{
+        let empty = recv ep_ri.empty >>
+        dprint "[Cycle %d] FIFO empty: %d" (*cyc, empty) >>
+        cycle 1
+    }
+
+    loop{
+        let full = recv ep_ri.full >>
+        dprint "[Cycle %d] FIFO full: %d" (*cyc, full) >>
+        cycle 1
+    }
+}
