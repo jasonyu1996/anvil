@@ -17,7 +17,8 @@ type cunit_info = {
   typedefs : TypedefMap.t;
   channel_classes : Lang.channel_class_def list;
   func_defs : Lang.func_def list;
-  macro_defs : Lang.macro_def list
+  macro_defs : Lang.macro_def list;
+  weak_typecasts : bool
 }
 
 type wire = WireCollection.wire

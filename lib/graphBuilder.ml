@@ -205,11 +205,16 @@ let binop_td_td graph (ci:cunit_info) ctx span op td1 td2 =
   let open Typing in
   let new_dtype = (`Array (`Logic, ParamEnv.Concrete sz')) in
   Typing.merged_data graph (Some wres) new_dtype ctx.current [td1; td2]
-let check_dtype dtype1 dtype2 span =
+let check_dtype err_string dtype1 dtype2 span file_name allow =
   match dtype1 with
   | Some dt1 ->
-    if dt1 <> dtype2 then
-      raise (Except.TypeError [Text ("Invalid data type: expected " ^ (string_of_data_type dt1) ^ " but got " ^ (string_of_data_type dtype2)); Except.codespan_local span])
+    if dt1 <> dtype2 && (not allow) then
+      raise (Except.TypeError [Text err_string; Except.codespan_local span])
+    (* else if (TypedefMap.data_type_size dt1) <> (TypedefMap.data_type_size dtype2) then
+      raise (Except.TypeError [Text ("[Unequal width] Invalid data type size: expected " ^ (string_of_int (TypedefMap.data_type_size dt1)) ^ " but got " ^ (string_of_int (TypedefMap.data_type_size dtype2))); Except.codespan_local span]) *)
+    else if dt1 <> dtype2 then
+      (Printf.eprintf "[Warning] %s\n" err_string;
+      (Lang.print_code_span ~indent:2 ~trunc:(-5) stderr file_name span))
   | None -> ()
 
 let rec recurse_unfold expr_full_node expr_node =
@@ -362,8 +367,11 @@ and visit_expr (graph : event_graph) (ci : cunit_info)
   | Assign (lval, e') ->
     let td = visit_expr graph ci ctx e' in
     let lvi = lvalue_info_of graph ci ctx e.span lval in
-    if td.dtype <> lvi.lval_dtype then
-      raise (Except.TypeError [Text ("In assignment: Invalid data type for " ^ (string_of_lvalue lval) ^ ": expected " ^ (string_of_data_type lvi.lval_dtype) ^ " got " ^ (string_of_data_type td.dtype)); Except.codespan_local e.span]);
+    (* if td.dtype <> lvi.lval_dtype then
+      raise (Except.TypeError [Text ("In assignment: Invalid data type for " ^ (string_of_lvalue lval) ^ ": expected " ^ (string_of_data_type lvi.lval_dtype) ^ " got " ^ (string_of_data_type td.dtype)); Except.codespan_local e.span]); *)
+    let err_string = Printf.sprintf "In assignment: Invalid data type for %s: expected %s but got %s"
+      (string_of_lvalue lval) (string_of_data_type lvi.lval_dtype) (string_of_data_type td.dtype) in
+    check_dtype err_string (Some lvi.lval_dtype) td.dtype e.span ci.file_name ci.weak_typecasts;
     ctx.current.actions <- (RegAssign (lvi, td) |> tag_with_span e.span)::ctx.current.actions;
     Typing.cycles_data graph 1 ctx.current
   | Call (id, arg_list) ->
@@ -378,8 +386,11 @@ and visit_expr (graph : event_graph) (ci : cunit_info)
           let _ = td.w in (* added for tc*)
           match arg.arg_type with
             | Some gtype ->
-              if td.dtype <> gtype then
-                raise (Except.TypeError [Text ("In function call " ^ id ^ ": Invalid argument type for " ^ arg.arg_name ^ ": expected " ^ (string_of_data_type gtype) ^ " got " ^ (string_of_data_type td.dtype)); Except.codespan_local e.span])
+              let err_string = Printf.sprintf "In function call %s: Invalid argument type for %s: expected %s but got %s"
+                id arg.arg_name (string_of_data_type gtype) (string_of_data_type td.dtype) in
+              check_dtype err_string (Some gtype) td.dtype e.span ci.file_name ci.weak_typecasts;
+              (* if td.dtype <> gtype then
+                raise (Except.TypeError [Text ("In function call " ^ id ^ ": Invalid argument type for " ^ arg.arg_name ^ ": expected " ^ (string_of_data_type gtype) ^ " got " ^ (string_of_data_type td.dtype)); Except.codespan_local e.span]) *)
             | None -> ()
         );
         ctx' := BuildContext.add_binding !ctx' arg.arg_name td
@@ -407,8 +418,12 @@ and visit_expr (graph : event_graph) (ci : cunit_info)
         let w2 = unwrap_or_err "Invalid value of second operator" e1.span td2.w in
         let (wires', w) = WireCollection.add_binary graph.thread_id ci.typedefs ci.macro_defs binop w1 (`Single w2) graph.wires in
         graph.wires <- wires';
-        if td1.dtype <> td2.dtype then
-          raise (Except.TypeError [Text ("In binary operation("^(string_of_binop binop)^"): Invalid argument types: " ^ (string_of_data_type td1.dtype) ^ " and " ^ (string_of_data_type td2.dtype)); Except.codespan_local e.span]);
+        let err_string = Printf.sprintf "In binary operation %s: Invalid argument types: %s and %s"
+          (string_of_binop binop) (string_of_data_type td1.dtype) (string_of_data_type td2.dtype) in
+        check_dtype err_string (Some td1.dtype) td2.dtype e.span ci.file_name ci.weak_typecasts;
+        (* check if the data types match *)
+        (* if td1.dtype <> td2.dtype then
+          raise (Except.TypeError [Text ("In binary operation("^(string_of_binop binop)^"): Invalid argument types: " ^ (string_of_data_type td1.dtype) ^ " and " ^ (string_of_data_type td2.dtype)); Except.codespan_local e.span]); *)
         
         let new_dtype = match binop with
         | LAnd | LOr | Lt | Gt | Lte | Gte | Eq | Neq ->
@@ -432,17 +447,23 @@ and visit_expr (graph : event_graph) (ci : cunit_info)
     (
       match e1.d with
       | Let (["_"],dtype ,_) -> 
-        check_dtype dtype td1.dtype e1.span;
+        let err_string = Printf.sprintf "Invalid data type : %s"
+          (string_of_data_type td1.dtype) in
+        check_dtype err_string dtype td1.dtype e1.span ci.file_name ci.weak_typecasts;
         let td = visit_expr graph ci ctx e2 in
         let lt = Typing.lifetime_intersect graph td1.lt td.lt in
         {td with lt} (* forcing the bound value to be awaited *)
       | Let ([], dtype, _) ->
-        check_dtype dtype td1.dtype e1.span;
+        let err_string = Printf.sprintf "Invalid data type : %s"
+          (string_of_data_type td1.dtype) in
+        check_dtype err_string dtype td1.dtype e1.span ci.file_name ci.weak_typecasts;
         let td = visit_expr graph ci ctx e2 in
         let lt = Typing.lifetime_intersect graph td1.lt td.lt in
         {td with lt} (* forcing the bound value to be awaited *)
       | Let ([ident],dtype, _) ->
-          check_dtype dtype td1.dtype e1.span;
+          let err_string = Printf.sprintf "Invalid data type for %s: got %s"
+            ident (string_of_data_type td1.dtype) in
+          check_dtype err_string dtype td1.dtype e1.span ci.file_name ci.weak_typecasts;
           let ctx' = BuildContext.add_binding ctx ident td1 in
           let td = visit_expr graph ci ctx' e2 in
           (* check if the binding is used *)
@@ -463,15 +484,21 @@ and visit_expr (graph : event_graph) (ci : cunit_info)
     (
       match e1.d with
       | Let (["_"], dtype, _) ->
-        check_dtype dtype td1.dtype e1.span;
+        let err_string = Printf.sprintf "Invalid data type : %s"
+          (string_of_data_type td1.dtype) in
+        check_dtype err_string dtype td1.dtype e1.span ci.file_name ci.weak_typecasts;
         let ctx' = BuildContext.wait graph ctx td1.lt.live in
         visit_expr graph ci ctx' e2
       | Let ([], dtype, _) ->
-        check_dtype dtype td1.dtype e1.span;
+        let err_string = Printf.sprintf "Invalid data type : %s"
+          (string_of_data_type td1.dtype) in
+        check_dtype err_string dtype td1.dtype e1.span ci.file_name ci.weak_typecasts;
         let ctx' = BuildContext.wait graph ctx td1.lt.live in
         visit_expr graph ci ctx' e2
       | Let ([ident], dtype, _) ->
-        check_dtype dtype td1.dtype e1.span;
+        let err_string = Printf.sprintf "Invalid data type for %s: got %s"
+          ident (string_of_data_type td1.dtype) in
+        check_dtype err_string dtype td1.dtype e.span ci.file_name ci.weak_typecasts;
         (* add the binding to the context *)
         let ctx' = BuildContext.wait graph ctx td1.lt.live in
         let ctx' = BuildContext.add_binding ctx' ident td1 in
@@ -771,8 +798,11 @@ and visit_expr (graph : event_graph) (ci : cunit_info)
     );
     let td = visit_expr graph ci ctx send_pack.send_data in
     let msg_dtype = (List.hd msg.sig_types).dtype in
-    if td.dtype <> msg_dtype then
-      raise (Except.TypeError [Text ("In send: Invalid data type for message " ^ send_pack.send_msg_spec.endpoint ^ ": expected " ^ (string_of_data_type msg_dtype) ^ " got " ^ (string_of_data_type td.dtype)); Except.codespan_local e.span]);
+    (* if td.dtype <> msg_dtype then
+      raise (Except.TypeError [Text ("In send: Invalid data type for message " ^ send_pack.send_msg_spec.endpoint ^ ": expected " ^ (string_of_data_type msg_dtype) ^ " got " ^ (string_of_data_type td.dtype)); Except.codespan_local e.span]); *)
+    let err_string = Printf.sprintf "In send: Invalid data type for message %s: expected %s but got %s"
+      send_pack.send_msg_spec.endpoint (string_of_data_type msg_dtype) (string_of_data_type td.dtype) in
+    check_dtype err_string (Some msg_dtype) td.dtype e.span ci.file_name ci.weak_typecasts;
     let ntd = Typing.send_msg_data graph send_pack.send_msg_spec ctx.current in
     ctx.current.sustained_actions <-
       ({
@@ -833,12 +863,14 @@ and visit_expr (graph : event_graph) (ci : cunit_info)
           | Some expr_reordered ->
             let tds = List.map2 (fun (field_name, expected_dtype) e' ->
               let td = visit_expr graph ci ctx e' in
-              if td.dtype <> expected_dtype then
+              let err_string = Printf.sprintf "In record construction: Invalid data type for field %s | Expected %s but got %s" field_name (string_of_data_type expected_dtype) (string_of_data_type td.dtype) in
+              check_dtype err_string (Some expected_dtype) td.dtype e'.span ci.file_name ci.weak_typecasts;
+              (* if td.dtype <> expected_dtype then
                 raise (Except.TypeError [
                   Text ("In record construction: Invalid data type for field " ^ field_name);
                   Text ("Expected " ^ (string_of_data_type expected_dtype) ^ " but got " ^ (string_of_data_type td.dtype));
                   Except.codespan_local e'.span
-                ]);
+                ]); *)
               (e', td)
             ) record_fields expr_reordered in
             let ws = List.rev_map (fun ((e', {w; _}) : expr_node * timed_data) ->
@@ -1070,12 +1102,14 @@ let build (config : Config.compile_config) sched module_name param_values (cunit
   let macro_defs = cunit.macro_defs in
   let typedefs = TypedefMap.of_list cunit.type_defs in
   let func_defs = cunit.func_defs in
+  let wty = config.weak_typecasts in
   let ci = {
     file_name = Option.get cunit.cunit_file_name;
-    typedefs;
+    typedefs =typedefs;
     channel_classes = cunit.channel_classes;
-    macro_defs;
-    func_defs
+    macro_defs = macro_defs;
+    func_defs =func_defs;
+    weak_typecasts = wty
   } in
   let graphs = List.map (build_proc config sched module_name param_values ci ) cunit.procs in
   {
