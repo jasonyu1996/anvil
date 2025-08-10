@@ -29,9 +29,7 @@ let codegen_ports printer (graphs : event_graph_collection)
   port_list
 
 let codegen_spawns printer (graphs : event_graph_collection) (g : proc_graph) =
-  let is_mod_comb = List.for_all (fun (thread , _) ->
-    (thread : EventGraph.event_graph).comb
-  ) g.threads in
+  
   let gen_connect = fun (dst : string) (src : string) ->
     Printf.sprintf ",.%s (%s)" dst src |> CodegenPrinter.print_line printer
   in
@@ -44,13 +42,18 @@ let codegen_spawns printer (graphs : event_graph_collection) (g : proc_graph) =
   in
 
   let gen_spawn = fun (idx : int) ((module_name, spawn) : string * spawn_def) ->
+    let proc_other = CodegenHelpers.lookup_proc graphs.external_event_graphs module_name |> Option.get in
+    let is_spawn_comb = List.for_all (fun (thread , _) ->
+    (thread : EventGraph.event_graph).comb
+  ) proc_other.threads in
+
     Printf.sprintf "%s _spawn_%d (" module_name idx|> CodegenPrinter.print_line printer ~lvl_delta_post:1;
-    if (not is_mod_comb) then(
+    if (not is_spawn_comb) then(
         CodegenPrinter.print_line printer ".clk_i,";
         CodegenPrinter.print_line printer ".rst_ni";
     );
     (* connect the wires *)
-    let proc_other = CodegenHelpers.lookup_proc graphs.external_event_graphs module_name |> Option.get in
+    
     let connect_endpoints = fun (arg_endpoint : endpoint_def) (param_ident : identifier) ->
       let endpoint_local = MessageCollection.lookup_endpoint g.messages param_ident |> Option.get in
       let endpoint_name_local = CodegenFormat.canonicalize_endpoint_name param_ident (List.hd g.threads |> fst) in
@@ -58,7 +61,7 @@ let codegen_spawns printer (graphs : event_graph_collection) (g : proc_graph) =
       let print_msg_con = fun (msg : message_def) ->
         let msg = ParamConcretise.concretise_message cc.params endpoint_local.channel_params msg in
         if CodegenPort.message_has_valid_port msg then
-            gen_connect_post (Format.format_msg_valid_signal_name arg_endpoint.name msg.name)
+            gen_connect (Format.format_msg_valid_signal_name arg_endpoint.name msg.name)
               (Format.format_msg_valid_signal_name endpoint_name_local msg.name)
         else ();
         if CodegenPort.message_has_ack_port msg then
@@ -66,24 +69,55 @@ let codegen_spawns printer (graphs : event_graph_collection) (g : proc_graph) =
             (Format.format_msg_ack_signal_name endpoint_name_local msg.name)
         else ();
         let print_data_con = fun fmt idx _ ->
-          if(is_mod_comb) then (
-            if idx = 0 then (
+          if(is_spawn_comb) then (  
             gen_connect_post (fmt arg_endpoint.name msg.name idx)
               (fmt endpoint_name_local msg.name idx)
-            )
-            else if idx = 1 then (
+          )
+          else (
+            gen_connect (fmt arg_endpoint.name msg.name idx)
+              (fmt endpoint_name_local msg.name idx)
+          )
+        in begin
+          List.iteri (print_data_con Format.format_msg_data_signal_name) msg.sig_types;
+        end
+      in 
+      let print_msg_con_last = fun (msg : message_def) ->
+        let msg = ParamConcretise.concretise_message cc.params endpoint_local.channel_params msg in
+        if CodegenPort.message_has_valid_port msg then
+            gen_connect_post (Format.format_msg_valid_signal_name arg_endpoint.name msg.name)
+              (Format.format_msg_valid_signal_name endpoint_name_local msg.name)
+        else ();
+        if CodegenPort.message_has_ack_port msg then
+          gen_connect_post (Format.format_msg_ack_signal_name arg_endpoint.name msg.name)
+            (Format.format_msg_ack_signal_name endpoint_name_local msg.name)
+        else ();
+        let len = List.length msg.sig_types in
+        let print_data_con_last = fun fmt idx _ ->
+          if (is_spawn_comb) then (
+            if (idx == len - 1) then (
               gen_connect_blank (fmt arg_endpoint.name msg.name idx)
                 (fmt endpoint_name_local msg.name idx)
             )
             else (
-              gen_connect (fmt arg_endpoint.name msg.name idx)
+              gen_connect_post (fmt arg_endpoint.name msg.name idx)
                 (fmt endpoint_name_local msg.name idx)
             )
-          );
+          )
+          else (gen_connect (fmt arg_endpoint.name msg.name idx)
+            (fmt endpoint_name_local msg.name idx))
         in begin
-          List.iteri (print_data_con Format.format_msg_data_signal_name) msg.sig_types;
+          List.iteri (print_data_con_last Format.format_msg_data_signal_name) msg.sig_types;
         end
-      in List.iter print_msg_con cc.messages
+      in 
+      let first_msg = List.hd cc.messages in
+      (* remove first msg from the list *)
+      let new_list = List.tl cc.messages in
+
+      List.iter print_msg_con new_list;
+      if is_spawn_comb then
+        print_msg_con_last first_msg
+      else print_msg_con first_msg
+
     in
     if List.length proc_other.messages.args <> List.length spawn.params then
       raise (CodegenError (Printf.sprintf "Invalid number of arguments for spawn of proc %s"  proc_other.name));
