@@ -57,7 +57,7 @@ let codegen_decl printer (g : EventGraph.event_graph) =
   |> List.iter (fun (ty, sn) ->
     Printf.sprintf "%s %s_q, %s_n;" ty sn sn |> CodegenPrinter.print_line printer
   )
-let codegen_next_comb printer (g : EventGraph.event_graph) =
+let _codegen_next_comb printer (g : EventGraph.event_graph) =
   let event = g.events |> List.hd in
   (* generate combinational next state logic for the first event *)
   
@@ -461,11 +461,10 @@ let codegen_states printer
   (pg : EventGraph.proc_graph)
   (g : EventGraph.event_graph)
   (reset_by : Lang.message_specifier option) =
-  codegen_decl printer g;
   if g.comb then(
-    codegen_next_comb printer g;
     codegen_sustained_actions printer graphs pg g
   ) else (
+    codegen_decl printer g;
     codegen_next printer graphs pg g;
     codegen_sustained_actions printer graphs pg g;
     codegen_transition printer graphs g reset_by

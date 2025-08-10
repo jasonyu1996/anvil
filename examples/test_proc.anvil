@@ -10,7 +10,7 @@ proc test_proc(ep : left ch){
         cycle 1
     }
     loop{
-        dprint "test_proc" () >>
+        // dprint "test_proc" () >>
         cycle 1
     }
 }
