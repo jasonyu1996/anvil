@@ -29,12 +29,20 @@ let codegen_ports printer (graphs : event_graph_collection)
   port_list
 
 let codegen_spawns printer (graphs : event_graph_collection) (g : proc_graph) =
-  let gen_connect = fun (dst : string) (src : string) ->
-    Printf.sprintf ",.%s (%s)" dst src |> CodegenPrinter.print_line printer
-  in
   let is_mod_comb = List.for_all (fun (thread , _) ->
     (thread : EventGraph.event_graph).comb
   ) g.threads in
+  let gen_connect = fun (dst : string) (src : string) ->
+    Printf.sprintf ",.%s (%s)" dst src |> CodegenPrinter.print_line printer
+  in
+  let gen_connect_post = fun (dst : string) (src : string) ->
+    Printf.sprintf ".%s (%s)," dst src |> CodegenPrinter.print_line printer 
+  in
+  
+  let gen_connect_blank = fun (dst : string) (src : string) ->
+    Printf.sprintf ".%s (%s)" dst src |> CodegenPrinter.print_line printer 
+  in
+
   let gen_spawn = fun (idx : int) ((module_name, spawn) : string * spawn_def) ->
     Printf.sprintf "%s _spawn_%d (" module_name idx|> CodegenPrinter.print_line printer ~lvl_delta_post:1;
     if (not is_mod_comb) then(
@@ -50,16 +58,28 @@ let codegen_spawns printer (graphs : event_graph_collection) (g : proc_graph) =
       let print_msg_con = fun (msg : message_def) ->
         let msg = ParamConcretise.concretise_message cc.params endpoint_local.channel_params msg in
         if CodegenPort.message_has_valid_port msg then
-          gen_connect (Format.format_msg_valid_signal_name arg_endpoint.name msg.name)
-            (Format.format_msg_valid_signal_name endpoint_name_local msg.name)
+            gen_connect_post (Format.format_msg_valid_signal_name arg_endpoint.name msg.name)
+              (Format.format_msg_valid_signal_name endpoint_name_local msg.name)
         else ();
         if CodegenPort.message_has_ack_port msg then
           gen_connect (Format.format_msg_ack_signal_name arg_endpoint.name msg.name)
             (Format.format_msg_ack_signal_name endpoint_name_local msg.name)
         else ();
         let print_data_con = fun fmt idx _ ->
-          gen_connect (fmt arg_endpoint.name msg.name idx)
-            (fmt endpoint_name_local msg.name idx)
+          if(is_mod_comb) then (
+            if idx = 0 then (
+            gen_connect_post (fmt arg_endpoint.name msg.name idx)
+              (fmt endpoint_name_local msg.name idx)
+            )
+            else if idx = 1 then (
+              gen_connect_blank (fmt arg_endpoint.name msg.name idx)
+                (fmt endpoint_name_local msg.name idx)
+            )
+            else (
+              gen_connect (fmt arg_endpoint.name msg.name idx)
+                (fmt endpoint_name_local msg.name idx)
+            )
+          );
         in begin
           List.iteri (print_data_con Format.format_msg_data_signal_name) msg.sig_types;
         end
