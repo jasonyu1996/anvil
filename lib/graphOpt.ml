@@ -535,3 +535,44 @@ end
 
 let optimize config for_lt_check ci graph =
   CombSimplPass.optimize_pass config for_lt_check ci graph
+
+
+
+
+let combinational_codegen (config : Config.compile_config) (graph : event_graph) (ci : cunit_info) : event_graph = 
+  if config.opt_level > 2 then (
+    let last_event = List.hd (List.rev graph.events) in
+    if (((List.length graph.events) = 2)  && (List.is_empty last_event.sustained_actions)) then (
+      let is_notregassign : bool = List.for_all (fun act ->
+      match act.d with
+        | RegAssign _ -> false
+        | _ -> true
+      ) last_event.actions in
+      
+      if is_notregassign then (
+        let synth = List.for_all (fun a ->
+          match a.d with
+          | DebugFinish
+          | DebugPrint _ -> (
+            Printf.eprintf "[Warning] Optimization for combinational possible but skipping for there being Debug actions in %d thread\n" graph.thread_id;
+            (Lang.print_code_span ~indent:2 ~trunc:(-5) stderr ci.file_name a.span);
+            false
+          )
+          | _ -> true
+        ) last_event.actions in
+        if synth then(
+          (* List.iter ( fun act ->
+          Printf.eprintf "[Info] Actions = %s\n" (EventGraphOps.string_of_actions act.d)
+          ) last_event.actions; *)
+          (* shift all actions to first event and delete the last one *)
+          { graph with events = [last_event]; comb = true }
+        )
+        else graph
+      )
+      else graph
+    )
+    else (
+      graph
+    ) 
+  )
+  else graph

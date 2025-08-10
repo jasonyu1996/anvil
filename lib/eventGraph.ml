@@ -179,6 +179,7 @@ and event_graph = {
   mutable last_event_id: int;
   thread_codespan : Lang.code_span;
   mutable is_general_recursive : bool; (** is this a general recursive graph? *)
+  mutable comb : bool;
 }
 
 type proc_graph = {

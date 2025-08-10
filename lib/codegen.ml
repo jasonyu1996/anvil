@@ -11,7 +11,7 @@ type port_def = CodegenPort.t
 exception CodegenError of string
 
 let codegen_ports printer (graphs : event_graph_collection)
-                      (endpoints : endpoint_def list) =
+                      (endpoints : endpoint_def list) (is_mod_comb : bool)=
   let port_list = CodegenPort.gather_ports graphs.channel_classes endpoints in
   let rec print_port_list port_list =
   match port_list with
@@ -22,17 +22,25 @@ let codegen_ports printer (graphs : event_graph_collection)
       CodegenPort.format graphs.typedefs graphs.macro_defs port |> Printf.sprintf "%s," |> CodegenPrinter.print_line printer;
       print_port_list port_list'
   in
-  print_port_list ([CodegenPort.clk; CodegenPort.rst] @ port_list);
+  if is_mod_comb then
+    print_port_list port_list
+  else
+    print_port_list ([CodegenPort.clk; CodegenPort.rst] @ port_list);
   port_list
 
 let codegen_spawns printer (graphs : event_graph_collection) (g : proc_graph) =
   let gen_connect = fun (dst : string) (src : string) ->
     Printf.sprintf ",.%s (%s)" dst src |> CodegenPrinter.print_line printer
   in
+  let is_mod_comb = List.for_all (fun (thread , _) ->
+    (thread : EventGraph.event_graph).comb
+  ) g.threads in
   let gen_spawn = fun (idx : int) ((module_name, spawn) : string * spawn_def) ->
     Printf.sprintf "%s _spawn_%d (" module_name idx|> CodegenPrinter.print_line printer ~lvl_delta_post:1;
-    CodegenPrinter.print_line printer ".clk_i,";
-    CodegenPrinter.print_line printer ".rst_ni";
+    if (not is_mod_comb) then(
+        CodegenPrinter.print_line printer ".clk_i,";
+        CodegenPrinter.print_line printer ".rst_ni";
+    );
     (* connect the wires *)
     let proc_other = CodegenHelpers.lookup_proc graphs.external_event_graphs module_name |> Option.get in
     let connect_endpoints = fun (arg_endpoint : endpoint_def) (param_ident : identifier) ->
@@ -215,11 +223,16 @@ let codegen_regs printer (graphs : event_graph_collection) (g : event_graph) =
     g.regs
 
 let codegen_proc printer (graphs : EventGraph.event_graph_collection) (g : proc_graph) =
+  let is_mod_comb = List.for_all (fun (thread , _) ->
+    (thread : EventGraph.event_graph).comb
+  ) g.threads in
+
+
   (* generate ports *)
   Printf.sprintf "module %s (" g.name |> CodegenPrinter.print_line printer ~lvl_delta_post:1;
 
   (* Generate ports for the first thread *)
-  let _ = codegen_ports printer graphs g.messages.args in
+  let _ = codegen_ports printer graphs g.messages.args is_mod_comb in
   CodegenPrinter.print_line printer ~lvl_delta_pre:(-1) ~lvl_delta_post:1 ");";
 
   (
@@ -281,13 +294,12 @@ let codegen_proc printer (graphs : EventGraph.event_graph_collection) (g : proc_
       codegen_spawns printer graphs g;
 
       codegen_regs printer graphs initEvents;
-
-      CodegenStates.codegen_proc_states printer g;
-
+      if (not is_mod_comb) then CodegenStates.codegen_proc_states printer g;
+      
       (* Iterate over all threads to print states *)
       List.iter (fun (thread, reset_by) ->
-        codegen_post_declare printer graphs thread;
-        CodegenStates.codegen_states printer graphs g thread reset_by;
+          codegen_post_declare printer graphs thread;
+          CodegenStates.codegen_states printer graphs g thread reset_by;
       ) g.threads
   );
 

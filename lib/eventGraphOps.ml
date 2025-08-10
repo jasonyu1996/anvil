@@ -80,3 +80,12 @@ let find_last_event g =
     fun e ->
       e.is_recurse
   ) g.events
+
+let string_of_actions action = 
+  match action with
+  | DebugPrint _ -> "DebugPrint"
+  | DebugFinish -> "DebugFinish"
+  | RegAssign _ -> "RegAssign"
+  | PutShared _ -> "PutShared"
+  | ImmediateRecv _ -> "ImmediateRecv"
+  | ImmediateSend _ -> "ImmediateSend"

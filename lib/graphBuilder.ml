@@ -1081,6 +1081,7 @@ let build_proc (config : Config.compile_config) sched module_name param_values
           last_event_id = -1;
           is_general_recursive = false;
           thread_codespan = e.span;
+          comb = false;
         } in
         (* Bruteforce treatment: just run twice *)
         let graph_opt = if (not config.disable_lt_checks) || config.two_round_graph then (
@@ -1108,7 +1109,8 @@ let build_proc (config : Config.compile_config) sched module_name param_values
             let td = visit_expr graph ci ctx e in
             graph.last_event_id <- (EventGraphOps.find_last_event graph).id;
             graph.is_general_recursive <- graph.last_event_id <> td.lt.live.id;
-            GraphOpt.optimize config false ci graph
+            let g' = GraphOpt.optimize config false ci graph in
+            GraphOpt.combinational_codegen config g' ci
         ) in
         (g, reset_by)
       ) body.threads in
