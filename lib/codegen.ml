@@ -44,10 +44,13 @@ let codegen_spawns printer (graphs : event_graph_collection) (g : proc_graph) =
   let gen_spawn = fun (idx : int) ((module_name, spawn) : string * spawn_def) ->
     let proc_other = CodegenHelpers.lookup_proc graphs.external_event_graphs module_name |> Option.get in
 
-    let is_not_extern = match proc_other.extern_module with
-      | Some _ -> false
-      | None -> true in
-
+    let is_not_extern = match proc_other.extern_module ,proc_other.proc_body with
+    | None, _ -> true
+    | (Some _ , Lang.Extern (_,body)) -> (
+        if List.is_empty body.named_ports then true
+        else false
+      )
+    | _ -> true in
     let is_spawn_comb = (List.for_all (fun (thread , _) ->
     (thread : EventGraph.event_graph).comb
   ) proc_other.threads) && (is_not_extern) in
@@ -283,9 +286,13 @@ let codegen_regs printer (graphs : event_graph_collection) (g : event_graph) =
 
 let codegen_proc printer (graphs : EventGraph.event_graph_collection) (g : proc_graph) =
 
-  let is_not_extern = match g.extern_module with
-    | Some _ -> false;
-    | None -> true in
+  let is_not_extern = match g.extern_module ,g.proc_body with
+    | None, _ -> true
+    | (Some _ , Lang.Extern (_,body)) -> (
+        if List.is_empty body.named_ports then true
+        else false
+      )
+    | _ -> true in
   let is_mod_comb = (List.for_all (fun (thread , _) ->
     (thread : EventGraph.event_graph).comb
   ) g.threads) && (is_not_extern) in
