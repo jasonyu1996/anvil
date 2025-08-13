@@ -561,10 +561,7 @@ let combinational_codegen (config : Config.compile_config) (graph : event_graph)
           | _ -> true
         ) last_event.actions in
         if synth then(
-          (* List.iter ( fun act ->
-          Printf.eprintf "[Info] Actions = %s\n" (EventGraphOps.string_of_actions act.d)
-          ) last_event.actions; *)
-          (* shift all actions to first event and delete the last one *)
+          Printf.eprintf "[Info: Optimization] Thread id = %d detected to be combinational\n" graph.thread_id;
           { graph with events = [last_event]; comb = true }
         )
         else graph
