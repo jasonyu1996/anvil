@@ -591,6 +591,10 @@ and string_of_data_type (dtype : data_type) : string =
         | IntParamValue v -> string_of_int v
         | TypeParamValue dt -> string_of_data_type dt) params) in
       "Named (" ^ name ^ ", [" ^ params_str ^ "])"
+and string_of_data_type_opt (dtype_opt : data_type option) : string =
+  match dtype_opt with
+  | Some dtype -> string_of_data_type dtype
+  | None -> "None"
 
 and string_of_literal (lit : literal) : string =
   match lit with

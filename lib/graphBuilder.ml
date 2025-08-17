@@ -454,15 +454,15 @@ and visit_expr (graph : event_graph) (ci : cunit_info)
         let lt = Typing.lifetime_intersect graph td1.lt td.lt in
         {td with lt} (* forcing the bound value to be awaited *)
       | Let ([], dtype, _) ->
-        let err_string = Printf.sprintf "Invalid data type : %s"
-          (string_of_data_type td1.dtype) in
+        let err_string = Printf.sprintf "Invalid data type : got %s expected %s"
+          (string_of_data_type td1.dtype) (string_of_data_type_opt dtype) in
         check_dtype err_string dtype td1.dtype e1.span ci.file_name ci.weak_typecasts;
         let td = visit_expr graph ci ctx e2 in
         let lt = Typing.lifetime_intersect graph td1.lt td.lt in
         {td with lt} (* forcing the bound value to be awaited *)
       | Let ([ident],dtype, _) ->
-          let err_string = Printf.sprintf "Invalid data type for %s: got %s"
-            ident (string_of_data_type td1.dtype) in
+          let err_string = Printf.sprintf "Invalid data type for %s: got %s expected %s"
+            ident (string_of_data_type td1.dtype) (string_of_data_type_opt dtype) in
           check_dtype err_string dtype td1.dtype e1.span ci.file_name ci.weak_typecasts;
           let ctx' = BuildContext.add_binding ctx ident td1 in
           let td = visit_expr graph ci ctx' e2 in
@@ -496,8 +496,8 @@ and visit_expr (graph : event_graph) (ci : cunit_info)
         let ctx' = BuildContext.wait graph ctx td1.lt.live in
         visit_expr graph ci ctx' e2
       | Let ([ident], dtype, _) ->
-        let err_string = Printf.sprintf "Invalid data type for %s: got %s"
-          ident (string_of_data_type td1.dtype) in
+        let err_string = Printf.sprintf "Invalid data type for %s: got %s expected %s"
+          ident (string_of_data_type td1.dtype) (string_of_data_type_opt dtype) in
         check_dtype err_string dtype td1.dtype e.span ci.file_name ci.weak_typecasts;
         (* add the binding to the context *)
         let ctx' = BuildContext.wait graph ctx td1.lt.live in
@@ -753,8 +753,8 @@ and visit_expr (graph : event_graph) (ci : cunit_info)
     let td = visit_expr graph ci ctx e' in
     let w = unwrap_or_err "Invalid value in cast" e'.span td.w in
     if w.size <> TypedefMap.data_type_size ci.typedefs ci.macro_defs dtype then
-      raise (Except.TypeError [Text ("In cast: Invalid data type size: expected " ^ (string_of_data_type dtype) ^ " got " ^ (string_of_data_type td.dtype)); Except.codespan_local e.span]);
-    Typing.merged_data graph (Some w) dtype ctx.current [td]   
+      raise (Except.TypeError [Text ("In cast: Invalid data type size: expected " ^ (string_of_int (TypedefMap.data_type_size ci.typedefs ci.macro_defs dtype)) ^ " got " ^ (string_of_int w.size)); Except.codespan_local e.span]);
+    Typing.merged_data graph (Some w) dtype ctx.current [td]
   | Concat (es, is_flat) ->
     let tds = List.map (fun e' -> (e', visit_expr graph ci ctx e')) es in
     let ws = List.map (fun ((e', td) : expr_node * timed_data) -> unwrap_or_err "Invalid value in concat" e'.span td.w) tds in
@@ -890,7 +890,9 @@ and visit_expr (graph : event_graph) (ci : cunit_info)
         (* bruteforce *)
         List.map (fun (field_ident, _e', td) ->
           match TypedefMap.data_type_indirect ci.typedefs ci.macro_defs (`Named (record_ty_name, [])) field_ident with
-          | None -> raise (event_graph_error_default "Invalid record!" e.span)
+          | None -> 
+            let err_string = Printf.sprintf "In record update: Invalid field %s for record type %s" field_ident record_ty_name in
+             raise (event_graph_error_default err_string e.span)
           | Some (offset_le, len, _dtype) -> (offset_le, len, Option.get td.w)
         ) tds in
       let (wires', w) = WireCollection.add_update graph.thread_id ci.typedefs (Option.get td_base.w) updates graph.wires in
