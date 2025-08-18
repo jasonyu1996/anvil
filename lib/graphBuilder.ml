@@ -752,9 +752,24 @@ and visit_expr (graph : event_graph) (ci : cunit_info)
   | Cast (e', dtype) ->
     let td = visit_expr graph ci ctx e' in
     let w = unwrap_or_err "Invalid value in cast" e'.span td.w in
-    if w.size <> TypedefMap.data_type_size ci.typedefs ci.macro_defs dtype then
-      raise (Except.TypeError [Text ("In cast: Invalid data type size: expected " ^ (string_of_int (TypedefMap.data_type_size ci.typedefs ci.macro_defs dtype)) ^ " got " ^ (string_of_int w.size)); Except.codespan_local e.span]);
-    Typing.merged_data graph (Some w) dtype ctx.current [td]
+    let target_size = TypedefMap.data_type_size ci.typedefs ci.macro_defs dtype in
+    if w.size > target_size then (
+      (* Truncate: take slice of the wire to match target size *)
+      let base_i = MaybeConst.Const 0 in
+      let wires', w' = WireCollection.add_slice graph.thread_id w base_i target_size graph.wires in
+      graph.wires <- wires';
+      Typing.merged_data graph (Some w') dtype ctx.current [td]
+    ) else if w.size < target_size then (
+      (* Extend: pad with zeros to match target size *)
+      let pad_len = target_size - w.size in
+      let wires', pad_w = WireCollection.add_literal graph.thread_id ci.typedefs ci.macro_defs (WithLength (pad_len, 0)) graph.wires in
+      let wires', w' = WireCollection.add_concat graph.thread_id ci.typedefs ci.macro_defs [pad_w; w] wires' in
+      graph.wires <- wires';
+      Typing.merged_data graph (Some w') dtype ctx.current [td]
+    ) else (
+      (* Sizes match, just update type *)
+      Typing.merged_data graph (Some w) dtype ctx.current [td]
+    )
   | Concat (es, is_flat) ->
     let tds = List.map (fun e' -> (e', visit_expr graph ci ctx e')) es in
     let ws = List.map (fun ((e', td) : expr_node * timed_data) -> unwrap_or_err "Invalid value in concat" e'.span td.w) tds in
