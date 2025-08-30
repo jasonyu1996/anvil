@@ -790,7 +790,7 @@ timestamp:
 | SHARP; n = INT
   { `Cycles n }
 | msg_spec = message_specifier
-  { `Message msg_spec }
+  { `Message_with_offset (msg_spec, 0, true) }
 | KEYWORD_ETERNAL
   { `Eternal }
 ;
@@ -799,10 +799,20 @@ timestamp_chan_local:
 | SHARP; n = INT
   { `Cycles n }
 | msg = IDENT
-  { `Message msg }
+  { `Message_with_offset (msg, 0, true) }
+| msg = IDENT; k = plus_minus; n = INT
+  { `Message_with_offset (msg, n, k) }
 | KEYWORD_ETERNAL
   { `Eternal }
 ;
+
+plus_minus:
+| PLUS
+  { true }
+| MINUS
+  { false }
+;
+
 //Message string
 message_specifier:
   endpoint = IDENT; PERIOD; msg_type = IDENT

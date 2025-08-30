@@ -3,7 +3,9 @@ open EventGraph
 open GraphAnalysis
 
 let string_of_lt (lt : lifetime) : string =
-  Printf.sprintf "%s" (string_of_delay_pat (snd (List.hd lt.dead)))
+  String.concat "" (List.map (fun s ->
+      Printf.sprintf "%d |> %s | " (fst s).id (string_of_delay_pat (snd s))
+    ) lt.dead)
 
 (** Check if the uses of endpoints and registers follow defined order. *)
 let check_linear (config : Config.compile_config) lookup_message (g : event_graph) =
@@ -122,10 +124,14 @@ let event_pat_rel2 events lookup_message ev_pat1 ev_pat2 =
     match d_pat with
     | `Cycles n -> ([ev], n)
     | `Eternal -> ([ev], -1)
-    | `Message m ->
+    | `Message_with_offset (m, offset, sign) ->
       let g = GraphAnalysis.events_first_msg events ev m in
-      (* Printf.eprintf "FM %d %d\n" ev.id (List.length g); *)
-      (g, 0)
+      match sign with
+      | true -> (g, offset)
+
+      | false -> match ((lookup_message m): message_def option) with
+        | Some def -> raise (LifetimeCheckError [Text "Negative Offset Unsupported right now"; Except.codespan_local def.span])
+        | None -> raise (LifetimeCheckError [Text (Printf.sprintf "Message_def_not_found %s" (string_of_msg_spec m)); Except.codespan_local Lang.code_span_dummy])
   in
   match ev_pat1 with
   | [spat1] -> (
@@ -362,7 +368,7 @@ let lifetime_check (config : Config.compile_config) (ci : cunit_info) (g : event
           if lifetime_in_range g.events lookup_message (EventGraphOps.lifetime_immediate ev) td.lt |> not then
             raise (LifetimeCheckError
               [
-                Text "Value does not live long enough in debug print!";
+                Text (Printf.sprintf "Value does not live long enough in debug print! [Event Id = %d] : %s" ev.id (string_of_lt td.lt));
                 Except.codespan_local a.span
               ])
           else ()

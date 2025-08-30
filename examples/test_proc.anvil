@@ -1,16 +1,15 @@
 chan ch {
-    left req : (logic@#1) @#1 - @#1,
-    right resp : (logic@#1) @#1 - @#1
+    left req : (logic@resp+1),
+    left req2 : (logic@#1) @dyn - @#1,
+    right resp : (logic@#1)
 }
 proc test_proc(ep : left ch){
     loop{
         let req = recv ep.req >>
-        send ep.resp (req + 1) >>
-        // dprint "test_proc" () >>
-        cycle 1
-    }
-    loop{
-        // dprint "test_proc" () >>
+        send ep.resp (1'd1) >>
+        cycle 1 >>
+        let _ = recv ep.req2 >>
+        dprint "Recieved Message %d" (req) >>
         cycle 1
     }
 }

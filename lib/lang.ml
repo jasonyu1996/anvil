@@ -52,18 +52,19 @@ let string_of_msg_spec (msg_spec : message_specifier) : string =
 (** A delay pattern that matches a set of delays. *)
 type delay_pat = [
   | `Cycles of int (** elapse of a number of cycles *)
-  | `Message of message_specifier (** sending/receiving of a message of a specific type *)
+  | `Message_with_offset of (message_specifier*int*bool) (** sending/receiving of a message of a specific type with an offset *)
   | `Eternal (** matches no delays *)
 ]
 
 (** A delay pattern local to a specific channel. Being channel-local means that the message type
 does not include an endpoint name component. *)
-type delay_pat_chan_local = [ `Cycles of int | `Message of identifier | `Eternal ]
+type delay_pat_chan_local = [ `Cycles of int | `Eternal | `Message_with_offset of (identifier * int * bool) ]
 
 let string_of_delay_pat (t : delay_pat) : string =
   match t with
   | `Cycles n -> Printf.sprintf "#%d" n
-  | `Message msg_spec -> Printf.sprintf "%s" (string_of_msg_spec msg_spec)
+  | `Message_with_offset (msg_spec, offset, plus) ->
+      Printf.sprintf "%s%+d" (string_of_msg_spec msg_spec) (if plus then offset else -offset)
   | `Eternal -> "E"
 
 (** Lifetime signature, specifying that the lifetime lasts until matching {{!sig_lifetime.e}ending} delay patterns. *)
@@ -176,7 +177,7 @@ type sig_type_chan_local = sig_lifetime_chan_local sig_type_general
 (** Convert a channel-local delay pattern to a global (process context) delay pattern. *)
 let delay_pat_globalise (endpoint : identifier) (t : delay_pat_chan_local) : delay_pat =
   match t with
-  | `Message msg -> `Message {endpoint = endpoint; msg = msg}
+  | `Message_with_offset (msg, offset, plus) -> `Message_with_offset ({endpoint = endpoint; msg = msg}, offset, plus)
   | `Cycles n -> `Cycles n
   | `Eternal -> `Eternal
 

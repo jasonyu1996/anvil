@@ -1177,7 +1177,7 @@ let syntax_tree_precheck (_config : Config.compile_config) cunit =
       List.iter (fun {lifetime = lt_d; _} ->
         match lt_d.e with
         | `Cycles _ | `Eternal -> ()
-        | `Message msg_name ->
+        | `Message_with_offset (msg_name, _, _) ->
           if not @@ Utils.StringSet.mem msg_name !msg_set then
             raise (Except.TypeError [Text "Undefined message specified in delay pattern!"; Except.codespan_local msg.span])
       ) msg.sig_types;
