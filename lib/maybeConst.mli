@@ -17,4 +17,4 @@ val mul : (int -> 'a -> 'a) -> ('a -> 'a -> 'a) -> 'a maybe_int_const -> 'a mayb
 
 val string_of : ('a -> string) -> 'a maybe_int_const -> string
 
-val map_off : 'a maybe_int_const -> string -> int
+val map_off : 'a maybe_int_const -> int

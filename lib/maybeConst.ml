@@ -17,10 +17,10 @@ let map f v =
   | Const n -> Const n
   | NonConst nv -> NonConst (f nv)
 
-let map_off v id = 
+let map_off v = 
     match v with
     | Const n -> n
-    | NonConst _ -> Printf.eprintf "[Warning] : The offset is not a constant value for %s, Borrowing full range" id; -1
+    | NonConst _ -> -1
 let binop (eval0 : int -> int -> int) (eval1 : int -> 'a -> 'a) (eval2 : 'a -> 'a -> 'a)
           (a : 'a maybe_int_const) (b : 'a maybe_int_const) =
   match a, b with

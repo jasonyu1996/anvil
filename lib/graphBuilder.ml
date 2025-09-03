@@ -789,25 +789,30 @@ and visit_expr (graph : event_graph) (ci : cunit_info)
     let r = Utils.StringMap.find_opt reg_ident graph.regs
       |> unwrap_or_err ("Undefined register " ^ reg_ident) e.span in    
     let (wires'', w'') = WireCollection.add_reg_read graph.thread_id ci.typedefs ci.macro_defs r graph.wires in
+    let rec get_borrow_info in_off le dt (wc: wire_collection) w lval =
+      match lval with 
+        | Reg _ -> (dt,in_off,le, wc,w)
+        | Indexed (lv, idx) ->
+          let (offset_le, len, dt') = TypedefMap.data_type_index ci.typedefs ci.macro_defs
+          (visit_expr graph ci ctx)
+          (binop_td_const e.span Mul)
+          dt idx |> unwrap_or_err (Printf.sprintf "Invalid indexing %s for datatype %s" (string_of_index idx) (Lang.string_of_data_type dt)) e.span in
+          let wire_of (td:timed_data) = unwrap_or_err (Printf.sprintf "Invalid indexing for %s in data type %s" (string_of_index idx) (Lang.string_of_data_type td.dtype)) e.span td.w in
+          let offset_le_w = MaybeConst.map wire_of offset_le in
+          let off_i = MaybeConst.map_off offset_le in
+          let (off, le' )= if off_i < 0 then (Printf.eprintf "[Warning] : The offset is not a constant value for %s, Borrowing full range\n" reg_ident; (0, le)) else (off_i, len) in
+          let (wire',w') = WireCollection.add_slice graph.thread_id w offset_le_w len wc in
+          (get_borrow_info off le' dt' wire' w' lv)
+        | Indirected (lval, field_id) -> 
+          let (offset_le, len, new_dtype) = TypedefMap.data_type_indirect ci.typedefs ci.macro_defs dt field_id
+            |> unwrap_or_err (Printf.sprintf "Invalid indirection %s" field_id) e.span in
+          let (wi',new_w) =  WireCollection.add_slice graph.thread_id w (Const offset_le) len wc in
+          (get_borrow_info offset_le len new_dtype wi' new_w lval)
+    in
     let full_sz = TypedefMap.data_type_size ci.typedefs ci.macro_defs r.d_type in
-    let (dt,offset,sz, wires' , w) = match rlval with
-    | Reg _ -> (r.d_type,0,full_sz,wires'', w'')
-    | Indexed (_, idx) -> 
-      let (offset_le, len, dt) = TypedefMap.data_type_index ci.typedefs ci.macro_defs
-        (visit_expr graph ci ctx)
-        (binop_td_const e.span Mul)
-        r.d_type idx
-        |> unwrap_or_err (Printf.sprintf "Invalid indexing %s for datatype %s" (string_of_index idx) (Lang.string_of_data_type r.d_type)) e.span in
-        let wire_of (td:timed_data) = unwrap_or_err (Printf.sprintf "Invalid indexing for %s in data type %s" (string_of_index idx) (Lang.string_of_data_type td.dtype)) e.span td.w in
-        let offset_le_w = MaybeConst.map wire_of offset_le in
-        let off_i = MaybeConst.map_off offset_le reg_ident in
-        let (off, le )= if off_i < 0 then (0, full_sz)
-          else (off_i, len) in
-        let (wire',w') = WireCollection.add_slice graph.thread_id w'' offset_le_w len wires'' in
-        (dt,off,le,wire', w')
-    | _ -> (r.d_type,0,full_sz,wires'', w'') in
+    let (dt,off,le,wires',w) = get_borrow_info 0 full_sz r.d_type wires'' w'' rlval in
     graph.wires <- wires';
-    let borrow = {borrow_range = sub_reg_range reg_ident offset sz; borrow_start = ctx.current; borrow_source_span = e.span} in
+    let borrow = {borrow_range = sub_reg_range reg_ident off le; borrow_start = ctx.current; borrow_source_span = e.span} in
     {w = Some w; lt = EventGraphOps.lifetime_const ctx.current; reg_borrows = [borrow]; dtype = dt}
   | Debug op ->
     (
