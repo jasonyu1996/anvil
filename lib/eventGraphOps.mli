@@ -19,3 +19,5 @@ val subreg_ranges_possibly_intersect : EventGraph.subreg_range -> EventGraph.sub
 val find_last_event : EventGraph.event_graph -> EventGraph.event
 
 val string_of_actions : EventGraph.action -> string
+
+val sub_reg_range : Lang.identifier -> int -> int -> EventGraph.subreg_range

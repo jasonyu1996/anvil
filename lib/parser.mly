@@ -488,8 +488,8 @@ expr:
   { e }
 | KEYWORD_MATCH; e = node(expr); LEFT_BRACE; match_arm_list = separated_list(COMMA, match_arm); RIGHT_BRACE
   { Lang.Match (e, match_arm_list) }
-| ASTERISK; reg_ident = IDENT
-  { Lang.Read reg_ident }
+| ASTERISK; reg_id = lvalue
+  { Lang.Read reg_id }
 | constructor_spec = constructor_spec; e = ioption(node(expr_in_parenthese))
   { Lang.Construct (constructor_spec, e) }
 | record_name = IDENT; DOUBLE_COLON; LEFT_BRACE;

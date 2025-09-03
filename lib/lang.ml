@@ -397,7 +397,7 @@ and expr =
   | Ready of message_specifier (** [ready(a, b)] *)
   | Probe of message_specifier (** [probe(a, b)] *)
   | Match of expr_node * ((expr_node * expr_node option) list)
-  | Read of identifier (** reading a value from a register (leading to a borrow) *)
+  | Read of lvalue (** reading a value from a register (leading to a borrow) *)
   | Debug of debug_op
   | Send of send_pack
   | Recv of recv_pack
@@ -807,3 +807,11 @@ let print_code_span ?(indent = 2) ?(trunc = 0) out filename span =
       )
   with
   | _ -> ()
+
+let get_lvalue_reg_id (lv : lvalue) =
+let rec get_lv lval =
+  match lval with
+  | Reg id -> id
+  | Indexed (lval, _) -> get_lv lval
+  | Indirected (lv,_) -> get_lv lv
+in get_lv lv

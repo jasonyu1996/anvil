@@ -1,0 +1,8 @@
+proc test_borrow(){
+    reg r : logic[2];
+    loop{
+        let r_borrow = *r[1] >>
+        set r[0] := 1'd1 >>
+        cycle 1
+    }
+}
