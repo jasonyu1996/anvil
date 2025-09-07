@@ -784,14 +784,16 @@ and visit_expr (graph : event_graph) (ci : cunit_info)
       | _ -> `Array (`Logic, ParamEnv.Concrete (w.size))
     ) in
     List.map snd tds |> Typing.merged_data graph (Some w) new_dtype ctx.current
-  | Read rlval ->
+  |  Read rlval ->
     let reg_ident = Lang.get_lvalue_reg_id rlval in
     let r = Utils.StringMap.find_opt reg_ident graph.regs
       |> unwrap_or_err ("Undefined register " ^ reg_ident) e.span in    
     let (wires'', w'') = WireCollection.add_reg_read graph.thread_id ci.typedefs ci.macro_defs r graph.wires in
-    let rec get_borrow_info in_off le dt (wc: wire_collection) w lval =
+    graph.wires <- wires'';
+    let td = {w = Some w''; lt = EventGraphOps.lifetime_const ctx.current; reg_borrows = []; dtype = r.d_type} in
+    let rec get_borrow_info in_off le dt w lval td' =
       match lval with 
-        | Reg _ -> (dt,in_off,le, wc,w)
+        | Reg _ -> (dt,in_off,le,w,td')
         | Indexed (lv, idx) ->
           let (offset_le, len, dt') = TypedefMap.data_type_index ci.typedefs ci.macro_defs
           (visit_expr graph ci ctx)
@@ -801,19 +803,25 @@ and visit_expr (graph : event_graph) (ci : cunit_info)
           let offset_le_w = MaybeConst.map wire_of offset_le in
           let off_i = MaybeConst.map_off offset_le in
           let (off, le' )= if off_i < 0 then (Printf.eprintf "[Warning] : The offset is not a constant value for %s, Borrowing full range\n" reg_ident; (0, le)) else (off_i, len) in
-          let (wire',w') = WireCollection.add_slice graph.thread_id w offset_le_w len wc in
-          (get_borrow_info off le' dt' wire' w' lv)
+          let (wire',w') = WireCollection.add_slice graph.thread_id w offset_le_w len graph.wires in
+          graph.wires <- wire';
+          let new_td = match offset_le with          
+            | NonConst td_offset -> Typing.merged_data graph (Some w') dt' ctx.current [td';td_offset]
+            | Const _ -> {td' with w = Some w'; dtype = dt'}
+          in
+          (get_borrow_info off le' dt' w' lv new_td)
         | Indirected (lval, field_id) -> 
           let (offset_le, len, new_dtype) = TypedefMap.data_type_indirect ci.typedefs ci.macro_defs dt field_id
             |> unwrap_or_err (Printf.sprintf "Invalid indirection %s" field_id) e.span in
-          let (wi',new_w) =  WireCollection.add_slice graph.thread_id w (Const offset_le) len wc in
-          (get_borrow_info offset_le len new_dtype wi' new_w lval)
+          let (wi',new_w) =  WireCollection.add_slice graph.thread_id w (Const offset_le) len graph.wires in
+          let new_td = {td' with w = Some new_w; dtype = new_dtype} in
+          graph.wires <- wi';
+          (get_borrow_info offset_le len new_dtype new_w lval new_td)
     in
     let full_sz = TypedefMap.data_type_size ci.typedefs ci.macro_defs r.d_type in
-    let (dt,off,le,wires',w) = get_borrow_info 0 full_sz r.d_type wires'' w'' rlval in
-    graph.wires <- wires';
+    let (_dt,off,le,_w,td'') = get_borrow_info 0 full_sz r.d_type w'' rlval td in
     let borrow = {borrow_range = sub_reg_range reg_ident off le; borrow_start = ctx.current; borrow_source_span = e.span} in
-    {w = Some w; lt = EventGraphOps.lifetime_const ctx.current; reg_borrows = [borrow]; dtype = dt}
+    { td'' with dtype = _dt; reg_borrows = [borrow] }
   | Debug op ->
     (
       match op with
