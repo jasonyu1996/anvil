@@ -18,21 +18,30 @@ The command-line flags adjust the compilation process:
 
 #### JSON Output Format
 
-When the `-json` flag is used, the compiler outputs a JSON object with the following structure:
+When the `-json` flag is used, the compiler outputs a JSON object with the following structure to stdout,
+regardless of whether the compilation succeeds or fails:
 
-```json
+```ts
 {
   "success": boolean,
   "errors": [
     {
       "type": "warning" | "error",
       "path": string | null,
-      "trace": {
-        "line": number,
-        "col": number,
-        "len": number
-      } | null,
-      "desc": string
+      "description": [
+        // Text fragment
+        { "kind": "text", "text": string },
+
+        // Code span fragment
+        { "kind": "codespan",
+          "text": string | null,
+          "path": string,
+          "trace": {
+            "start": { "line": number, "col": number },
+            "end": { "line": number, "col": number }
+          }
+        }
+      ]
     }
   ],
   "output": string | null
@@ -40,5 +49,9 @@ When the `-json` flag is used, the compiler outputs a JSON object with the follo
 ```
 
 * `success`: `true` if compilation succeeded, `false` otherwise
-* `errors`: array of error/warning objects
+* `errors`: array of error/warning objects. Each error contains:
+  * `type`: error type, either `"warning"` or `"error"` (currently always `"error"`)
+  * `path`: the file path associated with the error, or `null`
+  * `description`: an array of fragments describing the error.
+    Each fragment is either a plain text message or a code span with annotated source.
 * `output`: the generated SystemVerilog code (only present on success)
