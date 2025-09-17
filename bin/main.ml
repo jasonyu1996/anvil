@@ -52,7 +52,7 @@ let compile_with_normal_output config =
         | Codespan (file_name, span) -> (
           let file_name = Option.get file_name in
           Printf.eprintf "%s:%d:%d:\n" file_name span.st.pos_lnum (span.st.pos_cnum - span.st.pos_bol);
-          SpanPrinter.print_code_span ~indent:2 ~trunc:(-5) stderr file_name span
+          Anvil.SpanPrinter.print_code_span ~indent:2 ~trunc:(-5) stderr file_name span
         )
       ) msg;
       exit 1

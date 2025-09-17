@@ -42,7 +42,12 @@ let error_message_to_json_errors error_type msg =
           start_pos = { line = span.st.pos_lnum; col = span.st.pos_cnum - span.st.pos_bol };
           end_pos = { line = span.ed.pos_lnum; col = span.ed.pos_cnum - span.ed.pos_bol };
         } in
-        { kind = "codespan"; text = None; trace = Some trace }
+        let str =
+          match path with
+          | None -> None
+          | Some filename -> SpanPrinter.string_of_code_span filename span
+        in
+        { kind = "codespan"; text = str; trace = Some trace }
     ) msg
   in
   let rec find_first_codespan = function
