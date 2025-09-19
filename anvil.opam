@@ -12,7 +12,7 @@ homepage: "https://github.com/jasonyu1996/anvil"
 bug-reports: "https://github.com/jasonyu1996/anvil/issues"
 depends: [
   "ocaml" {>= "4.14.0"}
-  "dune" {>= "3.8" & >= "3.8"}
+  "dune" {>= "3.13" & >= "3.8"}
   "menhir"
   "odoc" {with-doc}
 ]

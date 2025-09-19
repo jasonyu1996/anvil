@@ -1,5 +1,4 @@
-(menhir
-(flags --explain)
+(menhir (explain true)
  (modules parser))
 
 (ocamllex lexer)
