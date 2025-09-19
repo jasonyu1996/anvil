@@ -24,9 +24,9 @@ The short answer: we need extra control signals to indicate when a value on a po
 
 ## Channels in Anvil
 
-In Anvil, communication is abstracted using channels, which facilitate value exchange between processes. Channels in Anvil are bidirectional, allowing processes to send and receive values concurrently within the same clock cycle. They act as abstractions for multiple signals bundled into a single wire, providing amessage-like transmit and receive interface.
+In Anvil, communication is abstracted using channels, which facilitates value exchange between processes. Channels in Anvil are bidirectional, allowing processes to send and receive values concurrently within the same clock cycle. They act as abstractions for multiple signals bundled into a single wire, providing a message-like transmit and receive interface.
 
-As discussed, current HDL interfaces lack crucial information and require explicit control signals to be handled by the designers to ensure proper communication without timing violations. In contrast, Anvil’s channels encode a contract between interfacing modules. Anvil implicitly manages the involved control signals, reducing the designer’s burden and ensures proper communication between modules without any latency overhead.
+As discussed, current HDL interfaces lack crucial information and require explicit control signals to be handled by the designers to ensure proper communication without creating any garbage values in the process. In contrast, Anvil’s channels encode a contract between interfacing modules. Anvil implicitly manages the involved control signals, reducing the designer’s burden and ensures proper communication between modules without any clock-cycle latency overhead.
 
 Consider the following channel definition in Anvil for the same memory module:  
 
@@ -52,18 +52,18 @@ This channel definition encodes a lot of information about the communication bet
 ### Breaking Down the Definition  
 
 - A channel is defined using the keyword `chan`, followed by the channel name (`memory_ch` in this case).  
-- The channel definition contains two endpoints, each corresponding to one of the interfacing proesses for example in this case the memory module(`left` endpoint) and the top module(`right` endpoint).
+- The channel definition contains two endpoints, each corresponding to one of the interfacing components for example in this case the memory module(`left` endpoint) and the top module(`right` endpoint).
 - Each endpoint is specified using `left` or `right`, followed by:  
   - A **message identifier** (e.g., `read_req`, `write_req`).  
   - A **message contract** (data type@lifetime).  
-  - A **synchronization pattern** (eg `@read_req-@read_req` for the `read_resp`) (Primitive to define static timing contracts).
+  - A **synchronization pattern** (eg `@read_req-@read_req` for the `read_resp`) a way to communicate the frequency of message exchange between the two endpoints.
 
 ### Understanding the contract
 
 Each message in a channel comes with a contract specifying:  
 
 1. **Message Contract (`data_type@lifetime`)**  
-   Defines the data type of the message and its lifetime. The lifetime specifies how long the message remains stable after being acknowledged or received.  
+   Defines the data type of the message and its lifetime. The lifetime specifies how long the message remains stable after exchange. Without a defined synchronization pattern, the exchange is considered dynamic, requiring a two-way handshake for message exchange.  
 
 2. **Synchronization Pattern (`@left-pat - @right-pat`)**  
    Specifies a static agreement between the `left` and `right` endpoint on the frequency of message exchange.  
@@ -74,7 +74,7 @@ Each message in a channel comes with a contract specifying:
       - This initial offset is optional when it is not mentioned it means `N~N`, where the first message is also recieved after `N` cycles after reset.
    - A time pattern can be **dynamic** (`@dyn`), indicating that the corresponding endpoint doesnt agree to a fixed frequency of message exchange.
 
-In Anvil, a message contract is implicitly handled by generating control signals for a two-way handshake. However, in cases where the sender and receiver are already synchronized on the message exchange frequency, explicit valid/acknowledgment signals are not needed for synchronization.  
+In Anvil, a message contract is implicitly handled by generating control signals for a two-way handshake. However, in cases where the sender and receiver are already synchronized on the message exchange frequency, explicit valid/acknowledgment signals may not be needed for synchronization.  
 
 This leads to different synchronization patterns:  
 
