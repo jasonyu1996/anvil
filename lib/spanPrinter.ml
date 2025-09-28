@@ -11,11 +11,11 @@ let string_of_code_span ?(indent = 2) ?(trunc = 0) filename span =
   let buf = Buffer.create 256 in
   let result =
     try
-      In_channel.with_open_text filename
+      InChannelCachableAliasable.with_open filename
         (
           fun in_chn ->
             let char_offset = span.st.pos_bol in
-            In_channel.seek in_chn (Int64.of_int char_offset);
+            InChannelCachableAliasable.seek in_chn (Int64.of_int char_offset);
             let (start_lnum, end_lnum) =
               if trunc = 0 then (span.st.pos_lnum, span.ed.pos_lnum)
               else if trunc > 0 then (span.st.pos_lnum, Int.min (span.st.pos_lnum + trunc - 1) span.ed.pos_lnum)
@@ -25,7 +25,7 @@ let string_of_code_span ?(indent = 2) ?(trunc = 0) filename span =
             if start_lnum <> span.st.pos_lnum then
               print_truncate_msg (start_lnum - span.st.pos_lnum);
             for line_no = span.st.pos_lnum to span.ed.pos_lnum do
-              let line_s = In_channel.input_line in_chn |> Option.get in
+              let line_s = InChannelCachableAliasable.input_line in_chn |> Option.get in
               if line_no >= start_lnum && line_no <= end_lnum then (
                 let so = if line_no = span.st.pos_lnum then span.st.pos_cnum - span.st.pos_bol else 0
                 and eo = if line_no = span.ed.pos_lnum then span.ed.pos_cnum - span.ed.pos_bol else String.length line_s in
