@@ -35,7 +35,7 @@ regardless of whether the compilation succeeds or fails:
         // Code span fragment
         { "kind": "codespan",
           "text": string | null,
-          "path": string,
+          "path": string | null,
           "trace": {
             "start": { "line": number, "col": number },
             "end": { "line": number, "col": number }

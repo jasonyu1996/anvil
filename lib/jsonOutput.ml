@@ -30,7 +30,7 @@ type json_output = {
 }
 
 (** Convert error message to JSON errors *)
-let error_message_to_json_errors (error_type : string) (msg : Except.error_message_fragment list) =
+let error_message_to_json_errors (error_type : string) (msg : Except.error_message) =
   let open Except in
   let description =
     List.map (function
