@@ -821,7 +821,7 @@ and visit_expr (graph : event_graph) (ci : cunit_info)
     let full_sz = TypedefMap.data_type_size ci.typedefs ci.macro_defs r.d_type in
     let (_dt,off,le,_w,td'') = get_borrow_info 0 full_sz r.d_type w'' rlval td in
     let borrow = {borrow_range = sub_reg_range reg_ident off le; borrow_start = ctx.current; borrow_source_span = e.span} in
-    { td'' with dtype = _dt; reg_borrows = [borrow] }
+    { td'' with dtype = _dt; reg_borrows = borrow :: td''.reg_borrows }
   | Debug op ->
     (
       match op with
