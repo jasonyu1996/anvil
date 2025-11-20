@@ -246,7 +246,7 @@ proc memory_multiple_ports(endp1: left memory_ch, endp2: left memory_ch) {
     }
 }
 ```
-Anvil Provides the `try` construct to attempt to do a non blocking recieve/send, If the value is available to be recieved in the same cycle it is recieved else it proceeds to other branch, similarly for send. This is useful to implement arbitration between multiple endpoints.
+Anvil Provides the `try` construct to attempt to do a non blocking receive/send, If the value is available to be received in the same cycle it is received else it proceeds to other branch, similarly for send. This is useful to implement arbitration between multiple endpoints.
 
 
 </details>

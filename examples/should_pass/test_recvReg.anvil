@@ -3,7 +3,7 @@ chan ch {
 }
 
 
-proc Reciever(ch : left ch) {
+proc receiver(ch : left ch) {
     reg r:logic[1];
     reg cycle_counter:logic[4];
     loop {
@@ -11,14 +11,14 @@ proc Reciever(ch : left ch) {
     }
     loop {
         let x = recv ch.req >>
-        dprint "Recieved %d in cycle %d" (x, *cycle_counter);
+        dprint "received %d in cycle %d" (x, *cycle_counter);
         set r := x
     }
 }
 
 proc test_recvReg() {
     chan ch_in -- ch_out : ch;
-    spawn Reciever(ch_in);
+    spawn receiver(ch_in);
     reg cycle_counter:logic[4];
     loop {
         set cycle_counter := *cycle_counter + 4'b0001

@@ -9,7 +9,7 @@ proc test_proc(ep : left ch){
         send ep.resp (1'd1) >>
         cycle 1 >>
         let _ = recv ep.req2 >>
-        dprint "Recieved Message %d" (req) >>
+        dprint "received Message %d" (req) >>
         cycle 1
     }
 }

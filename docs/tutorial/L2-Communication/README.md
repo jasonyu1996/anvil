@@ -71,7 +71,7 @@ Each message in a channel comes with a contract specifying:
    - A time pattern can be a **constant** number of clock cycles (e.g., `@#1`) or a **variable** clock cycle (e.g., `@#msg_id`, where `msg_id` corresponds to the reception of a specific message in the channel).   
 
    - In the time pattern `@#N`, where `N` is constant, `(I~N)` defines the initial delay. This delay applies **only to the first occurrence** of the message. For example, in the case of a `read_req` message, the pattern `#0~2` means the left endpoint is ready to receive a message every 2 cycles. However, the first message can be received immediately after reset.  
-      - This initial offset is optional when it is not mentioned it means `N~N`, where the first message is also recieved after `N` cycles after reset.
+      - This initial offset is optional when it is not mentioned it means `N~N`, where the first message is also received after `N` cycles after reset.
    - A time pattern can be **dynamic** (`@dyn`), indicating that the corresponding endpoint doesnt agree to a fixed frequency of message exchange.
 
 In Anvil, a message contract is implicitly handled by generating control signals for a two-way handshake. However, in cases where the sender and receiver are already synchronized on the message exchange frequency, explicit valid/acknowledgment signals may not be needed for synchronization.  
@@ -122,10 +122,10 @@ Now lets see if we can understand each of the message contracts in the above cha
 left read_req : (logic[8]@#1) @#0~2 - @dyn
 ```
 
-- This message is recieved by the `left` endpoint (memory module).
-- The value (semantically the lookup address) is valid for 1 cycle after being recieved.  
-- The sender (right endpoint) can send the message at any time (`@dyn`) however the reciever `left` endpoint is ready to recieve at interval of `#2` clock cycles from the previous message reciept. The first message can be recieved immediately after reset.
-- Since the sender is dynamic(`dyn`) but reciever has a fixed pattern, a valid signal is required to indicate when the message is available for the reciever. However, an acknowledgment signal is not needed, as the sender already knows the reciever will be ready after 2 cycles. (Line 2 from the table above)
+- This message is received by the `left` endpoint (memory module).
+- The value (semantically the lookup address) is valid for 1 cycle after being received.  
+- The sender (right endpoint) can send the message at any time (`@dyn`) however the receiver `left` endpoint is ready to receive at interval of `#2` clock cycles from the previous message reciept. The first message can be received immediately after reset.
+- Since the sender is dynamic(`dyn`) but receiver has a fixed pattern, a valid signal is required to indicate when the message is available for the receiver. However, an acknowledgment signal is not needed, as the sender already knows the receiver will be ready after 2 cycles. (Line 2 from the table above)
 
 
 
@@ -134,9 +134,9 @@ left read_req : (logic[8]@#1) @#0~2 - @dyn
 ```rust
 right read_resp : (logic[8]@#read_req) @read_req+1 - @read_req+1
 ```
-- This message is recieved by the `right` endpoint (top module).
-- The response value (data at the lookup address) is valid from the time of being recieved till the next `read_req` message is sent.  
-- It will be sent (by memory module) 1 cycle after the `read_req` is recieved by the memory module. The reciever (top module) is also expected to be ready to recieve the message 1 cycle after the `read_req` is sent.
+- This message is received by the `right` endpoint (top module).
+- The response value (data at the lookup address) is valid from the time of being received till the next `read_req` message is sent.  
+- It will be sent (by memory module) 1 cycle after the `read_req` is received by the memory module. The receiver (top module) is also expected to be ready to receive the message 1 cycle after the `read_req` is sent.
 - Since both sides agree on the frequency of message exchange, an explicit acknowledgment as well as valid control signal is avoided. (Line 4 from the table above)
 
 
@@ -147,10 +147,10 @@ right read_resp : (logic[8]@#read_req) @read_req+1 - @read_req+1
 left write_req : (address_data_pair@#1)
 ```
 
-- The message is recieved by the `left` endpoint (memory module).
-- The value (semantically the address and data to be written) is valid for 1 cycle after being recieved.
-- Since there is no sync pattern described here, it means the sender (right endpoint) has to wait for the reciever (left endpoint) to acknowledge the message, to confirm the message exchange.
-- Since both sides dont have no fixed agreement on the frequency of message exchange, a two way handshake is required to ensure the message is recieved. (Line 1 from the table above)
+- The message is received by the `left` endpoint (memory module).
+- The value (semantically the address and data to be written) is valid for 1 cycle after being received.
+- Since there is no sync pattern described here, it means the sender (right endpoint) has to wait for the receiver (left endpoint) to acknowledge the message, to confirm the message exchange.
+- Since both sides dont have no fixed agreement on the frequency of message exchange, a two way handshake is required to ensure the message is received. (Line 1 from the table above)
 
 
 **For `write_resp`**
@@ -159,9 +159,9 @@ left write_req : (address_data_pair@#1)
 right write_resp : (logic[1]@#1) @#write_req+1 - @#write_req+1
 ```
 
-- The message is recieved by the `right` endpoint (top module).
-- The value (acknowledgement of the write operation) is valid for 1 cycle after being recieved.
-- The message is expected to be sent 1 cycles after the `write_req` is acknowledged. Similarly the reciever (top module) is expected to be ready to recieve the message 1 cycle after the `write_req` is acknowledged.
+- The message is received by the `right` endpoint (top module).
+- The value (acknowledgement of the write operation) is valid for 1 cycle after being received.
+- The message is expected to be sent 1 cycles after the `write_req` is acknowledged. Similarly the receiver (top module) is expected to be ready to receive the message 1 cycle after the `write_req` is acknowledged.
 - Since both sides agree on the frequency of message exchange, an explicit acknowledgment as well as valid control signal can be avoided. (Line 4 from the table above)
 
 

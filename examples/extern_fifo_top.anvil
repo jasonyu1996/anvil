@@ -48,48 +48,48 @@ proc extern_fifo_top(){
         cycle 1 >>
         send ep_ri.pop(1'b1) >>
         let data = recv ep_ri.data_o >>
-        dprint "[Cycle %d] Data recieved %d" (*cyc, data) >>
+        dprint "[Cycle %d] Data received %d" (*cyc, data) >>
 
 
         cycle 1 >>
         send ep_ri.pop(1'b1) >>
         let data = recv ep_ri.data_o >>
-        dprint "[Cycle %d] Data recieved %d" (*cyc, data) >>
+        dprint "[Cycle %d] Data received %d" (*cyc, data) >>
 
 
         cycle 1 >>
         send ep_ri.pop(1'b1) >>
         let data = recv ep_ri.data_o >>
-        dprint "[Cycle %d] Data recieved %d" (*cyc, data) >>
+        dprint "[Cycle %d] Data received %d" (*cyc, data) >>
 
 
         cycle 1 >>
         send ep_ri.pop(1'b1) >>
         let data = recv ep_ri.data_o >>
-        dprint "[Cycle %d] Data recieved %d" (*cyc, data) >>
+        dprint "[Cycle %d] Data received %d" (*cyc, data) >>
 
         cycle 1 >>
         send ep_ri.pop(1'b1) >>
         let data = recv ep_ri.data_o >>
-        dprint "[Cycle %d] Data recieved %d" (*cyc, data) >>
-
-
-        cycle 1 >>
-        send ep_ri.pop(1'b1) >>
-        let data = recv ep_ri.data_o >>
-        dprint "[Cycle %d] Data recieved %d" (*cyc, data) >>
+        dprint "[Cycle %d] Data received %d" (*cyc, data) >>
 
 
         cycle 1 >>
         send ep_ri.pop(1'b1) >>
         let data = recv ep_ri.data_o >>
-        dprint "[Cycle %d] Data recieved %d" (*cyc,data) >>
+        dprint "[Cycle %d] Data received %d" (*cyc, data) >>
 
 
         cycle 1 >>
         send ep_ri.pop(1'b1) >>
         let data = recv ep_ri.data_o >>
-        dprint "[Cycle %d] Data recieved %d" (*cyc,data) >>
+        dprint "[Cycle %d] Data received %d" (*cyc,data) >>
+
+
+        cycle 1 >>
+        send ep_ri.pop(1'b1) >>
+        let data = recv ep_ri.data_o >>
+        dprint "[Cycle %d] Data received %d" (*cyc,data) >>
         
         cycle 1 >>
         dfinish
