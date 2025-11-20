@@ -10,6 +10,7 @@ type compile_config = {
   two_round_graph: bool; (** enable codegen of two rounds for each thread
                              NOTE: with general recursive graphs, this may not be
                              literally two rounds *)
+  json_output : bool; (** output compilation results in JSON format *)
   input_filenames : string list; (** list of file names to be compiled *)
 }
 
