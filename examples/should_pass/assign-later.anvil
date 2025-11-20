@@ -3,7 +3,7 @@ chan ch {
 }
 
 proc top(e : left ch) {
-    reg r : logic[2];
+    reg r : logic;
     loop {
         cycle 1;
         send e.req (1'b0) >>
