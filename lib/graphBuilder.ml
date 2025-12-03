@@ -835,6 +835,9 @@ and visit_expr (graph : event_graph) (ci : cunit_info)
     )
   | Send send_pack ->
     (* just check that the endpoint and the message type is defined *)
+    let ep  = send_pack.send_msg_spec.endpoint in
+    if not (MessageCollection.endpoint_owned graph.messages ep) then
+      raise (event_graph_error_default (Printf.sprintf "Endpoint %s not owned by the process" ep) e.span);
     let msg = MessageCollection.lookup_message graph.messages send_pack.send_msg_spec ci.channel_classes
       |> unwrap_or_err "Invalid message specifier in send" e.span in
     if msg.dir <> Out then (
@@ -856,6 +859,9 @@ and visit_expr (graph : event_graph) (ci : cunit_info)
       } |> tag_with_span e.span)::ctx.current.sustained_actions;
     ntd
   | Recv recv_pack ->
+    let ep  = recv_pack.recv_msg_spec.endpoint in
+    if not (MessageCollection.endpoint_owned graph.messages ep) then
+      raise (event_graph_error_default (Printf.sprintf "Endpoint %s not owned by the process" ep) e.span);
     let msg = MessageCollection.lookup_message graph.messages recv_pack.recv_msg_spec ci.channel_classes
       |> unwrap_or_err "Invalid message specifier in receive" e.span in
     if msg.dir <> Inp then (

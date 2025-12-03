@@ -85,3 +85,12 @@ let create (channels : channel_def ast_node list)
   let local_messages = List.filter (fun ((p, _) : endpoint_def * code_span) -> not p.foreign) (args @ endpoints) |>
   List.concat_map gather_from_endpoint in
   {endpoints = List.map fst endpoints; args = List.map fst args; local_messages}
+
+
+let endpoint_owned t endpoint_name =
+
+  if Option.is_some (lookup_endpoint t endpoint_name) then 
+    let ep = Option.get (lookup_endpoint t endpoint_name) in
+    not ep.foreign
+  else
+    false
