@@ -145,26 +145,30 @@ let compile out config =
       )
     )
   done;
-  (* generate preamble *)
-  Codegen.generate_preamble out;
-  (* pull code from imported external files *)
-  let visited_extern_files = ref Utils.StringSet.empty in
-  let open Lang in
-  List.iter (fun (file_name, cunit) ->
-    List.iter (fun {is_extern; file_name = imp_file_name} ->
-      if is_extern then
-        let imp_file_name_canonical = canonicalise_file_name file_name imp_file_name in
-        if Utils.StringSet.mem imp_file_name_canonical !visited_extern_files |> not then (
-          visited_extern_files := Utils.StringSet.add imp_file_name_canonical !visited_extern_files;
-          try Codegen.generate_extern_import out imp_file_name_canonical
-          with Sys_error msg -> raise_compile_error (Some file_name) [Except.Text msg]
-        )
-    ) cunit.imports
-  ) !cunits;
-  (* generate the code from event graphs *)
-  let all_collections = Queue.to_seq graph_collection_queue |> List.of_seq in
-  let all_event_graphs = List.concat_map (fun collection -> let open EventGraph in collection.event_graphs) all_collections in
-  List.iter (fun graphs ->
-    Codegen.generate out config
-     {graphs with EventGraph.external_event_graphs = all_event_graphs}) all_collections
+  if config.just_check then
+    ()
+  else begin
+    (* generate preamble *)
+    Codegen.generate_preamble out;
+    (* pull code from imported external files *)
+    let visited_extern_files = ref Utils.StringSet.empty in
+    let open Lang in
+    List.iter (fun (file_name, cunit) ->
+      List.iter (fun {is_extern; file_name = imp_file_name} ->
+        if is_extern then
+          let imp_file_name_canonical = canonicalise_file_name file_name imp_file_name in
+          if Utils.StringSet.mem imp_file_name_canonical !visited_extern_files |> not then (
+            visited_extern_files := Utils.StringSet.add imp_file_name_canonical !visited_extern_files;
+            try Codegen.generate_extern_import out imp_file_name_canonical
+            with Sys_error msg -> raise_compile_error (Some file_name) [Except.Text msg]
+          )
+      ) cunit.imports
+    ) !cunits;
+    (* generate the code from event graphs *)
+    let all_collections = Queue.to_seq graph_collection_queue |> List.of_seq in
+    let all_event_graphs = List.concat_map (fun collection -> let open EventGraph in collection.event_graphs) all_collections in
+    List.iter (fun graphs ->
+      Codegen.generate out config
+       {graphs with EventGraph.external_event_graphs = all_event_graphs}) all_collections
+  end
 

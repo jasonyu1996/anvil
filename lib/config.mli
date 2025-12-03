@@ -6,10 +6,14 @@ type compile_config = {
   disable_lt_checks : bool; (** disable all lifetime and borrow related checks *)
   weak_typecasts : bool; (** allow weak typecasts, i.e., allow type mismatches
                              between data types of different widths *)
-  opt_level : int; (** optimisation level *)
+  opt_level : int; (** optimisation level *)                             
+  output_filename : string option; (** optional output filename *)
+
+    just_check : bool; (** only typecheck and validate the input files without generating output *)
   two_round_graph: bool; (** enable codegen of two rounds for each thread
                              NOTE: with general recursive graphs, this may not be
                              literally two rounds *)
+
   json_output : bool; (** output compilation results in JSON format *)
   input_filenames : string list; (** list of file names to be compiled *)
 }

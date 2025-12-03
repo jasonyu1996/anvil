@@ -3,6 +3,8 @@ type compile_config = {
   disable_lt_checks : bool;
   weak_typecasts : bool;
   opt_level : int;
+  output_filename : string option;
+  just_check : bool;
   two_round_graph: bool;
   json_output: bool;
   input_filenames: string list;
@@ -15,7 +17,10 @@ let parse_args () : compile_config =
   and opt_level = ref 2
   and two_round_graph = ref false
   and json_output = ref false
-  and input_filenames = ref [] in
+  and input_filenames = ref []
+  and output_filename = ref None
+  and just_check = ref false in
+
   let add_input_filename s =
     input_filenames := s::!input_filenames
   in
@@ -23,13 +28,15 @@ let parse_args () : compile_config =
     [
       ("-verbose", Arg.Set verbose, "Enable verbose output");
       ("-disable-lt-checks", Arg.Set disable_lt_checks, "Disable lifetime/borrow-related checks");
-      ("-strict-typecasts", Arg.Set strong_typecasts, "Restrict Typecasts");
+      ("-strict-dtc", Arg.Set strong_typecasts, "Restrict Abstract Typecasts");
       ("-O", Arg.Set_int opt_level, "Set optimisation level: 0, 1, 2 (default)");
+      ("-o", Arg.String (fun s -> output_filename := Some s), "Set output filename");
+      ("-just-check", Arg.Set just_check, "Only typecheck and validate the input files");
       ("-two-round", Arg.Set two_round_graph, "Enable codegen of logic for two rounds");
       ("-json", Arg.Set json_output, "Output compilation results in JSON format")
     ]
     add_input_filename
-    "anvil [-verbose] [-disable-lt-checks] [-O <opt-level>] [-two-round] [-json] <file1> [<file2>] ...";
+    "anvil [-verbose] [-disable-lt-checks] [-O <opt-level>] [-two-round] [-json] [-strict-dtc] <file1> [<file2>] ...";
   {
     verbose = !verbose;
     disable_lt_checks = !disable_lt_checks;
@@ -38,6 +45,8 @@ let parse_args () : compile_config =
     two_round_graph = !two_round_graph;
     json_output = !json_output;
     input_filenames = !input_filenames;
+    output_filename = !output_filename;
+    just_check = !just_check;
   }
 
 

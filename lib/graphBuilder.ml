@@ -209,7 +209,8 @@ let binop_td_td graph (ci:cunit_info) ctx span op td1 td2 =
 module DTypeCheck = struct
   let warn msg span file_name =
     Printf.eprintf "[Warning] %s\n" msg;
-    Lang.print_code_span ~indent:2 ~trunc:(-5) stderr file_name span
+    Lang.print_code_span ~indent:2 ~trunc:(-5) stderr file_name span;
+    flush stderr
 
   let type_error msg span =
     raise (Except.TypeError [Text msg; Except.codespan_local span])
