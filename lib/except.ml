@@ -15,6 +15,7 @@ type error_message = error_message_fragment list
 exception UnimplementedError of error_message
 exception TypeError of error_message
 exception UnknownError of error_message
+exception CodegenError of error_message
 
 
 let unknown_error_default msg_text = UnknownError [Text msg_text]

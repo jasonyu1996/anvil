@@ -45,7 +45,7 @@ let create (channels : channel_def ast_node list)
            (channel_classes : channel_class_def list) =
   let endpoint_in_spawns =
     List.map data_of_ast_node spawns
-    |> List.concat_map (fun (spawn : spawn_def) -> spawn.params)
+    |> List.concat_map (fun (spawn : spawn_def) -> (Lang.preprocess_ep_spawn_args spawn.params))
     |> Utils.StringSet.of_list in
   let get_foreign name = Utils.StringSet.mem name endpoint_in_spawns in
   let codegen_chan = fun span (chan : channel_def) ->
@@ -57,15 +57,29 @@ let create (channels : channel_def ast_node list)
     in *)
     (* We ignore the annotated foreign *)
     (* To fix: spawn channel instances *)
-    let left_endpoint = { name = chan.endpoint_left; channel_class = chan.channel_class;
+    if chan.n_instances = None then
+      let left_endpoint = { name = chan.endpoint_left; channel_class = chan.channel_class;
                           channel_params = chan.channel_params;
                           dir = Left; foreign = get_foreign chan.endpoint_left; opp = Some chan.endpoint_right; num_instances = None } in
-    let right_endpoint = { name = chan.endpoint_right; channel_class = chan.channel_class;
+      let right_endpoint = { name = chan.endpoint_right; channel_class = chan.channel_class;
                           channel_params = chan.channel_params;
                           dir = Right; foreign = get_foreign chan.endpoint_right; opp = Some chan.endpoint_left; num_instances = None  } in
-    [(left_endpoint, span); (right_endpoint, span)]
+      [(left_endpoint, span); (right_endpoint, span)]
+    else 
+      let n = Option.get chan.n_instances in
+      let endpoints = List.init n (fun i ->
+        let left_endpoint = { name = Printf.sprintf "%s[%d]" chan.endpoint_left i; channel_class = chan.channel_class;
+                            channel_params = chan.channel_params;
+                            dir = Left; foreign = get_foreign chan.endpoint_left; opp = Some chan.endpoint_right; num_instances = Some n } in
+        let right_endpoint = { name = Printf.sprintf "%s[%d]" chan.endpoint_right i; channel_class = chan.channel_class;
+                            channel_params = chan.channel_params;
+                            dir = Right; foreign = get_foreign chan.endpoint_right; opp = Some chan.endpoint_left; num_instances = Some n } in
+        [(left_endpoint, span); (right_endpoint, span)]
+      ) |> List.concat in 
+      endpoints
   in
-  let endpoints = List.concat_map (fun (ch : channel_def ast_node) -> codegen_chan ch.span ch.d) channels in
+  let endpoints = List.concat_map (fun (ch : channel_def ast_node) -> [codegen_chan ch.span ch.d]) channels in
+  let endpoints = List.flatten endpoints in
   let gather_from_endpoint ((endpoint, span): endpoint_def * code_span) =
     match lookup_channel_class channel_classes endpoint.channel_class with
     | Some cc ->
@@ -100,10 +114,18 @@ let create (channels : channel_def ast_node list)
   ) arg_with_arrays in
   let local_messages = List.filter (fun ((p, _) : endpoint_def * code_span) -> not p.foreign) (args_without_arrays @ args_with_arrays @ endpoints) |>
   List.concat_map gather_from_endpoint in
-  {endpoints = List.map fst endpoints; args = (List.map fst args_without_arrays) @ (List.map fst args_with_arrays); local_messages}
+let t =  {endpoints = List.map fst endpoints; args = (List.map fst args_without_arrays) @ (List.map fst args_with_arrays); local_messages} in
+    Printf.eprintf "Endpoints owned by process are %s\n"
+    (String.concat ", " (List.filter_map (fun (ep :endpoint_def) -> if get_foreign ep.name then Some ep.name else None) t.endpoints));
+    Printf.eprintf "Endpoints passed as args are %s\n"
+    (String.concat ", " (List.filter_map (fun (ep :endpoint_def) -> if get_foreign ep.name then Some ep.name else None) t.args));
+    Printf.eprintf "Local messages are %s\n"
+    (String.concat ", " (List.map (fun ( (_ep, msg, _) : endpoint_def * message_def * message_direction) -> msg.name) t.local_messages));
+    t
 
 
 let endpoint_owned t endpoint_name =
+
 
   if Option.is_some (lookup_endpoint t endpoint_name) then 
     let ep = Option.get (lookup_endpoint t endpoint_name) in

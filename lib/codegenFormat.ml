@@ -56,10 +56,29 @@ let format_wire_maybe_const (v : WireCollection.wire MaybeConst.maybe_int_const)
 
 module Endpoint = struct
   open EventGraph
+  let extract_index (name : identifier) : string option =
+    let len = String.length name in
+    if len > 0 && name.[len - 1] = ']' then
+      match String.rindex_opt name '[' with
+      | Some idx_start -> Some (String.sub name (idx_start) (len - idx_start))
+      | None -> None
+    else
+      None
+
+  let base_name (name : identifier) : identifier =
+    match String.index_opt name '[' with
+    | Some idx -> String.sub name 0 idx
+    | None -> name
+
   let canonicalize (endpoint : endpoint_def) : identifier =
     match endpoint.dir with
     | Left -> endpoint.name
-    | Right -> Option.value ~default:endpoint.name endpoint.opp
+    | Right -> 
+      let index_suffix = extract_index endpoint.name in
+      let opp_base = Option.value ~default:(base_name endpoint.name) endpoint.opp in
+      match index_suffix with
+      | Some idx -> opp_base ^ idx
+      | None -> opp_base
 
   let canonicalize_endpoint_name (endpoint_name : identifier) (g : event_graph) : identifier =
     match MessageCollection.lookup_endpoint g.messages endpoint_name with

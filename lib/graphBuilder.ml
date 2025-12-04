@@ -1189,7 +1189,7 @@ let build_proc (config : Config.compile_config) sched module_name param_values
           wires = WireCollection.empty;
           channels = List.map data_of_ast_node body.channels;
           messages = msg_collection;
-          spawns = List.map data_of_ast_node body.spawns;
+          spawns = body.spawns;
           regs = List.map (fun (reg : Lang.reg_def ast_node) ->
                 (reg.d.name, reg.d)) body.regs |> Utils.StringMap.of_list;
           last_event_id = -1;
@@ -1230,7 +1230,7 @@ let build_proc (config : Config.compile_config) sched module_name param_values
       ) body.threads in
       {name = module_name; extern_module = None;
         threads = proc_threads; shared_vars_info; messages = msg_collection;
-        proc_body = proc.body; spawns = List.map (fun (ident, {d; _}) -> (ident, d)) spawns}
+        proc_body = proc.body; spawns = List.map (fun (ident, spawn) -> (ident, spawn)) spawns}
     | Extern (extern_mod, _extern_body) ->
       let msg_collection = MessageCollection.create [] proc.args [] ci.channel_classes in
       {name = module_name; extern_module = Some extern_mod; threads = [];

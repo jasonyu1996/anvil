@@ -14,10 +14,10 @@ else
     ANVIL_FLAGS = -- -O 0 -verbose
 endif
 
-$(MODULE_NAME).sv: $(MODULE_NAME).anvil
+$(MODULE_NAME).anvil.sv: $(MODULE_NAME).anvil
 	dune exec anvil $(ANVIL_FLAGS) $< > $@
 
-obj_dir/V$(MODULE_NAME): $(MODULE_NAME)_driver.cpp $(MODULE_NAME).sv
+obj_dir/V$(MODULE_NAME): $(MODULE_NAME)_driver.cpp $(MODULE_NAME).anvil.sv
 	verilator --cc --exe --build $(VERILATOR_FLAGS) $^
 
 $(MODULE_NAME)_driver.cpp: $(TEST_DRIVER)

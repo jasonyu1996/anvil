@@ -174,7 +174,7 @@ and event_graph = {
           Note these do not include the channels passed from outside the process *)
   messages : MessageCollection.t; (** all messages referenceable from within the process,
             including those through channels passed from outside*)
-  spawns : Lang.spawn_def list;
+  spawns : Lang.spawn_def Lang.ast_node list;
   regs: Lang.reg_def Utils.string_map;
   mutable last_event_id: int;
   thread_codespan : Lang.code_span;
@@ -189,7 +189,7 @@ type proc_graph = {
   shared_vars_info : (Lang.identifier, shared_var_info) Hashtbl.t;
   messages : MessageCollection.t;
   proc_body : Lang.proc_def_body_maybe_extern;
-  spawns : (Lang.identifier * Lang.spawn_def) list;
+  spawns : (Lang.identifier * (Lang.spawn_def Lang.ast_node)) list; 
 }
 
 (** A collection of event graphs, corresponding to a compilation unit.

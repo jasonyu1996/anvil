@@ -241,6 +241,7 @@ type channel_def = {
   endpoint_left: identifier;
   endpoint_right: identifier;
   visibility: channel_visibility;
+  n_instances : int option; (** number of instances for arrayed channels To Do: add support for parametrization *) 
 }
 
 (* expressions *)
@@ -440,9 +441,12 @@ type spawn_def = {
   proc: identifier;
   (* channels to pass as args *)
   (* TODO: this naming collides with compile-time parameters *)
-  params: identifier list; (** names of the endpoints passed to the spawned process *)
+  params: args_spawn list; (** names of the endpoints passed to the spawned process *)
   compile_params: param_value list; (** concrete param value list *)
 }
+and args_spawn = 
+  | SingleEp of identifier
+  | RangeEp of identifier *int * int  (** name, start, size*)
 
 (* TODO: specify the type? *)
 type shared_var_def = {
@@ -818,3 +822,16 @@ let rec get_lv lval =
   | Indexed (lval, _) -> get_lv lval
   | Indirected (lv,_) -> get_lv lv
 in get_lv lv
+
+
+let preprocess_ep_spawn_args (args : args_spawn list) : identifier list =
+  List.concat_map
+    (function
+      | SingleEp name -> [name]
+      | RangeEp (name, start, size) ->
+        (
+          [List.init size (fun i -> Printf.sprintf "%s[%d]" name (start + i))] |> List.concat
+
+        )
+    ) 
+    args

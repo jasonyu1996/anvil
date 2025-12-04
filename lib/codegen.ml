@@ -8,7 +8,6 @@ module Format = CodegenFormat
 
 type port_def = CodegenPort.t
 
-exception CodegenError of string
 
 let codegen_ports printer (graphs : event_graph_collection)
                       (endpoints : endpoint_def list) (is_mod_comb : bool)=
@@ -41,7 +40,7 @@ let codegen_spawns printer (graphs : event_graph_collection) (g : proc_graph) =
     Printf.sprintf ".%s (%s)" dst src |> CodegenPrinter.print_line printer 
   in
 
-  let gen_spawn = fun (idx : int) ((module_name, spawn) : string * spawn_def) ->
+  let gen_spawn = fun (idx : int) ((module_name, spawn) : string * (spawn_def ast_node)) ->
     let proc_other = CodegenHelpers.lookup_proc graphs.external_event_graphs module_name |> Option.get in
 
     let is_not_extern = match proc_other.extern_module ,proc_other.proc_body with
@@ -127,9 +126,10 @@ let codegen_spawns printer (graphs : event_graph_collection) (g : proc_graph) =
       else print_msg_con first_msg
 
     in
-    if List.length proc_other.messages.args <> List.length spawn.params then
-      raise (CodegenError (Printf.sprintf "Invalid number of arguments for spawn of proc %s"  proc_other.name));
-    List.iter2 connect_endpoints proc_other.messages.args spawn.params;
+    let param_count = List.fold_left (fun acc p -> match p with Lang.SingleEp _ -> acc + 1 | Lang.RangeEp (_,_ ,sz) -> acc + sz) 0 spawn.d.params in
+    if List.length proc_other.messages.args <> param_count then
+      raise (Failure (Printf.sprintf "Invalid number of arguments for spawn of proc %s"  proc_other.name));
+    List.iter2 connect_endpoints proc_other.messages.args (Lang.preprocess_ep_spawn_args spawn.d.params);
     CodegenPrinter.print_line printer ~lvl_delta_pre:(-1) ");"
   in List.iteri gen_spawn g.spawns
 

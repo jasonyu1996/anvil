@@ -13,17 +13,15 @@ proc Foo(ep[3] : left ch){
 
 
 proc test_chan_array(){
-    chan ep_le1 -- ep1 : ch;
-    chan ep_le2 -- ep2 : ch;
-    chan ep_le3 -- ep3 : ch;
-    spawn Foo(ep_le1, ep_le2, ep_le3);
+    chan ep_le -- ep_ri : ch[3];
+    spawn Foo(ep_le[0+:3]);
     
     loop{
             if(1'd1){
-                send ep1.empty(1'b1)
+                send ep_ri[0].empty(1'b1)
             }
             else{
-                send ep1.empty(1'b0)
+                send ep_ri[0].empty(1'b0)
             } >> 
             cycle 1
     }

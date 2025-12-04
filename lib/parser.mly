@@ -359,6 +359,25 @@ channel_def:
       endpoint_left = left_endpoint;
       endpoint_right = right_endpoint;
       visibility = visibility;
+      n_instances = None;
+    } : Lang.channel_def
+  }
+| left_foreign = foreign_tag; left_endpoint = IDENT; DOUBLE_MINUS;
+  right_foreign = foreign_tag; right_endpoint = IDENT; COLON;
+  chan_class = channel_class_concrete LEFT_BRACKET; n = INT; RIGHT_BRACKET
+  {
+    let visibility = match left_foreign, right_foreign with
+      | true, true -> Lang.BothForeign
+      | false, true -> Lang.RightForeign
+      | _ -> Lang.LeftForeign
+    in
+    {
+      channel_class = fst chan_class;
+      channel_params = snd chan_class;
+      endpoint_left = left_endpoint;
+      endpoint_right = right_endpoint;
+      visibility = visibility;
+      n_instances = Some n;
     } : Lang.channel_def
   }
 ;
@@ -372,7 +391,7 @@ channel_class_concrete:
 
 // Instantiating the proc for comm
 spawn:
-| proc = IDENT; LEFT_PAREN; params = separated_list(COMMA, IDENT); RIGHT_PAREN
+| proc = IDENT; LEFT_PAREN; params = separated_list(COMMA,args_spawn); RIGHT_PAREN
   {
     {
       proc = proc;
@@ -381,7 +400,7 @@ spawn:
     } : Lang.spawn_def
   }
 | proc = IDENT; LEFT_ABRACK; compile_params = separated_list(COMMA, param_value); RIGHT_ABRACK;
-  LEFT_PAREN; params = separated_list(COMMA, IDENT); RIGHT_PAREN
+  LEFT_PAREN; params = separated_list(COMMA, args_spawn); RIGHT_PAREN
   {
     {
       proc = proc;
@@ -390,6 +409,14 @@ spawn:
     } : Lang.spawn_def
   }
 ;
+
+args_spawn:
+| ident = IDENT
+  { Lang.SingleEp ident }
+| ident = IDENT; LEFT_BRACKET; start = INT; PLUS; COLON; size = INT; RIGHT_BRACKET
+  { Lang.RangeEp (ident, start, size) }
+| ident = IDENT; LEFT_BRACKET; index = INT; RIGHT_BRACKET;
+  { Lang.SingleEp (Printf.sprintf "%s[%d]" ident index)  }
 
 param_value:
 | n = INT
