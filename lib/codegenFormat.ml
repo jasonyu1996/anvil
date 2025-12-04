@@ -1,17 +1,24 @@
 open Lang
 
+let sanitize_identifier (name : identifier) : identifier =
+  let replace_char c =
+    match c with
+    | '[' | ']' -> "___"
+    | c -> String.make 1 c
+  in
+  String.to_seq name |> Seq.map replace_char |> List.of_seq |> String.concat ""
+
 let format_msg_prefix (endpoint_name : identifier) (message_name : identifier) : identifier =
-  Printf.sprintf "_%s_%s" endpoint_name message_name
+  Printf.sprintf "_%s_%s" (sanitize_identifier endpoint_name) message_name
 
 let format_msg_data_signal_name (endpoint_name : identifier) (message_name : identifier) (data_idx : int) : string =
-  Printf.sprintf "_%s_%s_%d" endpoint_name message_name data_idx
+  Printf.sprintf "_%s_%s_%d" (sanitize_identifier endpoint_name) message_name data_idx
 
 let format_msg_valid_signal_name (endpoint_name : identifier) (message_name : identifier) : string =
-  Printf.sprintf "_%s_%s_valid" endpoint_name message_name
+  Printf.sprintf "_%s_%s_valid" (sanitize_identifier endpoint_name) message_name
 
 let format_msg_ack_signal_name (endpoint_name : identifier) (message_name : identifier) : string =
-  Printf.sprintf "_%s_%s_ack" endpoint_name message_name
-
+  Printf.sprintf "_%s_%s_ack" (sanitize_identifier endpoint_name) message_name
 
 let format_wirename (thread_id : int) (id : int) : string = Printf.sprintf "thread_%d_wire$%d" thread_id id
 

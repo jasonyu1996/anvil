@@ -1,5 +1,9 @@
 (** Formatter functions for different constructs during the code generation process. *)
 
+(** Sanitize an identifier for use in SystemVerilog signal names.
+    Replaces '[' and ']' with '___' to avoid syntax errors. *)
+val sanitize_identifier : string -> string
+
 val format_msg_prefix : string -> string -> string
 val format_msg_data_signal_name : string -> string -> int -> string
 val format_msg_valid_signal_name : string -> string -> string

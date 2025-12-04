@@ -1,14 +1,31 @@
-
+type bit = logic[1];
 chan ch{
-    left req : (logic@#1)
+    left empty : (bit@#1)
 }
-proc test_array_chan(ep[3] : right ch){
+proc Foo(ep[3] : left ch){
     loop{
-        send ep[0].req(1'd1) >>
-        send ep[1].req(1'd1) >>
-        send ep[2].req(1'd1) >>
+        let x =  recv ep[0].empty >>
+        dprint "Received: %d" (x) >>
         cycle 1
     }
 
+}
 
+
+proc test_chan_array(){
+    chan ep_le1 -- ep1 : ch;
+    chan ep_le2 -- ep2 : ch;
+    chan ep_le3 -- ep3 : ch;
+    spawn Foo(ep_le1, ep_le2, ep_le3);
+    
+    loop{
+            if(1'd1){
+                send ep1.empty(1'b1)
+            }
+            else{
+                send ep1.empty(1'b0)
+            } >> 
+            cycle 1
+    }
+ 
 }

@@ -41,7 +41,8 @@ let clk = {dir = Inp; dtype = `Logic; name = "clk_i"}
 let rst = {dir = Inp; dtype = `Logic; name = "rst_ni"}
 
 let format (typedefs : TypedefMap.t) (macro_defs: macro_def list) port =
+  let ep_name_formatted = CodegenFormat.sanitize_identifier port.name in
   let inout = match port.dir with
     | Inp -> "input"
     | Out -> "output"
-  in Printf.sprintf "%s %s %s" inout (CodegenFormat.format_dtype typedefs macro_defs port.dtype) port.name
+  in Printf.sprintf "%s %s %s" inout (CodegenFormat.format_dtype typedefs macro_defs port.dtype) ep_name_formatted

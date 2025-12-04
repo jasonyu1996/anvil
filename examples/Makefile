@@ -27,4 +27,4 @@ run: obj_dir/V$(MODULE_NAME)
 	@ $< $(TIMEOUT)
 
 clean:
-	rm -rf $(MODULE_NAME).sv $(MODULE_NAME)_driver.cpp obj_dir
+	rm -rf *obj_dir *.anvil.sv *_driver.cpp

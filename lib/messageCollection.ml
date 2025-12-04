@@ -94,7 +94,8 @@ let create (channels : channel_def ast_node list)
         Except.codespan_local span
       ]);
     List.init num_instances (fun i ->
-      ({ep with name = Printf.sprintf "%s[%d]" ep.name i; foreign = get_foreign ep.name}, span)
+      let nm = Printf.sprintf "%s[%d]" ep.name i in
+      ({ep with name = nm; foreign = get_foreign nm}, span)
     )
   ) arg_with_arrays in
   let local_messages = List.filter (fun ((p, _) : endpoint_def * code_span) -> not p.foreign) (args_without_arrays @ args_with_arrays @ endpoints) |>
