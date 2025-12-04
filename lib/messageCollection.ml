@@ -56,12 +56,13 @@ let create (channels : channel_def ast_node list)
       | RightForeign -> (false, true)
     in *)
     (* We ignore the annotated foreign *)
+    (* To fix: spawn channel instances *)
     let left_endpoint = { name = chan.endpoint_left; channel_class = chan.channel_class;
                           channel_params = chan.channel_params;
-                          dir = Left; foreign = get_foreign chan.endpoint_left; opp = Some chan.endpoint_right } in
+                          dir = Left; foreign = get_foreign chan.endpoint_left; opp = Some chan.endpoint_right; num_instances = None } in
     let right_endpoint = { name = chan.endpoint_right; channel_class = chan.channel_class;
                           channel_params = chan.channel_params;
-                          dir = Right; foreign = get_foreign chan.endpoint_right; opp = Some chan.endpoint_left } in
+                          dir = Right; foreign = get_foreign chan.endpoint_right; opp = Some chan.endpoint_left; num_instances = None  } in
     [(left_endpoint, span); (right_endpoint, span)]
   in
   let endpoints = List.concat_map (fun (ch : channel_def ast_node) -> codegen_chan ch.span ch.d) channels in
@@ -81,10 +82,24 @@ let create (channels : channel_def ast_node list)
         ])
   in
   (* override the user-specified foreign in args *)
-  let args = List.map (fun ({d = ep; span} : endpoint_def ast_node) -> ({ep with foreign = get_foreign ep.name}, span)) args in
-  let local_messages = List.filter (fun ((p, _) : endpoint_def * code_span) -> not p.foreign) (args @ endpoints) |>
+  (* if its array of channels create ep instances appended with ep[i] for the messages *)
+  let args_without_arrays = List.filter (fun ({d = ep; _} : endpoint_def ast_node) -> Option.is_none ep.num_instances) args in
+  let arg_with_arrays = List.filter (fun ({d = ep; _} : endpoint_def ast_node) -> Option.is_some ep.num_instances) args in
+  let args_without_arrays = List.map (fun ({d = ep; span} : endpoint_def ast_node) -> ({ep with foreign = get_foreign ep.name}, span)) args_without_arrays in
+  let args_with_arrays = List.concat_map (fun ({d = ep; span} : endpoint_def ast_node) ->
+    let num_instances = Option.get ep.num_instances in
+    if num_instances <= 0 then
+      raise (Except.TypeError [
+        Text (Printf.sprintf "Number of instances for endpoint array %s must be positive" ep.name);
+        Except.codespan_local span
+      ]);
+    List.init num_instances (fun i ->
+      ({ep with name = Printf.sprintf "%s[%d]" ep.name i; foreign = get_foreign ep.name}, span)
+    )
+  ) arg_with_arrays in
+  let local_messages = List.filter (fun ((p, _) : endpoint_def * code_span) -> not p.foreign) (args_without_arrays @ args_with_arrays @ endpoints) |>
   List.concat_map gather_from_endpoint in
-  {endpoints = List.map fst endpoints; args = List.map fst args; local_messages}
+  {endpoints = List.map fst endpoints; args = (List.map fst args_without_arrays) @ (List.map fst args_with_arrays); local_messages}
 
 
 let endpoint_owned t endpoint_name =

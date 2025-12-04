@@ -122,6 +122,7 @@ type endpoint_def = {
   used within this process? *)
   opp: identifier option; (** if the endpoint is created locally, the other endpoint associated
   with the same channel *)
+  num_instances : int option (** number of instances for arrayed channels *)
 }
 
 type macro_def = {

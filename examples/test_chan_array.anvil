@@ -1,0 +1,14 @@
+
+chan ch{
+    left req : (logic@#1)
+}
+proc test_array_chan(ep[3] : right ch){
+    loop{
+        send ep[0].req(1'd1) >>
+        send ep[1].req(1'd1) >>
+        send ep[2].req(1'd1) >>
+        cycle 1
+    }
+
+
+}

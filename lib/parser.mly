@@ -297,12 +297,12 @@ channel_class_def:
 ;
 //For passing the list of channels that are nessacary to communicate with the instantiation of the process
 proc_def_arg_list:
-  l = separated_list(COMMA, node(proc_def_arg))
+|  l = separated_list(COMMA, node(proc_def_arg))
   { l }
 ;
 // To Do: Can be renamed to inherited channel or something
 proc_def_arg:
-  foreign = foreign_tag; ident = IDENT; COLON; chan_dir = channel_direction; chan_class = channel_class_concrete
+|  foreign = foreign_tag; ident = IDENT; COLON; chan_dir = channel_direction; chan_class = channel_class_concrete
   {
     {
       name = ident;
@@ -312,6 +312,20 @@ proc_def_arg:
       foreign = foreign; (* These are ignored for now.
                         Instead we just look at which endpoints are used in spawn *)
       opp = None;
+      num_instances = None;
+    } : Lang.endpoint_def
+  }
+| foreign = foreign_tag; ident = IDENT; LEFT_BRACKET; n = INT; RIGHT_BRACKET; COLON; chan_dir = channel_direction; chan_class = channel_class_concrete
+  {
+    {
+      name = ident;
+      channel_class = fst chan_class;
+      channel_params = snd chan_class;
+      dir = chan_dir;
+      foreign = foreign; (* These are ignored for now.
+                        Instead we just look at which endpoints are used in spawn *)
+      opp = None;
+      num_instances = Some n;
     } : Lang.endpoint_def
   }
 ;
@@ -816,10 +830,17 @@ plus_minus:
 
 //Message string
 message_specifier:
-  endpoint = IDENT; PERIOD; msg_type = IDENT
+|  endpoint = IDENT; PERIOD; msg_type = IDENT
   {
     {
       endpoint = endpoint;
+      msg = msg_type;
+    } : Lang.message_specifier
+  }
+| endpoint = IDENT; LEFT_BRACKET; index = INT; RIGHT_BRACKET; PERIOD; msg_type = IDENT
+  {
+    {
+      endpoint = Printf.sprintf "%s[%d]" endpoint index;
       msg = msg_type;
     } : Lang.message_specifier
   }
