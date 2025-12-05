@@ -324,7 +324,20 @@ let codegen_proc printer (graphs : EventGraph.event_graph_collection) (g : proc_
           |> CodegenPrinter.print_line printer
       in
       let len1 = List.length body.named_ports in
-      let len2 = (List.length body.msg_ports)*3 in
+      let len2 = List.fold_left(
+        fun acc (_, d,v,a) ->
+        (
+            match d,v,a with
+            | Some _, Some _, Some _ -> acc + 3
+            | Some _, Some _ , None -> acc + 2
+            | Some _ , None , Some _ -> acc + 2
+            | None , Some _ , Some _ -> acc + 2
+            | Some _ , None , None -> acc + 1
+            | None , Some _ , None -> acc + 1
+            | None , None , Some _ -> acc + 1
+            | None , None , None -> acc
+        )
+      ) 0 body.msg_ports in
       let len = len1 + len2 in
       List.iteri (fun i (port_name, extern_port_name) ->
         print_binding extern_port_name i len port_name 
@@ -337,9 +350,9 @@ let codegen_proc printer (graphs : EventGraph.event_graph_collection) (g : proc_
           | None -> ()
           | Some extern_port ->
             let i_off = len1 + !i_sync in
+            i_sync := !i_sync + 1;
             formatter msg.endpoint msg.msg |> print_binding extern_port i_off len
         );
-          i_sync := !i_sync + 1;
         in
         let open Format in
         print_msg_port_opt (fun e m -> format_msg_data_signal_name e m 0) extern_data_opt;
