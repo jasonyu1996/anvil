@@ -610,14 +610,26 @@ and string_of_literal (lit : literal) : string =
   | WithLength (n, v) -> "WithLength (" ^ string_of_int n ^ ", " ^ string_of_int v ^ ")"
   | NoLength v -> "NoLength " ^ string_of_int v
 
-let rec substitute_expr_identifier (id: identifier) (value: expr_node) (expr: expr_node) : expr_node =
-  let subst = substitute_expr_identifier id value in
+let sub_ep_index (ep: message_specifier) (index: int) : message_specifier =
+  let is_array = String.contains ep.endpoint '[' && String.contains ep.endpoint ']'in
+  if is_array then
+    let base_name =
+      match String.index_opt ep.endpoint '[' with
+      | Some idx -> String.sub ep.endpoint 0 idx
+      | None -> ep.endpoint
+    in
+    { endpoint = Printf.sprintf "%s[%d]" base_name index; msg = ep.msg }
+  else
+    ep
+
+let rec substitute_expr_identifier (id: identifier) (value: expr_node) (idx : int) (expr: expr_node)  : expr_node =
+  let subst = substitute_expr_identifier id value idx in
   let new_expr = match expr.d with
   | Identifier name when name = id ->
       value.d
   | Let (ids, dtype, e) ->
       if List.mem id ids then expr.d
-      else Let (ids, dtype, substitute_expr_identifier id value e)
+      else Let (ids, dtype, substitute_expr_identifier id value idx e)
   | Record (name, fields, base) ->
       Record (
         name,
@@ -628,10 +640,10 @@ let rec substitute_expr_identifier (id: identifier) (value: expr_node) (expr: ex
       )
   | Binop (op, e1, e2_opt) ->
       let new_e2_opt = match e2_opt with
-        | `Single e2 -> `Single (substitute_expr_identifier id value e2)
-        | `List exprs -> `List (List.map (substitute_expr_identifier id value) exprs)
+        | `Single e2 -> `Single (substitute_expr_identifier id value idx e2)
+        | `List exprs -> `List (List.map (fun e -> substitute_expr_identifier id value idx e) exprs)
         in
-      Binop (op, substitute_expr_identifier id value e1, new_e2_opt)
+      Binop (op, substitute_expr_identifier id value idx e1, new_e2_opt)
   | Unop (op, e) ->
       Unop (op, subst e)
   | Tuple exprs ->
@@ -652,11 +664,11 @@ let rec substitute_expr_identifier (id: identifier) (value: expr_node) (expr: ex
   | Concat (exprs, is_flat) ->
       Concat (List.map subst exprs, is_flat)
   | Assign (lv, e) ->
-      let new_lv = substitute_lvalue id value lv in
+      let new_lv = substitute_lvalue id value idx lv in
       Assign (new_lv, subst e)
   | Send {send_msg_spec; send_data} ->
       Send {
-        send_msg_spec;
+        send_msg_spec = sub_ep_index send_msg_spec idx;
         send_data = subst send_data
       }
   | Debug (DebugPrint (msg, exprs)) ->
@@ -681,13 +693,13 @@ let rec substitute_expr_identifier (id: identifier) (value: expr_node) (expr: ex
   | TryRecv (ident, recv_pack, e1, e2) ->
     TryRecv (
       ident,
-      recv_pack,
+      {recv_msg_spec = sub_ep_index recv_pack.recv_msg_spec idx},
       subst e1,
       subst e2
     )
   | TrySend (send_pack, e1, e2) ->
     TrySend (
-      {send_pack with send_data = subst send_pack.send_data},
+      {send_msg_spec = sub_ep_index send_pack.send_msg_spec idx; send_data = subst send_pack.send_data},
       subst e1,
       subst e2
     )
@@ -702,16 +714,18 @@ let rec substitute_expr_identifier (id: identifier) (value: expr_node) (expr: ex
       subst e
     )
   | Read lv ->
-    Read (substitute_lvalue id value lv)
+    Read (substitute_lvalue id value idx lv)
   | Recurse | Literal _ | Cycle _
-  | Identifier _ | Ready _ | Probe _
-  | Recv _
+  | Identifier _ | Ready _ | Probe _-> expr.d
+  | Recv recv_pack ->
+      let new_recv_pack = {recv_msg_spec = sub_ep_index recv_pack.recv_msg_spec idx} in
+      Recv new_recv_pack
   | Sync _ -> expr.d
 
   in
   { expr with d = new_expr }
 
-and substitute_lvalue (id: identifier) (value: expr_node) (lv: lvalue) : lvalue =
+and substitute_lvalue (id: identifier) (value: expr_node) (ind : int) (lv: lvalue) : lvalue =
     match (lv:lvalue) with
     | Reg name ->
         if name = id then
@@ -721,14 +735,14 @@ and substitute_lvalue (id: identifier) (value: expr_node) (lv: lvalue) : lvalue 
         else
           lv
     | Indexed (lv', idx) ->
-        let new_lv = substitute_lvalue id value lv' in
+        let new_lv = substitute_lvalue id value ind lv' in
         let new_idx = match idx with
-          | Single e -> Single (substitute_expr_identifier id value e)
-          | Range (e1, e2) -> Range (substitute_expr_identifier id value e1, substitute_expr_identifier id value e2)
+          | Single e -> Single (substitute_expr_identifier id value ind e)
+          | Range (e1, e2) -> Range (substitute_expr_identifier id value ind e1, substitute_expr_identifier id value ind e2)
         in
         Indexed (new_lv, new_idx)
     | Indirected (lv', field) ->
-        let new_lv = substitute_lvalue id value lv' in
+        let new_lv = substitute_lvalue id value ind lv' in
         Indirected (new_lv, field)
 
 let generate_expr (id, start, end_v, offset, body) =
@@ -744,7 +758,7 @@ let generate_expr (id, start, end_v, offset, body) =
             tl
     else
       let bit_length = Utils.int_log2 (end_v + 1) in
-      let substituted = substitute_expr_identifier id (dummy_ast_node_of_data(Literal(WithLength(bit_length, curr)))) body in
+      let substituted = substitute_expr_identifier id (dummy_ast_node_of_data(Literal(WithLength(bit_length, curr)))) curr body in
       generate_exprs (curr + offset) (substituted :: acc);
 
   in
@@ -763,7 +777,7 @@ let generate_expr (id, start, end_v, offset, body) =
               tl
       else
         let bit_length = Utils.int_log2 (end_v + 1) in
-        let substituted = substitute_expr_identifier id (dummy_ast_node_of_data(Literal(WithLength(bit_length, curr)))) body in
+        let substituted = substitute_expr_identifier id (dummy_ast_node_of_data(Literal(WithLength(bit_length, curr)))) curr body in
         generate_exprs_seq (curr + offset) (substituted :: acc);
     in
     generate_exprs_seq start []

@@ -871,6 +871,13 @@ message_specifier:
       msg = msg_type;
     } : Lang.message_specifier
   }
+| endpoint = IDENT; LEFT_BRACKET; index = IDENT; RIGHT_BRACKET; PERIOD; msg_type = IDENT
+  {
+    {
+      endpoint = Printf.sprintf "%s[%s]" endpoint index;
+      msg = msg_type;
+    } : Lang.message_specifier
+  }
 ;
 
 shared_var_def:
