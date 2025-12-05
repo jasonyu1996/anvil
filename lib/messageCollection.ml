@@ -114,14 +114,9 @@ let create (channels : channel_def ast_node list)
   ) arg_with_arrays in
   let local_messages = List.filter (fun ((p, _) : endpoint_def * code_span) -> not p.foreign) (args_without_arrays @ args_with_arrays @ endpoints) |>
   List.concat_map gather_from_endpoint in
-let t =  {endpoints = List.map fst endpoints; args = (List.map fst args_without_arrays) @ (List.map fst args_with_arrays); local_messages} in
-    Printf.eprintf "Endpoints owned by process are %s\n"
-    (String.concat ", " (List.filter_map (fun (ep :endpoint_def) -> if get_foreign ep.name then Some ep.name else None) t.endpoints));
-    Printf.eprintf "Endpoints passed as args are %s\n"
-    (String.concat ", " (List.filter_map (fun (ep :endpoint_def) -> if get_foreign ep.name then Some ep.name else None) t.args));
-    Printf.eprintf "Local messages are %s\n"
-    (String.concat ", " (List.map (fun ( (_ep, msg, _) : endpoint_def * message_def * message_direction) -> msg.name) t.local_messages));
-    t
+
+  {endpoints = List.map fst endpoints; args = (List.map fst args_without_arrays) @ (List.map fst args_with_arrays); local_messages}
+
 
 
 let endpoint_owned t endpoint_name =
