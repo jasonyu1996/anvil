@@ -3,6 +3,7 @@
 (** Set of configurations that control the compilation process. *)
 type compile_config = {
   verbose : bool; (** output verbose details related to compilation to stderr *)
+  stdin : bool; (** read from standard input *)
   disable_lt_checks : bool; (** disable all lifetime and borrow related checks *)
   weak_typecasts : bool; (** allow weak typecasts, i.e., allow type mismatches
                              between data types of different widths *)

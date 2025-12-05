@@ -18,15 +18,20 @@ let canonicalise_file_name file_origin file_name =
   else
     file_name
 
-let rec parse_recursive cunits parsed_files config filename =
+let rec parse_recursive cunits parsed_files (config : Config.compile_config) filename =
   if Utils.StringSet.mem filename !parsed_files |> not then (
     parsed_files := Utils.StringSet.add filename !parsed_files;
     let cunit =
+      let source_filename = match config.input_filenames with
+        | top_level::_ when (config.stdin && top_level = filename) -> "-"
+        | _ -> filename
+      in
       try
-        In_channel.with_open_bin
+        InChannelCachableAliasable.with_open_aliased
+          source_filename
           filename
-          (fun in_channel ->
-            let lexbuf = Lexing.from_channel in_channel in
+          (fun in_data ->
+            let lexbuf = Lexing.from_string (Bytes.to_string (in_data.buffer)) in
             try Parser.cunit Lexer.read lexbuf
             with
               | Lexer.SyntaxError msg ->
@@ -65,7 +70,10 @@ let rec parse_recursive cunits parsed_files config filename =
 
 let compile out config =
   let open Config in
-  let toplevel_filename = List.hd config.input_filenames in
+  let toplevel_filename = if config.stdin && List.length config.input_filenames = 0
+    then "-"
+    else List.hd config.input_filenames
+  in
   let cunits = ref [] in
   (
     try parse_recursive cunits (ref Utils.StringSet.empty) config toplevel_filename

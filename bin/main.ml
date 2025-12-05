@@ -35,7 +35,7 @@ let compile_with_json_output config =
 
 let compile_with_normal_output config =
   let open Anvil.Config in
-  if config.input_filenames = [] then begin
+  if config.input_filenames = [] && not config.stdin then begin
     Printf.eprintf "Error: a file name must be supplied!\n";
     exit 1
   end else begin
