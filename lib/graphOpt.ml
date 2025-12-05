@@ -555,7 +555,7 @@ let combinational_codegen (config : Config.compile_config) (graph : event_graph)
           | DebugFinish
           | DebugPrint _ -> (
             Printf.eprintf "[Warning] Optimization for combinational possible but skipping for there being Debug actions in %d thread\n" graph.thread_id;
-            (Lang.print_code_span ~indent:2 ~trunc:(-5) stderr ci.file_name a.span);
+            (SpanPrinter.print_code_span ~indent:2 ~trunc:(-5) stderr ci.file_name a.span);
             false
           )
           | _ -> true
