@@ -1,0 +1,18 @@
+struct p {
+    f1 : logic,
+    f2 : logic
+}
+
+
+proc test_borrow(){
+    reg r : p;
+    reg x : logic[2];
+    loop{
+        let x_borrow = *x[0] >>
+        set x[1] := 1'd1 >>
+        let r_borrow = *r.f1 >>
+        set r.f2 := 1'd1 >>
+        dprint "borrow val r = %d | x = %d" (r_borrow ,x_borrow) >>
+        cycle 1
+    }
+}

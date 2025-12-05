@@ -1,148 +1,159 @@
-**Try out AnvilHDL in the [online playground](https://anvil.capstone.kisp-lab.org/).**
+# AnvilHDL: A Timing-Safe Hardware Description Language
 
-## AnvilHDL
+**Anvil** is a hardware description language (HDL) that describes digital circuit designs at the register-transfer level (RTL). It introduces a novel type system to guarantee timing safety without abstracting away the low-level control required for efficient hardware design.
 
-Anvil is a hardware description language (HDL) which
-describes digital circuit designs at register-transfer level (RTL).
-Anvil has the following design goals:
+> **Note** The motivation and design are discussed and evaluated in depth in our research paper: [**Anvil: A General-Purpose Timing-Safe Hardware Description Language**](https://arxiv.org/abs/2503.19447) which will apear at ASPLOS 2026.
 
-- **Timing-safety:** Any value that the designer intends to reference across multiple
-    cycles is always _stable_ and _meaningful._ Anvil prevents mistakes in the RTL design
-    such as using a value before it is ready and mutating a register when a value that
-    depends on it is intended to be kept stable.
-- **Composability:** The timing-safety guarantee that Anvil provides is _composable._
-    The designer can create modular designs separately and compose them together.
-    Anvil ensures that the design that results from composition is timing-safe.
-    It achieves this with _dynamic timing contracts,_ which specify the expected timing
-    properties of values across modules.
-- **Expressiveness:** Anvil provides the timing-safety guarantee through its type system without abstracting
-    away distinct elements of RTL designs such as registers, wires, and clock cycles.
-    It thus allows the designer to retain low-level control and
-    is suitable for general purposes.
+-----
 
-The motivation and design are discussed and evaluated
-in greater depth in the [research paper](https://arxiv.org/abs/2503.19447).
+## Quick Start
 
-### Status
+### 1. Online Playground
 
-Currently, AnvilHDL is _experimental_ and under active development.
-Many aspects of the language may change in the future.
-Seen something you don't like? Feel free to contribute your ideas or code.
+The easiest way to experience AnvilHDL is in your browser. 
+[**Try the Online Playground**](https://anvil.capstone.kisp-lab.org/) (No installation required!)
+
+### 2. Interactive Tutorial
+
+Learn the language basics through our guided tour : [**Short Tutorial with interactive examples**](https://project-starch.github.io/Anvil-Docs/helloWorld.html)
 
 
-### Getting Started
+### 3. Full Documentation
+Up to date documentation is available online at [**AnvilHDL Docs**](https://project-starch.github.io/Anvil-Docs/)
 
-#### Online Playground
+-----
 
-The easiest way to try out AnvilHDL is to use the [online playground](https://anvil.capstone.kisp-lab.org/).
-You don't need to install anything on your machine.
+## Design Goals
 
-#### Local Installation
+Anvil addresses critical challenges in RTL design through three core pillars:
 
-If you want to explore AnvilHDL in depth or contribute to the project,
-you will need to install it locally.
+| Feature | Description |
+| :--- | :--- |
+| **Timing-safety** | Any value referenced across cycles is guaranteed to be **stable** and **meaningful**. Anvil prevents common RTL mistakes, such as using a value before it is ready or mutating a register while its dependent values must remain stable. |
+| **Composability** | Timing safety is preserved across module boundaries. Designers can create modular components and compose them with confidence. Anvil uses **dynamic timing contracts** to enforce timing properties between modules. |
+| **Expressiveness** | Safety is achieved via the type system, not by hiding the hardware. Anvil exposes registers, wires, and clock cycles, allowing the designer to retain **low-level control** suitable for general-purpose hardware development. |
 
-##### Dependencies
+-----
 
-Development: OCaml 5.2.0
+## Local Installation
 
-Software simulation tested with Verilator 5.024.
+For in-depth exploration or contribution, install AnvilHDL locally.
 
-##### Installation
+### Prerequisites
 
-Ensure that you have [opam](https://opam.ocaml.org/) installed.
-Clone the repository and run the following commands:
+- **OCaml**: Version 5.2.0
+- **Verilator**: Version 5.024 (Required for software simulation)
+- **Opam**: [Installation Guide](https://opam.ocaml.org/)
+
+### Build Instructions
+
+Clone the repository and install dependencies:
 
 ```bash
+# Install dependencies
 opam install . --deps-only
-eval $(opam env) && dune build # or for release build: dune build --release
+
+# Build the project
+eval $(opam env) && dune build  # or for release build: dune build --release
 ```
 
-##### Usage
+This will set up the Anvil compiler locally.
 
-```
-dune exec anvil -- [-verbose] [-disable-lt-checks] [-O <opt-level>] [-two-round] <anvil-source-file>
-```
+For global installation, you can run:
 
-NOTE: To disable lifetime-related checks, pass `-disable-lt-checks`. The `-two-round` flag
-generates code for two rounds of each thread (previously used to
-work around some [combinational loop issues](https://github.com/jasonyu1996/anvil/issues/33) codegen had, now no more useful).
+```bash
+# To install AnvilHDL binary globally
+opam install .
 
-##### Examples
+# To uninstall AnvilHDL
+opam uninstall .
 
-Example designs are located in the `examples` directory.
-To try them out, make sure Verilator is installed and in
-your `$PATH`.
-
-To build an example design,
-```
-make MODULE_NAME=<name>
+# To update AnvilHDL binary to the latest commits (HEAD)
+opam reinstall .
 ```
 
-To simulate a design,
-```
-make run MODULE_NAME=<name>
-```
 
-You can specify `TIMEOUT` to limit the number of cycles to simulate.
+-----
 
-To clean up,
-```
-make clean MODULE_NAME=<name>
-```
+## Compiler Usage
 
-`MODULE_NAME` defaults to `top` if unspecified.
+Run the Anvil compiler using `dune`. **Note**: For a global installation, replace `dune exec anvil --` with `anvil`.
 
-
-##### Tests
-
-To run all tests, use
-```
-python3 run-tests.py
+```bash
+dune exec anvil -- [OPTIONS] <anvil-source-file>
 ```
 
-Alternatively, you can run type checking tests and simulation tests separately with
-```
+**Common Options:**
+
+  - `-disable-lt-checks`: Disable lifetime-related checks.
+  - `-O <opt-level>`: Specify optimization level. (Currently : 0, 1, 2)
+  - `-verbose`: Enable verbose output.
+  - `-o <output-file>`: Specify output file name.
+  - `-just-check`: Only type-check the source file without generating code.
+  - `-json-output` : Output compilation results in JSON format.
+  - `-strict-dtc`: Enable strict data type checks (prevents abstract data types conversion).
+  - `-help`: Display help information.
+
+
+
+### Running Examples
+
+Example designs are located in the `examples` directory. Ensure Verilator is in your `$PATH`.
+
+```bash
 cd examples
-sh typecheck-test.sh
-bash test-all.sh
+
+# Build a specific module (defaults to 'top' if unspecified)
+make MODULE_NAME=<name>
+
+# Simulate the design
+make run MODULE_NAME=<name> TIMEOUT=1000
+
+# Clean up build artifacts
+make clean
 ```
 
-##### Editor Support
+### Running Tests
 
-* **Visual Studio Code:** We have an extension for Visual Studio Code that provides syntax highlighting.
-  See how to install [here](editors/vscode/README.md).
+```bash
+# Run all tests
+python3 run-tests.py
 
-### Documentations
-
-#### User Documentation
-
-* [Tutorial](docs/tutorial/README.md)
-* [Code examples](examples/README.md)
-* [Language reference manual](docs/langref/README.md)
-
-#### API Documentation
-
-The API documentation of the compiler can be built with
-```
-dune build @doc
+# Run specific test suites
+cd examples
+sh typecheck-test.sh   # Type checking tests
+bash test-all.sh       # Simulation tests
 ```
 
-To host them locally through Python's embedded web server:
+
+-----
+
+## Contributing
+
+AnvilHDL is currently **experimental** and under active development. We welcome feedback and contributions\!
+
+  - **Found a bug?** [Open an Issue](https://github.com/jasonyu1996/anvil/issues/new?assignees=&labels=bug&template=bug_report.md&title=)
+  - **Need a feature?** [Request a Feature](https://github.com/jasonyu1996/anvil/issues/new?assignees=&labels=enhancement&template=feature_request.md&title=)
+  - **Want to contribute?** [Submit a Pull Request](https://github.com/jasonyu1996/anvil/compare)
+  - **Editor Support:** We provide a [Visual Studio Code extension](editors/vscode/README.md) for syntax highlighting.
+
+-----
+
+## Citation
+
+If you use AnvilHDL in your research, please cite the following paper:
+
+```text
+J. Z. Yu, A. R. Jha, U. Mathur, T. E. Carlson, and P. Saxena, ‘Anvil: A General-Purpose Timing-Safe Hardware Description Language’, Mar. 25, 2025, arXiv: arXiv:2503.19447. doi: 10.48550/arXiv.2503.19447.
 ```
-sh host-docs.sh
+
+or in BibTeX format:
+
+```bibtex
+@article{yu2025anvil,
+   title={Anvil: A General-Purpose Timing-Safe Hardware Description Language},
+   author={Yu, Jason Zhijingcheng and Jha, Aditya Ranjan and Mathur, Umang and Carlson, Trevor E and Saxena, Prateek},
+   journal={arXiv preprint arXiv:2503.19447},
+   year={2025}
+}
 ```
-
-#### Research Paper
-
-* J. Z. Yu, A. R. Jha, U. Mathur, T. E. Carlson, and P. Saxena,
-  ‘[Anvil: A General-Purpose Timing-Safe Hardware Description Language](https://arxiv.org/abs/2503.19447)’,
-  Mar. 25, 2025, arXiv: arXiv:2503.19447. doi: 10.48550/arXiv.2503.19447.
-
-
-### Contributing
-
-We welcome anyone to
-**report bugs, propose new ideas, and request features**
-using [Github Issues](https://github.com/jasonyu1996/anvil/issues).
-Also feel free to submit your code contribution [here](https://github.com/jasonyu1996/anvil/compare).

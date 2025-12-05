@@ -10,7 +10,7 @@
 (Top) Cache Request( 0) sent in cycle 13
 
 Cache Miss in cycle 13
-(FIFO_Cache) Cache Request recieved for address   0 in cycle 13
+(FIFO_Cache) Cache Request received for address   0 in cycle 13
 (Main Memory) Memory Read Request for address   0 in cycle 13
 Data from memory for address 00000000: 01010101
 (Main Memory) Memory Read Response sent in cycle 14
@@ -21,7 +21,7 @@ Data from memory for address 00000000: 01010101
 (Top) Cache Request( 1) sent in cycle  2
 
 Cache Miss in cycle  2
-(FIFO_Cache) Cache Request recieved for address  16 in cycle  2
+(FIFO_Cache) Cache Request received for address  16 in cycle  2
 (Main Memory) Memory Read Request for address  16 in cycle  2
 Data from memory for address 00010000: 10101110
 (Main Memory) Memory Read Response sent in cycle  3
@@ -32,7 +32,7 @@ Data from memory for address 00010000: 10101110
 (Top) Cache Request( 2) sent in cycle  7
 
 Cache Miss in cycle  7
-(FIFO_Cache) Cache Request recieved for address  32 in cycle  7
+(FIFO_Cache) Cache Request received for address  32 in cycle  7
 (Main Memory) Memory Read Request for address  32 in cycle  7
 Data from memory for address 00100000: 11011001
 (Main Memory) Memory Read Response sent in cycle  8
@@ -43,7 +43,7 @@ Data from memory for address 00100000: 11011001
 (Top) Cache Request( 3) sent in cycle 12
 
 Cache Miss in cycle 12
-(FIFO_Cache) Cache Request recieved for address  48 in cycle 12
+(FIFO_Cache) Cache Request received for address  48 in cycle 12
 (Main Memory) Memory Read Request for address  48 in cycle 12
 Data from memory for address 00110000: 11111111
 (Main Memory) Memory Read Response sent in cycle 13
@@ -54,7 +54,7 @@ Data from memory for address 00110000: 11111111
 (Top) Cache Request( 4) sent in cycle  1
 
 Cache Hit in cycle  1
-(FIFO_Cache) Cache Request recieved for address   0 in cycle  1
+(FIFO_Cache) Cache Request received for address   0 in cycle  1
 (Top) Cache Request( 4) Output Received in cycle  2 for address (  0) Output:  85
 
 (FIFO_Cache) Cache Response sent in cycle  2
@@ -62,7 +62,7 @@ Cache Hit in cycle  1
 (Top) Cache Request( 5) sent in cycle  4
 
 Cache Hit in cycle  4
-(FIFO_Cache) Cache Request recieved for address   0 in cycle  4
+(FIFO_Cache) Cache Request received for address   0 in cycle  4
 (Top) Cache Request( 5) Output Received in cycle  5 for address (  0) Output:  85
 
 (FIFO_Cache) Cache Response sent in cycle  5
@@ -70,7 +70,7 @@ Cache Hit in cycle  4
 (Top) Cache Request( 6) sent in cycle  7
 
 Cache Hit in cycle  7
-(FIFO_Cache) Cache Request recieved for address   0 in cycle  7
+(FIFO_Cache) Cache Request received for address   0 in cycle  7
 (Top) Cache Request( 6) Output Received in cycle  8 for address (  0) Output:  85
 
 (FIFO_Cache) Cache Response sent in cycle  8
@@ -78,7 +78,7 @@ Cache Hit in cycle  7
 (Top) Cache Request( 7) sent in cycle 10
 
 Cache Hit in cycle 10
-(FIFO_Cache) Cache Request recieved for address   0 in cycle 10
+(FIFO_Cache) Cache Request received for address   0 in cycle 10
 (Top) Cache Request( 7) Output Received in cycle 11 for address (  0) Output:  85
 
 (FIFO_Cache) Cache Response sent in cycle 11
@@ -86,7 +86,7 @@ Cache Hit in cycle 10
 (Top) Cache Request( 8) sent in cycle 13
 
 Cache Hit in cycle 13
-(FIFO_Cache) Cache Request recieved for address   0 in cycle 13
+(FIFO_Cache) Cache Request received for address   0 in cycle 13
 (Top) Cache Request( 8) Output Received in cycle 14 for address (  0) Output:  85
 
 (FIFO_Cache) Cache Response sent in cycle 14
@@ -94,7 +94,7 @@ Cache Hit in cycle 13
 (Top) Cache Request( 9) sent in cycle  0
 
 Cache Hit in cycle  0
-(FIFO_Cache) Cache Request recieved for address   0 in cycle  0
+(FIFO_Cache) Cache Request received for address   0 in cycle  0
 (Top) Cache Request( 9) Output Received in cycle  1 for address (  0) Output:  85
 
 (FIFO_Cache) Cache Response sent in cycle  1
@@ -102,7 +102,7 @@ Cache Hit in cycle  0
 (Top) Cache Request(10) sent in cycle  3
 
 Cache Hit in cycle  3
-(FIFO_Cache) Cache Request recieved for address   0 in cycle  3
+(FIFO_Cache) Cache Request received for address   0 in cycle  3
 (Top) Cache Request(10) Output Received in cycle  4 for address (  0) Output:  85
 
 (FIFO_Cache) Cache Response sent in cycle  4
@@ -110,7 +110,7 @@ Cache Hit in cycle  3
 (Top) Cache Request(11) sent in cycle  6
 
 Cache Hit in cycle  6
-(FIFO_Cache) Cache Request recieved for address   0 in cycle  6
+(FIFO_Cache) Cache Request received for address   0 in cycle  6
 (Top) Cache Request(11) Output Received in cycle  7 for address (  0) Output:  85
 
 (FIFO_Cache) Cache Response sent in cycle  7
@@ -126,7 +126,7 @@ Cache Hit in cycle  6
 (Top) Cache Request( 0) sent in cycle  5
 
 Cache Hit in cycle  5
-(FIFO_Cache) Cache Request recieved for address   0 in cycle  5
+(FIFO_Cache) Cache Request received for address   0 in cycle  5
 (Top) Cache Request( 0) Output Received in cycle  6 for address (  0) Output:  85
 
 (FIFO_Cache) Cache Response sent in cycle  6
@@ -134,7 +134,7 @@ Cache Hit in cycle  5
 (Top) Cache Request( 1) sent in cycle  8
 
 Cache Hit in cycle  8
-(FIFO_Cache) Cache Request recieved for address  16 in cycle  8
+(FIFO_Cache) Cache Request received for address  16 in cycle  8
 (Top) Cache Request( 1) Output Received in cycle  9 for address ( 16) Output: 174
 
 (FIFO_Cache) Cache Response sent in cycle  9
@@ -142,7 +142,7 @@ Cache Hit in cycle  8
 (Top) Cache Request( 2) sent in cycle 11
 
 Cache Hit in cycle 11
-(FIFO_Cache) Cache Request recieved for address  32 in cycle 11
+(FIFO_Cache) Cache Request received for address  32 in cycle 11
 (Top) Cache Request( 2) Output Received in cycle 12 for address ( 32) Output: 217
 
 (FIFO_Cache) Cache Response sent in cycle 12
@@ -150,7 +150,7 @@ Cache Hit in cycle 11
 (Top) Cache Request( 3) sent in cycle 14
 
 Cache Hit in cycle 14
-(FIFO_Cache) Cache Request recieved for address  48 in cycle 14
+(FIFO_Cache) Cache Request received for address  48 in cycle 14
 (Top) Cache Request( 3) Output Received in cycle 15 for address ( 48) Output: 255
 
 (FIFO_Cache) Cache Response sent in cycle 15
@@ -158,7 +158,7 @@ Cache Hit in cycle 14
 (Top) Cache Request( 4) sent in cycle  1
 
 Cache Hit in cycle  1
-(FIFO_Cache) Cache Request recieved for address   0 in cycle  1
+(FIFO_Cache) Cache Request received for address   0 in cycle  1
 (Top) Cache Request( 4) Output Received in cycle  2 for address (  0) Output:  85
 
 (FIFO_Cache) Cache Response sent in cycle  2
@@ -166,7 +166,7 @@ Cache Hit in cycle  1
 (Top) Cache Request( 5) sent in cycle  4
 
 Cache Hit in cycle  4
-(FIFO_Cache) Cache Request recieved for address   0 in cycle  4
+(FIFO_Cache) Cache Request received for address   0 in cycle  4
 (Top) Cache Request( 5) Output Received in cycle  5 for address (  0) Output:  85
 
 (FIFO_Cache) Cache Response sent in cycle  5
@@ -174,7 +174,7 @@ Cache Hit in cycle  4
 (Top) Cache Request( 6) sent in cycle  7
 
 Cache Hit in cycle  7
-(FIFO_Cache) Cache Request recieved for address   0 in cycle  7
+(FIFO_Cache) Cache Request received for address   0 in cycle  7
 (Top) Cache Request( 6) Output Received in cycle  8 for address (  0) Output:  85
 
 (FIFO_Cache) Cache Response sent in cycle  8
@@ -182,7 +182,7 @@ Cache Hit in cycle  7
 (Top) Cache Request( 7) sent in cycle 10
 
 Cache Hit in cycle 10
-(FIFO_Cache) Cache Request recieved for address   0 in cycle 10
+(FIFO_Cache) Cache Request received for address   0 in cycle 10
 (Top) Cache Request( 7) Output Received in cycle 11 for address (  0) Output:  85
 
 (FIFO_Cache) Cache Response sent in cycle 11
@@ -190,7 +190,7 @@ Cache Hit in cycle 10
 (Top) Cache Request( 8) sent in cycle 13
 
 Cache Hit in cycle 13
-(FIFO_Cache) Cache Request recieved for address   0 in cycle 13
+(FIFO_Cache) Cache Request received for address   0 in cycle 13
 (Top) Cache Request( 8) Output Received in cycle 14 for address (  0) Output:  85
 
 (FIFO_Cache) Cache Response sent in cycle 14

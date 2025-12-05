@@ -77,7 +77,7 @@ let build_param_envs param_values params =
           add_value p.param_name n int_env
         | TypeParamValue t, TypeParam ->
           add_value p.param_name t type_env
-        | _ -> raise (Except.TypeError [Text "Invalid parameter!"])
+        | _ -> raise (Except.TypeError [Text ("Invalid parameter: " ^ p.param_name)])
       );
   (int_env, type_env)
 
@@ -96,7 +96,7 @@ let concretise_proc param_values proc =
       | Extern _ -> proc
       | Native body ->
         let regs = List.map
-          (fun {d = r; span} -> {d = {r with dtype = concretise_dtype_params int_param_env type_param_env r.dtype}; span})
+          (fun {d = r; span} -> {d = {r with d_type = concretise_dtype_params int_param_env type_param_env r.d_type}; span})
           body.regs in
         let spawns = List.map
           (fun {d = sp; span} ->

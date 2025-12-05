@@ -41,7 +41,7 @@ proc FIFO_Cache(ch : left cache_read, ch_mem : right memory_read) {
             dprint "(FIFO_Cache) Cycle %d" (*cycle_counter);
             let address = recv ch.req >>
             {
-                dprint "(FIFO_Cache) Cache Request recieved for address %d in cycle %d" (address, *cycle_counter);
+                dprint "(FIFO_Cache) Cache Request received for address %d in cycle %d" (address, *cycle_counter);
                 let tag_bits = address[4+:4];
                 let set_index = address[2+:2];
                 if (*valid[set_index][0] == 1'b1) & (*tag[set_index][0] == tag_bits) {

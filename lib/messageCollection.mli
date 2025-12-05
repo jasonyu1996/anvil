@@ -19,3 +19,5 @@ val lookup_endpoint : t -> string -> Lang.endpoint_def option
 
 (** This only includes non-foreign messages. The message direction is adjusted to reflect the endpoint direction. *)
 val lookup_message : t -> Lang.message_specifier -> Lang.channel_class_def list -> Lang.message_def option
+
+val endpoint_owned : t -> Lang.identifier -> bool

@@ -8,10 +8,9 @@ module Format = CodegenFormat
 
 type port_def = CodegenPort.t
 
-exception CodegenError of string
 
 let codegen_ports printer (graphs : event_graph_collection)
-                      (endpoints : endpoint_def list) =
+                      (endpoints : endpoint_def list) (is_mod_comb : bool)=
   let port_list = CodegenPort.gather_ports graphs.channel_classes endpoints in
   let rec print_port_list port_list =
   match port_list with
@@ -22,44 +21,115 @@ let codegen_ports printer (graphs : event_graph_collection)
       CodegenPort.format graphs.typedefs graphs.macro_defs port |> Printf.sprintf "%s," |> CodegenPrinter.print_line printer;
       print_port_list port_list'
   in
-  print_port_list ([CodegenPort.clk; CodegenPort.rst] @ port_list);
+  if is_mod_comb then
+    print_port_list port_list
+  else
+    print_port_list ([CodegenPort.clk; CodegenPort.rst] @ port_list);
   port_list
 
 let codegen_spawns printer (graphs : event_graph_collection) (g : proc_graph) =
+  
   let gen_connect = fun (dst : string) (src : string) ->
     Printf.sprintf ",.%s (%s)" dst src |> CodegenPrinter.print_line printer
   in
-  let gen_spawn = fun (idx : int) ((module_name, spawn) : string * spawn_def) ->
-    Printf.sprintf "%s _spawn_%d (" module_name idx|> CodegenPrinter.print_line printer ~lvl_delta_post:1;
-    CodegenPrinter.print_line printer ".clk_i,";
-    CodegenPrinter.print_line printer ".rst_ni";
-    (* connect the wires *)
+  let gen_connect_post = fun (dst : string) (src : string) ->
+    Printf.sprintf ".%s (%s)," dst src |> CodegenPrinter.print_line printer 
+  in
+  
+  let gen_connect_blank = fun (dst : string) (src : string) ->
+    Printf.sprintf ".%s (%s)" dst src |> CodegenPrinter.print_line printer 
+  in
+
+  let gen_spawn = fun (idx : int) ((module_name, spawn) : string * (spawn_def ast_node)) ->
     let proc_other = CodegenHelpers.lookup_proc graphs.external_event_graphs module_name |> Option.get in
+
+    let is_not_extern = match proc_other.extern_module ,proc_other.proc_body with
+    | None, _ -> true
+    | (Some _ , Lang.Extern (_,body)) -> (
+        if List.is_empty body.named_ports then true
+        else false
+      )
+    | _ -> true in
+    let is_spawn_comb = (List.for_all (fun (thread , _) ->
+    (thread : EventGraph.event_graph).comb
+  ) proc_other.threads) && (is_not_extern) in
+
+    Printf.sprintf "%s _spawn_%d (" module_name idx|> CodegenPrinter.print_line printer ~lvl_delta_post:1;
+    if (not is_spawn_comb) then(
+        CodegenPrinter.print_line printer ".clk_i,";
+        CodegenPrinter.print_line printer ".rst_ni";
+    );
+    (* connect the wires *)
+    
     let connect_endpoints = fun (arg_endpoint : endpoint_def) (param_ident : identifier) ->
       let endpoint_local = MessageCollection.lookup_endpoint g.messages param_ident |> Option.get in
-      let endpoint_name_local = CodegenFormat.canonicalize_endpoint_name param_ident (List.hd g.threads) in
+      let endpoint_name_local = CodegenFormat.canonicalize_endpoint_name param_ident (List.hd g.threads |> fst) in
       let cc = MessageCollection.lookup_channel_class graphs.channel_classes endpoint_local.channel_class |> Option.get in
       let print_msg_con = fun (msg : message_def) ->
         let msg = ParamConcretise.concretise_message cc.params endpoint_local.channel_params msg in
         if CodegenPort.message_has_valid_port msg then
-          gen_connect (Format.format_msg_valid_signal_name arg_endpoint.name msg.name)
-            (Format.format_msg_valid_signal_name endpoint_name_local msg.name)
+            gen_connect (Format.format_msg_valid_signal_name arg_endpoint.name msg.name)
+              (Format.format_msg_valid_signal_name endpoint_name_local msg.name)
         else ();
         if CodegenPort.message_has_ack_port msg then
           gen_connect (Format.format_msg_ack_signal_name arg_endpoint.name msg.name)
             (Format.format_msg_ack_signal_name endpoint_name_local msg.name)
         else ();
         let print_data_con = fun fmt idx _ ->
-          gen_connect (fmt arg_endpoint.name msg.name idx)
-            (fmt endpoint_name_local msg.name idx)
+          if(is_spawn_comb) then (  
+            gen_connect_post (fmt arg_endpoint.name msg.name idx)
+              (fmt endpoint_name_local msg.name idx)
+          )
+          else (
+            gen_connect (fmt arg_endpoint.name msg.name idx)
+              (fmt endpoint_name_local msg.name idx)
+          )
         in begin
           List.iteri (print_data_con Format.format_msg_data_signal_name) msg.sig_types;
         end
-      in List.iter print_msg_con cc.messages
+      in 
+      let print_msg_con_last = fun (msg : message_def) ->
+        let msg = ParamConcretise.concretise_message cc.params endpoint_local.channel_params msg in
+        if CodegenPort.message_has_valid_port msg then
+            gen_connect_post (Format.format_msg_valid_signal_name arg_endpoint.name msg.name)
+              (Format.format_msg_valid_signal_name endpoint_name_local msg.name)
+        else ();
+        if CodegenPort.message_has_ack_port msg then
+          gen_connect_post (Format.format_msg_ack_signal_name arg_endpoint.name msg.name)
+            (Format.format_msg_ack_signal_name endpoint_name_local msg.name)
+        else ();
+        let len = List.length msg.sig_types in
+        let print_data_con_last = fun fmt idx _ ->
+          if (is_spawn_comb) then (
+            if (idx == len - 1) then (
+              gen_connect_blank (fmt arg_endpoint.name msg.name idx)
+                (fmt endpoint_name_local msg.name idx)
+            )
+            else (
+              gen_connect_post (fmt arg_endpoint.name msg.name idx)
+                (fmt endpoint_name_local msg.name idx)
+            )
+          )
+          else (gen_connect (fmt arg_endpoint.name msg.name idx)
+            (fmt endpoint_name_local msg.name idx))
+        in begin
+          List.iteri (print_data_con_last Format.format_msg_data_signal_name) msg.sig_types;
+        end
+      in 
+      let first_msg = List.hd cc.messages in
+      (* remove first msg from the list *)
+      let new_list = List.tl cc.messages in
+
+      List.iter print_msg_con new_list;
+      if is_spawn_comb then
+        print_msg_con_last first_msg
+      else print_msg_con first_msg
+
     in
-    if List.length proc_other.messages.args <> List.length spawn.params then
-      raise (CodegenError (Printf.sprintf "Invalid number of arguments for spawn of proc %s"  proc_other.name));
-    List.iter2 connect_endpoints proc_other.messages.args spawn.params;
+    let param_count = List.fold_left (fun acc p -> match p with Lang.SingleEp _ -> acc + 1 | Lang.RangeEp (_,_ ,sz) -> acc + sz) 0 spawn.d.params in
+    if List.length proc_other.messages.args <> param_count then
+      raise (Failure (Printf.sprintf "Invalid number of arguments for spawn of proc %s"  proc_other.name));
+    List.iter2 connect_endpoints proc_other.messages.args (Lang.preprocess_ep_spawn_args spawn.d.params);
     CodegenPrinter.print_line printer ~lvl_delta_pre:(-1) ");"
   in List.iteri gen_spawn g.spawns
 
@@ -208,18 +278,31 @@ let codegen_regs printer (graphs : event_graph_collection) (g : event_graph) =
     (
       fun _ (r : reg_def) ->
         let open CodegenFormat in
-        Printf.sprintf "%s %s;" (format_dtype graphs.typedefs graphs.macro_defs r.dtype)
+        Printf.sprintf "%s %s;" (format_dtype graphs.typedefs graphs.macro_defs r.d_type)
           (format_regname_current r.name) |>
           CodegenPrinter.print_line printer
     )
     g.regs
 
 let codegen_proc printer (graphs : EventGraph.event_graph_collection) (g : proc_graph) =
+
+  let is_not_extern = match g.extern_module ,g.proc_body with
+    | None, _ -> true
+    | (Some _ , Lang.Extern (_,body)) -> (
+        if List.is_empty body.named_ports then true
+        else false
+      )
+    | _ -> true in
+  let is_mod_comb = (List.for_all (fun (thread , _) ->
+    (thread : EventGraph.event_graph).comb
+  ) g.threads) && (is_not_extern) in
+
+
   (* generate ports *)
   Printf.sprintf "module %s (" g.name |> CodegenPrinter.print_line printer ~lvl_delta_post:1;
 
   (* Generate ports for the first thread *)
-  let _ = codegen_ports printer graphs g.messages.args in
+  let _ = codegen_ports printer graphs g.messages.args is_mod_comb in
   CodegenPrinter.print_line printer ~lvl_delta_pre:(-1) ~lvl_delta_post:1 ");";
 
   (
@@ -230,28 +313,33 @@ let codegen_proc printer (graphs : EventGraph.event_graph_collection) (g : proc_
       let open Lang in
       Printf.sprintf "%s _extern_mod (" extern_mod_name
         |> CodegenPrinter.print_line printer ~lvl_delta_post:1;
-      let first_port = ref true in
       let connected_ports = ref Utils.StringSet.empty in
-      let print_binding ext local =
-        let fmt = if !first_port then (
-          first_port := false;
+      let print_binding ext i len local =
+        let fmt = if (i = (len-1)) then (
           Printf.sprintf ".%s (%s)"
         ) else
-          Printf.sprintf ",.%s (%s)"
-        in
-        connected_ports := Utils.StringSet.add local !connected_ports;
+          Printf.sprintf ".%s (%s),"
+        in connected_ports := Utils.StringSet.add local !connected_ports;
         fmt ext local
           |> CodegenPrinter.print_line printer
       in
-      List.iter (fun (port_name, extern_port_name) ->
-        print_binding extern_port_name port_name
+      let len1 = List.length body.named_ports in
+      let len2 = (List.length body.msg_ports)*3 in
+      let len = len1 + len2 in
+      List.iteri (fun i (port_name, extern_port_name) ->
+        print_binding extern_port_name i len port_name 
       ) body.named_ports;
+      let i_sync = ref 0 in
       List.iter (fun (msg, extern_data_opt, extern_vld_opt, extern_ack_opt) ->
         let print_msg_port_opt formatter extern_opt =
+        (  
           match extern_opt with
           | None -> ()
           | Some extern_port ->
-            formatter msg.endpoint msg.msg |> print_binding extern_port
+            let i_off = len1 + !i_sync in
+            formatter msg.endpoint msg.msg |> print_binding extern_port i_off len
+        );
+          i_sync := !i_sync + 1;
         in
         let open Format in
         print_msg_port_opt (fun e m -> format_msg_data_signal_name e m 0) extern_data_opt;
@@ -274,23 +362,19 @@ let codegen_proc printer (graphs : EventGraph.event_graph_collection) (g : proc_
       ) ports
     | _ ->
       (* Generate endpoints, spawns, regs, and post-declare for the first thread *)
-      let initEvents = List.hd g.threads in
+      let initEvents = fst @@ List.hd g.threads in
 
       codegen_endpoints printer graphs initEvents;
 
       codegen_spawns printer graphs g;
 
       codegen_regs printer graphs initEvents;
-
-      (* the init event register is shared across threads *)
-      CodegenPrinter.print_line printer "logic _init;";
-
-      CodegenStates.codegen_proc_states printer g;
-
+      if (not is_mod_comb) then CodegenStates.codegen_proc_states printer g;
+      
       (* Iterate over all threads to print states *)
-      List.iter (fun thread ->
-        codegen_post_declare printer graphs thread;
-        CodegenStates.codegen_states printer graphs g thread;
+      List.iter (fun (thread, reset_by) ->
+          codegen_post_declare printer graphs thread;
+          CodegenStates.codegen_states printer graphs g thread reset_by;
       ) g.threads
   );
 
@@ -323,7 +407,7 @@ let generate (out : out_channel)
   if config.verbose then (
     Printf.eprintf "==== CodeGen Details ====\n";
     List.iter (fun (pg : proc_graph) ->
-      List.iter (fun g ->
+      List.iter (fun (g, _) ->
         EventGraphOps.print_dot_graph g Out_channel.stderr
       ) pg.threads
     ) graphs.event_graphs;

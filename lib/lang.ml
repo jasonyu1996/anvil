@@ -52,18 +52,19 @@ let string_of_msg_spec (msg_spec : message_specifier) : string =
 (** A delay pattern that matches a set of delays. *)
 type delay_pat = [
   | `Cycles of int (** elapse of a number of cycles *)
-  | `Message of message_specifier (** sending/receiving of a message of a specific type *)
+  | `Message_with_offset of (message_specifier*int*bool) (** sending/receiving of a message of a specific type with an offset *)
   | `Eternal (** matches no delays *)
 ]
 
 (** A delay pattern local to a specific channel. Being channel-local means that the message type
 does not include an endpoint name component. *)
-type delay_pat_chan_local = [ `Cycles of int | `Message of identifier | `Eternal ]
+type delay_pat_chan_local = [ `Cycles of int | `Eternal | `Message_with_offset of (identifier * int * bool) ]
 
 let string_of_delay_pat (t : delay_pat) : string =
   match t with
   | `Cycles n -> Printf.sprintf "#%d" n
-  | `Message msg_spec -> Printf.sprintf "%s" (string_of_msg_spec msg_spec)
+  | `Message_with_offset (msg_spec, offset, plus) ->
+      Printf.sprintf "%s%+d" (string_of_msg_spec msg_spec) (if plus then offset else -offset)
   | `Eternal -> "E"
 
 (** Lifetime signature, specifying that the lifetime lasts until matching {{!sig_lifetime.e}ending} delay patterns. *)
@@ -121,6 +122,7 @@ type endpoint_def = {
   used within this process? *)
   opp: identifier option; (** if the endpoint is created locally, the other endpoint associated
   with the same channel *)
+  num_instances : int option (** number of instances for arrayed channels *)
 }
 
 type macro_def = {
@@ -176,7 +178,7 @@ type sig_type_chan_local = sig_lifetime_chan_local sig_type_general
 (** Convert a channel-local delay pattern to a global (process context) delay pattern. *)
 let delay_pat_globalise (endpoint : identifier) (t : delay_pat_chan_local) : delay_pat =
   match t with
-  | `Message msg -> `Message {endpoint = endpoint; msg = msg}
+  | `Message_with_offset (msg, offset, plus) -> `Message_with_offset ({endpoint = endpoint; msg = msg}, offset, plus)
   | `Cycles n -> `Cycles n
   | `Eternal -> `Eternal
 
@@ -194,7 +196,7 @@ let sig_type_globalise (endpoint : identifier) (s : sig_type_chan_local) : sig_t
 (** A register definition. {!reg_def.init} specifies the initial value of the register. *)
 type reg_def = {
   name: string;
-  dtype: data_type;
+  d_type: data_type;
   init: string option;
 }
 
@@ -239,6 +241,7 @@ type channel_def = {
   endpoint_left: identifier;
   endpoint_right: identifier;
   visibility: channel_visibility;
+  n_instances : int option; (** number of instances for arrayed channels To Do: add support for parametrization *) 
 }
 
 (* expressions *)
@@ -312,7 +315,9 @@ let literal_eval (lit : literal) : int =
 
 let dtype_of_literal (lit : literal) =
   let n = literal_bit_len lit |> Option.get in
-  `Array (`Logic, ParamEnv.Concrete n)
+  match n with
+  | 1 -> `Logic
+  | _ -> `Array (`Logic, ParamEnv.Concrete n)
 
 type binop = Add | Sub | Xor | And | Or | Lt | Gt | Lte | Gte |
              Shl | Shr | Eq | Neq | Mul | In | LAnd | LOr
@@ -377,7 +382,7 @@ and expr =
   | Binop of binop * expr_node * (expr_node singleton_or_list)
   | Unop of unop * expr_node
   | Tuple of expr_node list
-  | Let of identifier list * expr_node
+  | Let of identifier list * data_type option * expr_node
   | Join of expr_node * expr_node (** [a; b] *)
   | Wait of expr_node * expr_node (** [a => b] *)
   | Cycle of int
@@ -389,11 +394,12 @@ and expr =
   | Record of identifier * (identifier * expr_node) list * expr_node option (** constructing a record-type value *)
   | Index of expr_node * index (** an element of an array ([a[3]]) *)
   | Indirect of expr_node * identifier (** a member of a record ([a.b]) *)
-  | Concat of expr_node list
+  | Concat of expr_node list * bool
+  | Cast of expr_node * data_type (** cast an expression to a specific data type *)
   | Ready of message_specifier (** [ready(a, b)] *)
   | Probe of message_specifier (** [probe(a, b)] *)
   | Match of expr_node * ((expr_node * expr_node option) list)
-  | Read of identifier (** reading a value from a register (leading to a borrow) *)
+  | Read of lvalue (** reading a value from a register (leading to a borrow) *)
   | Debug of debug_op
   | Send of send_pack
   | Recv of recv_pack
@@ -435,9 +441,12 @@ type spawn_def = {
   proc: identifier;
   (* channels to pass as args *)
   (* TODO: this naming collides with compile-time parameters *)
-  params: identifier list; (** names of the endpoints passed to the spawned process *)
+  params: args_spawn list; (** names of the endpoints passed to the spawned process *)
   compile_params: param_value list; (** concrete param value list *)
 }
+and args_spawn = 
+  | SingleEp of identifier
+  | RangeEp of identifier *int * int  (** name, start, size*)
 
 (* TODO: specify the type? *)
 type shared_var_def = {
@@ -455,7 +464,7 @@ type proc_def_body = {
   regs: reg_def ast_node list;
   shared_vars: shared_var_def ast_node list;  (* New field *)
   (* prog: expr; *)
-  threads: expr_node list;
+  threads: (expr_node * message_specifier option) list; (** the second component is the optional reset signal *)
 }
 
 (** Extern process definition *)
@@ -484,11 +493,17 @@ type import_directive = {
   is_extern : bool; (** is this import external?
       Currently an external import means importing SystemVerilog code *)
 }
+type typed_arg = {
+  arg_name: identifier;
+  arg_type: data_type option; (** type of the argument, if any *)
+}
+
 type func_def =  {
   name: identifier;
-  args: identifier list;
+  args: typed_arg list;
   body: expr_node;
 }
+(** A channel class definition, which is a set of message types. *)
 
 (** A compilation unit, corresponding to a source file. *)
 type compilation_unit = {
@@ -542,7 +557,7 @@ let rec string_of_expr (e : expr) : string =
   match e with
   | Literal lit -> "Literal " ^ string_of_literal lit
   | Identifier id -> "Identifier " ^ id
-  | Let (ids, e) -> "Let (" ^ String.concat ", " ids ^ ", " ^ string_of_expr e.d ^ ")"
+  | Let (ids,_, e) -> "Let (" ^ String.concat ", " ids ^ ", " ^ string_of_expr e.d ^ ")"
   | Assign (lv, n) -> "Assign (" ^ string_of_lvalue lv ^ ", " ^ string_of_expr n.d ^ ")"
   | _ -> "..."
 
@@ -557,6 +572,36 @@ and string_of_index (idx : index) : string =
   | Single e -> "Single (" ^ string_of_expr e.d ^ ")"
   | Range (e1, e2) -> "Range (" ^ string_of_expr e1.d ^ ", " ^ string_of_expr e2.d ^ ")"
 
+and string_of_data_type (dtype : data_type) : string =
+  match dtype with
+  | `Logic -> "Logic"
+  | `Array (d,n) ->
+    let n' = match n with
+      | ParamEnv.Concrete n -> string_of_int n
+      | ParamEnv.Param _ -> "Param"
+    in
+    "Array[" ^ n' ^ "] (" ^ string_of_data_type d ^ ")"
+  | `Variant (id_opt_list) ->
+      "Variant (" ^ String.concat ", " (List.map (fun (id, dt_opt) ->
+        match dt_opt with
+        | Some dt -> id ^ ": " ^ string_of_data_type dt
+        | None -> id) id_opt_list) ^ ")"
+  | `Record fields ->
+      "Record (" ^ String.concat ", " (List.map (fun (field_name, field_type) ->
+        field_name ^ ": " ^ string_of_data_type field_type) fields) ^ ")"
+  | `Tuple dt_list ->
+      "Tuple (" ^ String.concat ", " (List.map string_of_data_type dt_list) ^ ")"
+  | `Opaque id -> "Opaque " ^ id
+  | `Named (name, params) ->
+      let params_str = String.concat ", " (List.map (function
+        | IntParamValue v -> string_of_int v
+        | TypeParamValue dt -> string_of_data_type dt) params) in
+      "Named (" ^ name ^ ", [" ^ params_str ^ "])"
+and string_of_data_type_opt (dtype_opt : data_type option) : string =
+  match dtype_opt with
+  | Some dtype -> string_of_data_type dtype
+  | None -> "None"
+
 and string_of_literal (lit : literal) : string =
   match lit with
   | Binary (n, bits) -> "Binary (" ^ string_of_int n ^ ", [" ^ String.concat ";" (List.map string_of_digit bits) ^ "])"
@@ -565,14 +610,26 @@ and string_of_literal (lit : literal) : string =
   | WithLength (n, v) -> "WithLength (" ^ string_of_int n ^ ", " ^ string_of_int v ^ ")"
   | NoLength v -> "NoLength " ^ string_of_int v
 
-let rec substitute_expr_identifier (id: identifier) (value: expr_node) (expr: expr_node) : expr_node =
-  let subst = substitute_expr_identifier id value in
+let sub_ep_index (ep: message_specifier) (index: int) : message_specifier =
+  let is_array = String.contains ep.endpoint '[' && String.contains ep.endpoint ']'in
+  if is_array then
+    let base_name =
+      match String.index_opt ep.endpoint '[' with
+      | Some idx -> String.sub ep.endpoint 0 idx
+      | None -> ep.endpoint
+    in
+    { endpoint = Printf.sprintf "%s[%d]" base_name index; msg = ep.msg }
+  else
+    ep
+
+let rec substitute_expr_identifier (id: identifier) (value: expr_node) (idx : int) (expr: expr_node)  : expr_node =
+  let subst = substitute_expr_identifier id value idx in
   let new_expr = match expr.d with
   | Identifier name when name = id ->
       value.d
-  | Let (ids, e) ->
+  | Let (ids, dtype, e) ->
       if List.mem id ids then expr.d
-      else Let (ids, substitute_expr_identifier id value e)
+      else Let (ids, dtype, substitute_expr_identifier id value idx e)
   | Record (name, fields, base) ->
       Record (
         name,
@@ -583,10 +640,10 @@ let rec substitute_expr_identifier (id: identifier) (value: expr_node) (expr: ex
       )
   | Binop (op, e1, e2_opt) ->
       let new_e2_opt = match e2_opt with
-        | `Single e2 -> `Single (substitute_expr_identifier id value e2)
-        | `List exprs -> `List (List.map (substitute_expr_identifier id value) exprs)
+        | `Single e2 -> `Single (substitute_expr_identifier id value idx e2)
+        | `List exprs -> `List (List.map (fun e -> substitute_expr_identifier id value idx e) exprs)
         in
-      Binop (op, substitute_expr_identifier id value e1, new_e2_opt)
+      Binop (op, substitute_expr_identifier id value idx e1, new_e2_opt)
   | Unop (op, e) ->
       Unop (op, subst e)
   | Tuple exprs ->
@@ -602,14 +659,16 @@ let rec substitute_expr_identifier (id: identifier) (value: expr_node) (expr: ex
         | Range (e1, e2) -> Range (subst e1, subst e2)
       in
       Index (new_arr, new_idx)
-  | Concat exprs ->
-      Concat (List.map subst exprs)
+  | Cast (e, dtype) ->
+      Cast (subst e, dtype)
+  | Concat (exprs, is_flat) ->
+      Concat (List.map subst exprs, is_flat)
   | Assign (lv, e) ->
-      let new_lv = substitute_lvalue id value lv in
+      let new_lv = substitute_lvalue id value idx lv in
       Assign (new_lv, subst e)
   | Send {send_msg_spec; send_data} ->
       Send {
-        send_msg_spec;
+        send_msg_spec = sub_ep_index send_msg_spec idx;
         send_data = subst send_data
       }
   | Debug (DebugPrint (msg, exprs)) ->
@@ -634,13 +693,13 @@ let rec substitute_expr_identifier (id: identifier) (value: expr_node) (expr: ex
   | TryRecv (ident, recv_pack, e1, e2) ->
     TryRecv (
       ident,
-      recv_pack,
+      {recv_msg_spec = sub_ep_index recv_pack.recv_msg_spec idx},
       subst e1,
       subst e2
     )
   | TrySend (send_pack, e1, e2) ->
     TrySend (
-      {send_pack with send_data = subst send_pack.send_data},
+      {send_msg_spec = sub_ep_index send_pack.send_msg_spec idx; send_data = subst send_pack.send_data},
       subst e1,
       subst e2
     )
@@ -654,15 +713,19 @@ let rec substitute_expr_identifier (id: identifier) (value: expr_node) (expr: ex
       ident,
       subst e
     )
+  | Read lv ->
+    Read (substitute_lvalue id value idx lv)
   | Recurse | Literal _ | Cycle _
-  | Identifier _ | Ready _ | Probe _
-  | Read _ | Recv _
+  | Identifier _ | Ready _ | Probe _-> expr.d
+  | Recv recv_pack ->
+      let new_recv_pack = {recv_msg_spec = sub_ep_index recv_pack.recv_msg_spec idx} in
+      Recv new_recv_pack
   | Sync _ -> expr.d
 
   in
   { expr with d = new_expr }
 
-and substitute_lvalue (id: identifier) (value: expr_node) (lv: lvalue) : lvalue =
+and substitute_lvalue (id: identifier) (value: expr_node) (ind : int) (lv: lvalue) : lvalue =
     match (lv:lvalue) with
     | Reg name ->
         if name = id then
@@ -672,14 +735,14 @@ and substitute_lvalue (id: identifier) (value: expr_node) (lv: lvalue) : lvalue 
         else
           lv
     | Indexed (lv', idx) ->
-        let new_lv = substitute_lvalue id value lv' in
+        let new_lv = substitute_lvalue id value ind lv' in
         let new_idx = match idx with
-          | Single e -> Single (substitute_expr_identifier id value e)
-          | Range (e1, e2) -> Range (substitute_expr_identifier id value e1, substitute_expr_identifier id value e2)
+          | Single e -> Single (substitute_expr_identifier id value ind e)
+          | Range (e1, e2) -> Range (substitute_expr_identifier id value ind e1, substitute_expr_identifier id value ind e2)
         in
         Indexed (new_lv, new_idx)
     | Indirected (lv', field) ->
-        let new_lv = substitute_lvalue id value lv' in
+        let new_lv = substitute_lvalue id value ind lv' in
         Indirected (new_lv, field)
 
 let generate_expr (id, start, end_v, offset, body) =
@@ -695,7 +758,7 @@ let generate_expr (id, start, end_v, offset, body) =
             tl
     else
       let bit_length = Utils.int_log2 (end_v + 1) in
-      let substituted = substitute_expr_identifier id (dummy_ast_node_of_data(Literal(WithLength(bit_length, curr)))) body in
+      let substituted = substitute_expr_identifier id (dummy_ast_node_of_data(Literal(WithLength(bit_length, curr)))) curr body in
       generate_exprs (curr + offset) (substituted :: acc);
 
   in
@@ -704,7 +767,7 @@ let generate_expr (id, start, end_v, offset, body) =
   let generate_expr_seq (id, start, end_v, offset, body) =
     let rec generate_exprs_seq (curr:int) acc =
       if curr > end_v then
-        match List.rev acc with
+        match acc with
         | [] -> Tuple []
         | [single] -> single.d
         | hd::tl ->
@@ -714,7 +777,7 @@ let generate_expr (id, start, end_v, offset, body) =
               tl
       else
         let bit_length = Utils.int_log2 (end_v + 1) in
-        let substituted = substitute_expr_identifier id (dummy_ast_node_of_data(Literal(WithLength(bit_length, curr)))) body in
+        let substituted = substitute_expr_identifier id (dummy_ast_node_of_data(Literal(WithLength(bit_length, curr)))) curr body in
         generate_exprs_seq (curr + offset) (substituted :: acc);
     in
     generate_exprs_seq start []
@@ -729,3 +792,25 @@ let span_to_end span = {span with st = span.ed}
 
 (** A span that includes only the starting position of the given span. *)
 let span_to_start span = {span with ed = span.st}
+
+
+let get_lvalue_reg_id (lv : lvalue) =
+let rec get_lv lval =
+  match lval with
+  | Reg id -> id
+  | Indexed (lval, _) -> get_lv lval
+  | Indirected (lv,_) -> get_lv lv
+in get_lv lv
+
+
+let preprocess_ep_spawn_args (args : args_spawn list) : identifier list =
+  List.concat_map
+    (function
+      | SingleEp name -> [name]
+      | RangeEp (name, start, size) ->
+        (
+          [List.init size (fun i -> Printf.sprintf "%s[%d]" name (start + i))] |> List.concat
+
+        )
+    ) 
+    args

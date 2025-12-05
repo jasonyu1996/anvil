@@ -10,6 +10,12 @@ let full_reg_range regname size =
     subreg_range_interval = (Const 0, size)
   }
 
+let sub_reg_range regname offset len =
+  {
+    subreg_name = regname;
+    subreg_range_interval = (Const offset, len)
+  }
+  
 let subreg_ranges_possibly_intersect r1 r2 =
   r1.subreg_name = r2.subreg_name &&
     (match fst r1.subreg_range_interval, fst r2.subreg_range_interval with
@@ -80,3 +86,12 @@ let find_last_event g =
     fun e ->
       e.is_recurse
   ) g.events
+
+let string_of_actions action = 
+  match action with
+  | DebugPrint _ -> "DebugPrint"
+  | DebugFinish -> "DebugFinish"
+  | RegAssign _ -> "RegAssign"
+  | PutShared _ -> "PutShared"
+  | ImmediateRecv _ -> "ImmediateRecv"
+  | ImmediateSend _ -> "ImmediateSend"

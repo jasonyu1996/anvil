@@ -8,3 +8,4 @@
 !sim_main.cpp
 **/obj_dir/
 **/logs/
+**/*.anvil.sv

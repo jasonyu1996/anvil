@@ -2,6 +2,11 @@ open Lang
 open EventGraph
 open GraphAnalysis
 
+let string_of_lt (lt : lifetime) : string =
+  String.concat "" (List.map (fun s ->
+      Printf.sprintf "%d |> %s | " (fst s).id (string_of_delay_pat (snd s))
+    ) lt.dead)
+
 (** Check if the uses of endpoints and registers follow defined order. *)
 let check_linear (config : Config.compile_config) lookup_message (g : event_graph) =
   let events_rev = List.rev g.events in
@@ -119,10 +124,14 @@ let event_pat_rel2 events lookup_message ev_pat1 ev_pat2 =
     match d_pat with
     | `Cycles n -> ([ev], n)
     | `Eternal -> ([ev], -1)
-    | `Message m ->
+    | `Message_with_offset (m, offset, sign) ->
       let g = GraphAnalysis.events_first_msg events ev m in
-      (* Printf.eprintf "FM %d %d\n" ev.id (List.length g); *)
-      (g, 0)
+      match sign with
+      | true -> (g, offset)
+
+      | false -> match ((lookup_message m): message_def option) with
+        | Some def -> raise (LifetimeCheckError [Text "Negative Offset Unsupported right now"; Except.codespan_local def.span])
+        | None -> raise (LifetimeCheckError [Text (Printf.sprintf "Message_def_not_found %s" (string_of_msg_spec m)); Except.codespan_local Lang.code_span_dummy])
   in
   match ev_pat1 with
   | [spat1] -> (
@@ -315,8 +324,9 @@ let lifetime_check (config : Config.compile_config) (ci : cunit_info) (g : event
       | [] -> ()
     );
     if lifetime_in_range g.events lookup_message lt td.lt |> not then
+      let err_msg = Printf.sprintf "Value does not live long enough in message send! (dies @ %s)" (string_of_lt lt) in
       raise (LifetimeCheckError [
-        Text "Value not live long enough in message send!";
+        Text err_msg;
         Except.codespan_local span
       ])
   in
@@ -358,7 +368,7 @@ let lifetime_check (config : Config.compile_config) (ci : cunit_info) (g : event
           if lifetime_in_range g.events lookup_message (EventGraphOps.lifetime_immediate ev) td.lt |> not then
             raise (LifetimeCheckError
               [
-                Text "Value does not live long enough in debug print!";
+                Text (Printf.sprintf "Value does not live long enough in debug print! [Event Id = %d] : %s" ev.id (string_of_lt td.lt));
                 Except.codespan_local a.span
               ])
           else ()
@@ -435,6 +445,22 @@ let lifetime_check (config : Config.compile_config) (ci : cunit_info) (g : event
   );
   (* Check per message *)
   let check_msg_sync_mode msg (init_offset, relative_msg, gap, self_check, other_check) =
+    (* To Do: Generalize Check if this is a one-cycle message with Static #1 #1 sync mode (combinational) *)
+    let msg_spec = {endpoint = String.split_on_char '@' msg |> List.hd; 
+                    msg = String.split_on_char '@' msg |> List.tl |> String.concat "@"} in
+    let msg_def_opt = MessageCollection.lookup_message g.messages msg_spec ci.channel_classes in
+    let is_one_cycle_static_1_1 = match msg_def_opt with
+      | Some msg_def ->
+        (match msg_def.send_sync, msg_def.recv_sync with
+        | Static (0, 1), Static (0, 1) ->
+          (* Check if message lifetime is one cycle *)
+          (match List.hd msg_def.sig_types with
+          | {lifetime = {e = `Cycles 1}; _} -> true
+          | {lifetime = {e = `Eternal}; _} -> true
+          | _ -> false)
+        | _ -> false)
+      | None -> false
+    in
     (* if msg is an action at this event, obtain until *)
     if config.verbose then (
       Printf.eprintf "Checking sync mode %s %s %b %b\n" msg relative_msg self_check other_check
@@ -494,7 +520,7 @@ let lifetime_check (config : Config.compile_config) (ci : cunit_info) (g : event
                   Array.iteri (fun idx sl -> Printf.eprintf "Sl %d = %d\n" idx sl) slacks;
                   Array.iteri (fun idx sl -> Printf.eprintf "Mw %d = %d\n" idx sl) min_weights
                 );
-                if min_weights.(sa.d.until.id) > gap then (
+                if min_weights.(sa.d.until.id) > gap && not is_one_cycle_static_1_1 then (
                   let error_msg = Printf.sprintf "Static sync mode mismatch between %s and %s (actual gap = %d > expected gap %d)!"
                     relative_msg msg
                     min_weights.(sa.d.until.id) gap
@@ -513,7 +539,7 @@ let lifetime_check (config : Config.compile_config) (ci : cunit_info) (g : event
             slacks.(ev'.id) <- GraphAnalysis.event_distance_max
         ) g.events;
         let min_weights = GraphAnalysis.event_min_among_succ g.events slacks in
-        if min_weights.(ev_root.id) > init_offset then
+        if min_weights.(ev_root.id) > init_offset && not is_one_cycle_static_1_1 then
           let error_msg = Printf.sprintf "Static sync mode mismatch (actual init offset = %d > expected init offset %d)!"
             min_weights.(ev_root.id) init_offset
           in

@@ -50,6 +50,7 @@ module Wire = struct
     let sz = let open Lang in match binop with
     | Add | Sub | Xor | And | Or | Mul ->
       (* TODO: performance improvement *)
+      (* Printf.eprintf "[DEBUG] Binop %s: %d, %d\n" (string_of_binop binop) sz1 sz2; *)
       Some (max sz1 sz2)
       (* if sz1 = sz2 then
         Some sz1
@@ -110,7 +111,7 @@ module Wire = struct
       id;
       thread_id;
       source = RegRead r.name;
-      size = TypedefMap.data_type_size typedefs macro_defs r.dtype;
+      size = TypedefMap.data_type_size typedefs macro_defs r.d_type;
       is_const = false;
     }
 

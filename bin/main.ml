@@ -39,10 +39,18 @@ let compile_with_normal_output config =
     Printf.eprintf "Error: a file name must be supplied!\n";
     exit 1
   end else begin
+    let out_channel = match config.output_filename with
+      | Some filename -> open_out (Printf.sprintf "%s.anvil.sv" filename)
+      | None -> stdout
+    in
     try
-      Anvil.CompileDriver.compile stdout config
+      Anvil.CompileDriver.compile out_channel config;
+      if Option.is_some config.output_filename then
+        close_out out_channel
     with
     | Anvil.CompileDriver.CompileError msg ->
+      if Option.is_some config.output_filename then
+        close_out_noerr out_channel;
       let open Anvil.Lang in
       Printf.eprintf "Compilation failed!\n";
       let open Anvil.Except in

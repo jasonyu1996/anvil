@@ -49,6 +49,7 @@
 %token KEYWORD_FOREIGN      (* foreign *)
 %token KEYWORD_GENERATE     (* generate *)
 %token KEYWORD_GENERATE_SEQ     (* generate *)
+%token KEYWORD_FLAT       (* flat *)
 %token KEYWORD_IF           (* if *)
 %token KEYWORD_ELSE         (* else *)
 %token KEYWORD_LET          (* let *)
@@ -89,9 +90,11 @@
 %right KEYWORD_LET KEYWORD_SET KEYWORD_PUT
 %left DOUBLE_AND DOUBLE_OR
 %left EXCL_EQ DOUBLE_EQ
-%left LEFT_BRACKET XOR AND OR PLUS MINUS
+%left XOR AND OR PLUS MINUS
 %left DOUBLE_LEFT_ABRACK DOUBLE_RIGHT_ABRACK
+%left ASTERISK
 %left PERIOD
+%left LEFT_BRACKET
 %nonassoc TILDE UMINUS UAND UOR KEYWORD_IN
 %start <Lang.compilation_unit> cunit
 %%
@@ -175,16 +178,16 @@ proc_def_body:
       shared_vars = [];
     }
   }
-| KEYWORD_LOOP; LEFT_BRACE; thread_prog = node(expr); RIGHT_BRACE; body=proc_def_body //For thread definitions
+| KEYWORD_LOOP; reset_by = message_specifier?; LEFT_BRACE; thread_prog = node(expr); RIGHT_BRACE; body=proc_def_body //For thread definitions
   {
     let open Lang in
     let thread_prog = {thread_prog with d = Wait (thread_prog, dummy_ast_node_of_data Recurse)} in
-    {body with threads = thread_prog::(body.threads) }
+    {body with threads = (thread_prog, reset_by)::(body.threads) }
   }
 | KEYWORD_RECURSIVE; LEFT_BRACE; thread_prog = node(expr); RIGHT_BRACE; body = proc_def_body
   {
     let open Lang in
-    { body with threads = thread_prog::(body.threads) }
+    { body with threads = (thread_prog, None)::(body.threads) }
   }
 | KEYWORD_CHAN; chan_def = node(channel_def); SEMICOLON; body = proc_def_body // For Channel Invocation and interface aquisition
   {
@@ -294,12 +297,12 @@ channel_class_def:
 ;
 //For passing the list of channels that are nessacary to communicate with the instantiation of the process
 proc_def_arg_list:
-  l = separated_list(COMMA, node(proc_def_arg))
+|  l = separated_list(COMMA, node(proc_def_arg))
   { l }
 ;
 // To Do: Can be renamed to inherited channel or something
 proc_def_arg:
-  foreign = foreign_tag; ident = IDENT; COLON; chan_dir = channel_direction; chan_class = channel_class_concrete
+|  foreign = foreign_tag; ident = IDENT; COLON; chan_dir = channel_direction; chan_class = channel_class_concrete
   {
     {
       name = ident;
@@ -309,6 +312,20 @@ proc_def_arg:
       foreign = foreign; (* These are ignored for now.
                         Instead we just look at which endpoints are used in spawn *)
       opp = None;
+      num_instances = None;
+    } : Lang.endpoint_def
+  }
+| foreign = foreign_tag; ident = IDENT; LEFT_BRACKET; n = INT; RIGHT_BRACKET; COLON; chan_dir = channel_direction; chan_class = channel_class_concrete
+  {
+    {
+      name = ident;
+      channel_class = fst chan_class;
+      channel_params = snd chan_class;
+      dir = chan_dir;
+      foreign = foreign; (* These are ignored for now.
+                        Instead we just look at which endpoints are used in spawn *)
+      opp = None;
+      num_instances = Some n;
     } : Lang.endpoint_def
   }
 ;
@@ -342,6 +359,25 @@ channel_def:
       endpoint_left = left_endpoint;
       endpoint_right = right_endpoint;
       visibility = visibility;
+      n_instances = None;
+    } : Lang.channel_def
+  }
+| left_foreign = foreign_tag; left_endpoint = IDENT; DOUBLE_MINUS;
+  right_foreign = foreign_tag; right_endpoint = IDENT; COLON;
+  chan_class = channel_class_concrete LEFT_BRACKET; n = INT; RIGHT_BRACKET
+  {
+    let visibility = match left_foreign, right_foreign with
+      | true, true -> Lang.BothForeign
+      | false, true -> Lang.RightForeign
+      | _ -> Lang.LeftForeign
+    in
+    {
+      channel_class = fst chan_class;
+      channel_params = snd chan_class;
+      endpoint_left = left_endpoint;
+      endpoint_right = right_endpoint;
+      visibility = visibility;
+      n_instances = Some n;
     } : Lang.channel_def
   }
 ;
@@ -355,7 +391,7 @@ channel_class_concrete:
 
 // Instantiating the proc for comm
 spawn:
-| proc = IDENT; LEFT_PAREN; params = separated_list(COMMA, IDENT); RIGHT_PAREN
+| proc = IDENT; LEFT_PAREN; params = separated_list(COMMA,args_spawn); RIGHT_PAREN
   {
     {
       proc = proc;
@@ -364,7 +400,7 @@ spawn:
     } : Lang.spawn_def
   }
 | proc = IDENT; LEFT_ABRACK; compile_params = separated_list(COMMA, param_value); RIGHT_ABRACK;
-  LEFT_PAREN; params = separated_list(COMMA, IDENT); RIGHT_PAREN
+  LEFT_PAREN; params = separated_list(COMMA, args_spawn); RIGHT_PAREN
   {
     {
       proc = proc;
@@ -373,6 +409,14 @@ spawn:
     } : Lang.spawn_def
   }
 ;
+
+args_spawn:
+| ident = IDENT
+  { Lang.SingleEp ident }
+| ident = IDENT; LEFT_BRACKET; start = INT; PLUS; COLON; size = INT; RIGHT_BRACKET
+  { Lang.RangeEp (ident, start, size) }
+| ident = IDENT; LEFT_BRACKET; index = INT; RIGHT_BRACKET;
+  { Lang.SingleEp (Printf.sprintf "%s[%d]" ident index)  }
 
 param_value:
 | n = INT
@@ -387,7 +431,7 @@ reg_def:
   {
     {
       name = ident;
-      dtype = dtype;
+      d_type = dtype;
       init = None;
     } : Lang.reg_def
   }
@@ -432,7 +476,9 @@ expr:
 | KEYWORD_PUT; ident = IDENT; COLON_EQ; v = node(expr) %prec KEYWORD_PUT
   { Lang.SharedAssign (ident, v) }
 | KEYWORD_LET; binding = IDENT; EQUAL; v = node(expr) %prec KEYWORD_LET
-  { Lang.Let ([binding], v) }
+  { Lang.Let ([binding], None, v) }
+| KEYWORD_LET; binding = IDENT; COLON; dtype = data_type; EQUAL; v = node(expr) %prec KEYWORD_LET
+  { Lang.Let ([binding], Some(dtype), v) }
 // | KEYWORD_LET; binding = IDENT; EQUAL; v = node(expr); EQ_GT; body = node(expr)
 //   {
 //     let open Lang in
@@ -475,13 +521,17 @@ expr:
 | e = node(expr); PERIOD; fieldname = IDENT
   { Lang.Indirect (e, fieldname) }
 | SHARP; LEFT_BRACE; components = separated_list(COMMA, node(expr)); RIGHT_BRACE
-  { Lang.Concat components }
+  { Lang.Concat (components, false) }
+| SHARP; KEYWORD_FLAT; LEFT_BRACE; components = separated_list(COMMA, node(expr)); RIGHT_BRACE
+  { Lang.Concat (components, true) }
+| LEFT_ABRACK; LEFT_PAREN; expr = node(expr); RIGHT_PAREN; DOUBLE_COLON; dtype = data_type; RIGHT_ABRACK
+  { Lang.Cast (expr, dtype) }
 | LEFT_BRACE; e = expr; RIGHT_BRACE
   { e }
 | KEYWORD_MATCH; e = node(expr); LEFT_BRACE; match_arm_list = separated_list(COMMA, match_arm); RIGHT_BRACE
   { Lang.Match (e, match_arm_list) }
-| ASTERISK; reg_ident = IDENT
-  { Lang.Read reg_ident }
+| ASTERISK; reg_id = lvalue
+  { Lang.Read reg_id }
 | constructor_spec = constructor_spec; e = ioption(node(expr_in_parenthese))
   { Lang.Construct (constructor_spec, e) }
 | record_name = IDENT; DOUBLE_COLON; LEFT_BRACE;
@@ -782,7 +832,7 @@ timestamp:
 | SHARP; n = INT
   { `Cycles n }
 | msg_spec = message_specifier
-  { `Message msg_spec }
+  { `Message_with_offset (msg_spec, 0, true) }
 | KEYWORD_ETERNAL
   { `Eternal }
 ;
@@ -791,16 +841,40 @@ timestamp_chan_local:
 | SHARP; n = INT
   { `Cycles n }
 | msg = IDENT
-  { `Message msg }
+  { `Message_with_offset (msg, 0, true) }
+| msg = IDENT; k = plus_minus; n = INT
+  { `Message_with_offset (msg, n, k) }
 | KEYWORD_ETERNAL
   { `Eternal }
 ;
+
+plus_minus:
+| PLUS
+  { true }
+| MINUS
+  { false }
+;
+
 //Message string
 message_specifier:
-  endpoint = IDENT; PERIOD; msg_type = IDENT
+|  endpoint = IDENT; PERIOD; msg_type = IDENT
   {
     {
       endpoint = endpoint;
+      msg = msg_type;
+    } : Lang.message_specifier
+  }
+| endpoint = IDENT; LEFT_BRACKET; index = INT; RIGHT_BRACKET; PERIOD; msg_type = IDENT
+  {
+    {
+      endpoint = Printf.sprintf "%s[%d]" endpoint index;
+      msg = msg_type;
+    } : Lang.message_specifier
+  }
+| endpoint = IDENT; LEFT_BRACKET; index = IDENT; RIGHT_BRACKET; PERIOD; msg_type = IDENT
+  {
+    {
+      endpoint = Printf.sprintf "%s[%s]" endpoint index;
       msg = msg_type;
     } : Lang.message_specifier
   }
@@ -825,8 +899,18 @@ macro_def:
 ;
 
 function_def:
-  | KEYWORD_FUNCTION; name = IDENT; LEFT_PAREN; args = separated_list(COMMA, IDENT); RIGHT_PAREN; LEFT_BRACE; body = node(expr); RIGHT_BRACE
+  | KEYWORD_FUNCTION; name = IDENT; LEFT_PAREN; args = separated_list(COMMA, typed_arg); RIGHT_PAREN; LEFT_BRACE; body = node(expr); RIGHT_BRACE
     {
       { name = name; args = args; body = body } : Lang.func_def
     }
 ;
+
+typed_arg:
+  | name = IDENT; COLON; dtype = data_type
+    {
+      { arg_name = name; arg_type = Some dtype } : Lang.typed_arg
+    }
+  | name = IDENT
+    {
+      { arg_name = name; arg_type = None } : Lang.typed_arg
+    }

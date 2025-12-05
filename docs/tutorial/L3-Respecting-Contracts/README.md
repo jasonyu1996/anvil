@@ -1,6 +1,6 @@
 # Lesson 3: Respecting Contracts
 
-In the last lesson, we saw that the contract of a channel between the memory module and the interfacing top module encodes the timing constraints for both modules. In this lesson, we will look at some language primitives that simplify synchronization between modules and examine the checker that ensures these contracts are respected.  
+In the last lesson, we saw that the contract of a channel between the memory module and the interfacing top module encodes the timing constraints for both modules. In this lesson, we will look at some language primitives that simplify synchronization between modules and examine how the type system ensures that the contracts are respected.
 
 Let's look at the following definition of the memory module in Anvil:  
 
@@ -57,21 +57,19 @@ Infact the loop semantics follow the pattern `loop_body >> loop_body` This means
 
 
 ## Verifying adherence to the contract
-To check if this module adheres to the expected contract, we run the Anvil checker:  
+To check if this module adheres to the expected contract, when we compile the anvil program:
 
 ```bash
 make MODULE_NAME=memory
 ```  
 
-You should receive the following error message:  
+We should receive the following error message:  
 
 ```bash
 Value not live long enough in message send!
 memory.anvil:20:12:
      20|             send endp.read_resp(*mem[addr])>>
 ```  
-
-Now this implies that the `read_resp` is sent in the same cycle as the `read_req` is received.
 
 The checker indicates that `*mem[addr]` cannot be guaranteed to be live until the next `read_req` message is received, which is at least 2 cycles away.  
 
@@ -236,23 +234,21 @@ proc memory_multiple_ports(endp1: left memory_ch, endp2: left memory_ch) {
             cycle 1
     }
     loop{
-      if (ready endp1.write_req) {
-            let addr_data = recv endp1.write_req>>
+        try addr_data = recv endp1.write_req{
             set mem[addr_data.addr] := addr_data.data >> 
             send endp1.write_resp(1)
-      }
-      else{
-          if (ready endp2.write_req) {
-                let addr_data = recv endp2.write_req>>
-                set mem[addr_data.addr] := addr_data.data >> 
-                send endp2.write_resp(1)
-          }
-          else {cycle 1}      
-      } 
+        }
+        else try addr_data = recv endp2.write_req{
+             set mem[addr_data.addr] := addr_data.data >> 
+             send endp2.write_resp(1)
+        }
+        else {cycle 1}
     }
 }
 ```
-Anvil Provides the `ready` construct to check if the endpoint has a valid message. In this case we are checking if either of the endpoints has a valid message to process. 
+Anvil Provides the `try` construct to attempt to do a non blocking receive/send, If the value is available to be received in the same cycle it is received else it proceeds to other branch, similarly for send. This is useful to implement arbitration between multiple endpoints.
+
+
 </details>
 
 ---

@@ -1,4 +1,4 @@
-(menhir
+(menhir (explain true)
  (modules parser))
 
 (ocamllex lexer)

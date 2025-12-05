@@ -8,4 +8,5 @@ val codegen_states :
     CodegenPrinter.t ->
     EventGraph.event_graph_collection ->
     EventGraph.proc_graph ->
-    EventGraph.event_graph -> unit
+    EventGraph.event_graph ->
+    Lang.message_specifier option -> unit

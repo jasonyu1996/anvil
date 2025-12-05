@@ -1,0 +1,31 @@
+type bit = logic[1];
+chan ch{
+    left empty : (bit@#1)
+}
+proc Foo(ep[3] : left ch){
+    loop{
+        generate_seq (i : 0, 2, 1){
+            let x =  recv ep[i].empty >>
+            dprint "Received on channel %d" (i)
+        } >>
+        cycle 1
+    }
+
+}
+
+
+proc test_chan_array(){
+    chan ep_le -- ep_ri : ch[3];
+    spawn Foo(ep_le[0+:3]);
+    
+    loop{
+                generate_seq (i : 0, 2, 1){
+                    send ep_ri[i].empty(1'b1) >>
+                    dprint "Sent on channel %d" (i)
+                } >>
+
+
+            cycle 1
+    }
+ 
+}

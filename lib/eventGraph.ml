@@ -17,7 +17,8 @@ type cunit_info = {
   typedefs : TypedefMap.t;
   channel_classes : Lang.channel_class_def list;
   func_defs : Lang.func_def list;
-  macro_defs : Lang.macro_def list
+  macro_defs : Lang.macro_def list;
+  weak_typecasts : bool
 }
 
 type wire = WireCollection.wire
@@ -173,21 +174,22 @@ and event_graph = {
           Note these do not include the channels passed from outside the process *)
   messages : MessageCollection.t; (** all messages referenceable from within the process,
             including those through channels passed from outside*)
-  spawns : Lang.spawn_def list;
+  spawns : Lang.spawn_def Lang.ast_node list;
   regs: Lang.reg_def Utils.string_map;
   mutable last_event_id: int;
   thread_codespan : Lang.code_span;
   mutable is_general_recursive : bool; (** is this a general recursive graph? *)
+  mutable comb : bool;
 }
 
 type proc_graph = {
   name: Lang.identifier;
   extern_module: string option;
-  threads: event_graph list;
+  threads: (event_graph * Lang.message_specifier option) list;
   shared_vars_info : (Lang.identifier, shared_var_info) Hashtbl.t;
   messages : MessageCollection.t;
   proc_body : Lang.proc_def_body_maybe_extern;
-  spawns : (Lang.identifier * Lang.spawn_def) list;
+  spawns : (Lang.identifier * (Lang.spawn_def Lang.ast_node)) list; 
 }
 
 (** A collection of event graphs, corresponding to a compilation unit.
