@@ -61,7 +61,7 @@ proc top(){
         send ri_mem.write_req(address_data_pair::{addr=*write_address;data=(call encrypt(*local_mem[*write_address],key))}) >>
         cycle 1 >>
         let _ = recv ri_mem.write_resp >>
-        set write_address := *write_address + 1;
+        set write_address := *write_address + 8'b1;
         if(*write_address == 8'd255){
             set write_complete := 1
         }
@@ -83,7 +83,7 @@ proc top(){
                 if(*read_address == 8'd255){
                     dfinish
                 };
-                set read_address := *read_address + 1
+                set read_address := *read_address + 8'b1
 
         }
         else {cycle 1}

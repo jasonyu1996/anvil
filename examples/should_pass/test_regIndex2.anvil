@@ -4,7 +4,7 @@ proc test_regIndex2() {
     loop {
         cycle 1 >>
         if 1'b1 {
-            set y := 1'b1
+            set y := 4'b1
         }
         >>
         dprint "y: %d" (*y)

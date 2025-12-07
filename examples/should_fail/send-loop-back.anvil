@@ -4,7 +4,7 @@ chan ch {
 }
 
 proc foo (ch: left ch) {
-    reg r : logic[1];
+    reg r : logic[8];
     loop {
         let x = recv ch.req >>
         {
