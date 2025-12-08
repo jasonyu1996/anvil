@@ -10,7 +10,7 @@
 
 ### 1. Online Playground
 
-The easiest way to experience AnvilHDL is in your browser. 
+The easiest way to experience AnvilHDL is in your browser.
 [**Try the Online Playground**](https://anvil.capstone.kisp-lab.org/) (No installation required!)
 
 ### 2. Interactive Tutorial
@@ -139,21 +139,26 @@ AnvilHDL is currently **experimental** and under active development. We welcome 
 
 -----
 
-## Citation
+## Citing AnvilHDL
 
 If you use AnvilHDL in your research, please cite the following paper:
 
 ```text
-J. Z. Yu, A. R. Jha, U. Mathur, T. E. Carlson, and P. Saxena, ‘Anvil: A General-Purpose Timing-Safe Hardware Description Language’, Mar. 25, 2025, arXiv: arXiv:2503.19447. doi: 10.48550/arXiv.2503.19447.
+J. Z. Yu, A. R. Jha, U. Mathur, T. E. Carlson, and P. Saxena, “Anvil: a general-purpose timing-safe hardware description language,” in Proceedings of the 31st ACM international conference on architectural support for programming languages and operating systems, in ASPLOS ’26. Pittsburgh, PA, USA: Association for Cmoputing Machinery, 2026. [Online]. Available: https://arxiv.org/abs/2503.19447
 ```
 
 or in BibTeX format:
 
 ```bibtex
-@article{yu2025anvil,
+@inproceedings{yu2026anvil,
    title={Anvil: A General-Purpose Timing-Safe Hardware Description Language},
    author={Yu, Jason Zhijingcheng and Jha, Aditya Ranjan and Mathur, Umang and Carlson, Trevor E and Saxena, Prateek},
-   journal={arXiv preprint arXiv:2503.19447},
-   year={2025}
+   year={2026},
+   publisher={Association for Cmoputing Machinery},
+   booktitle={Proceedings of the 31st ACM International Conference on Architectural Support for Programming Languages and Operating Systems},
+   series={ASPLOS '26},
+   address={Pittsburgh, PA, USA},
+   url={https://arxiv.org/abs/2503.19447},
+   note={To appear}
 }
 ```
