@@ -143,7 +143,9 @@ let event_pat_rel2 events lookup_message ev_pat1 ev_pat2 =
     Printf.eprintf "\n"; *)
     let targets_list = List.map get_points_dist ev_pat2 in
     if dist1 = -1 then
-      List.for_all (fun (_, dist2) -> dist2 = -1) targets_list
+      (* If eternal *)
+      true
+      (* List.for_all (fun (_, dist2) -> dist2 = -1) targets_list *)
     else (
       (* dist1 != -1 *)
       List.for_all (fun (target_points, dist2) ->
