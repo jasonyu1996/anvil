@@ -141,19 +141,21 @@ AnvilHDL is currently **experimental** and under active development. We welcome 
 
 ## Citation
 
-If you use AnvilHDL in your research, please cite the following paper:
+If you use AnvilHDL in your project, we would love to hear your feedback -- your insights can help us improve the language. If you plan to cite AnvilHDL in your work, please use the following reference:
 
 ```text
-J. Z. Yu, A. R. Jha, U. Mathur, T. E. Carlson, and P. Saxena, ‘Anvil: A General-Purpose Timing-Safe Hardware Description Language’, Mar. 25, 2025, arXiv: arXiv:2503.19447. doi: 10.48550/arXiv.2503.19447.
+J. Z. Yu, A. R. Jha, U. Mathur, T. E. Carlson, and P. Saxena, "Anvil: A General-Purpose Timing-Safe Hardware Description Language" to appear in *Proceedings of the International Conference on Architectural Support for Programming Languages and Operating Systems (ASPLOS)* 2026. Available as arXiv preprint arXiv:2503.19447. doi: 10.48550/arXiv.2503.19447.
 ```
 
 or in BibTeX format:
 
 ```bibtex
-@article{yu2025anvil,
-   title={Anvil: A General-Purpose Timing-Safe Hardware Description Language},
-   author={Yu, Jason Zhijingcheng and Jha, Aditya Ranjan and Mathur, Umang and Carlson, Trevor E and Saxena, Prateek},
-   journal={arXiv preprint arXiv:2503.19447},
-   year={2025}
+@inproceedings{yu2025anvil,
+  title        = {Anvil: A General-Purpose Timing-Safe Hardware Description Language},
+  author       = {Yu, Jason Zhijingcheng and Jha, Aditya Ranjan and Mathur, Umang and Carlson, Trevor E. and Saxena, Prateek},
+  booktitle    = {Proceedings of the International Conference on Architectural Support for Programming Languages and Operating Systems (ASPLOS)},
+  year         = {2026},
+  note         = {To appear. Preprint available at arXiv:2503.19447},
+  url          = {https://arxiv.org/abs/2503.19447}
 }
 ```
