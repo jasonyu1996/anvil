@@ -44,9 +44,9 @@ struct update_in {
 
 // Channels ---------------------------------------------------------------------------------------------------------
 chan tlb_lookup_ch {
-    left req : (tlb_lookup_in_pack@res) @#1 - @#1,
-    right res : (tlb_lookup_out_pack@#1) @#req - @#req,
-    right hit : (logic@#1) @#req - @#req
+    left req : (tlb_lookup_in_pack@#1) @#1 - @#1,
+    right res : (tlb_lookup_out_pack@#1) @#1 - @#1,
+    right hit : (logic@#1) @#1 - @#1
 }
 
 chan shared_tlb_update_ch {
