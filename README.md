@@ -11,15 +11,15 @@
 ### 1. Online Playground
 
 The easiest way to experience AnvilHDL is in your browser.
-[**Try the Online Playground**](https://anvil.capstone.kisp-lab.org/) (No installation required!)
+[**Try the Online Playground**](https://anvil.kisp-lab.org/) (No installation required!)
 
 ### 2. Interactive Tutorial
 
-Learn the language basics through our guided tour : [**Short Tutorial with interactive examples**](https://project-starch.github.io/Anvil-Docs/helloWorld.html)
+Learn the language basics through our guided tour : [**Short Tutorial with interactive examples**](https://docs.anvil.kisp-lab.org/helloWorld.html)
 
 
 ### 3. Full Documentation
-Up to date documentation is available online at [**AnvilHDL Docs**](https://project-starch.github.io/Anvil-Docs/)
+Up to date documentation is available online at [**AnvilHDL Docs**](https://docs.anvil.kisp-lab.org/)
 
 -----
 
@@ -165,4 +165,5 @@ or in BibTeX format:
 
 ## Discussing AnvilHDL
 
-If you would like to discuss AnvilHDL, e.g., to seek help, report bugs, or suggest features, please join https://anvilhdl.zulipchat.com/.
+If you use AnvilHDL, we would love to hear your feedback!
+Please join https://anvilhdl.zulipchat.com/ for discussions.
