@@ -1,6 +1,6 @@
 # AnvilHDL: A Timing-Safe Hardware Description Language
 
-**Anvil** is a hardware description language (HDL) that describes digital circuit designs at the register-transfer level (RTL). It introduces a novel type system to guarantee timing safety without abstracting away the low-level control required for efficient hardware design. Anvil programs interface easily with System Verilog.
+**AnvilHDL** is a hardware description language (HDL) that describes digital circuit designs at the register-transfer level (RTL). It introduces a novel type system to guarantee timing safety without abstracting away the low-level control required for efficient hardware design. Designs created in AnvilHDL interface easily with those in SystemVerilog.
 
 > **Note** The motivation and design are discussed and evaluated in depth in our research paper: [**Anvil: A General-Purpose Timing-Safe Hardware Description Language**](https://arxiv.org/abs/2503.19447) which will apear at ASPLOS 2026.
 
@@ -25,13 +25,13 @@ Up to date documentation is available online at [**AnvilHDL Docs**](https://docs
 
 ## Design Goals
 
-Anvil addresses critical challenges in RTL design through three core pillars:
+AnvilHDL addresses critical challenges in RTL design through three core pillars:
 
 | Feature | Description |
 | :--- | :--- |
-| **Timing-safety** | Any value referenced across cycles is guaranteed to be **stable** and **meaningful**. Anvil prevents common RTL mistakes, such as using a value before it is ready or mutating a register while its dependent values must remain stable. |
-| **Composability** | Timing safety is preserved across module boundaries. Designers can create modular components and compose them with confidence. Anvil uses **dynamic timing contracts** to enforce timing properties between modules. |
-| **Expressiveness** | Safety is achieved via the type system, not by hiding the hardware. Anvil exposes registers, wires, and clock cycles, allowing the designer to retain **low-level control** suitable for general-purpose hardware development. |
+| **Timing-safety** | Any value referenced across cycles is guaranteed to be **stable** and **meaningful**. AnvilHDL prevents common RTL mistakes, such as using a value before it is ready or mutating a register while its dependent values must remain stable. |
+| **Composability** | Timing safety is preserved across module boundaries. Designers can create modular components and compose them with confidence. AnvilHDL uses **dynamic timing contracts** to enforce timing properties between modules. |
+| **Expressiveness** | Safety is achieved via the type system, not by hiding the hardware. AnvilHDL exposes registers, wires, and clock cycles, allowing the designer to retain **low-level control** suitable for general-purpose hardware development. |
 
 -----
 
@@ -57,7 +57,7 @@ opam install . --deps-only
 eval $(opam env) && dune build  # or for release build: dune build --release
 ```
 
-This will set up the Anvil compiler locally.
+This will set up the AnvilHDL compiler locally.
 
 For global installation, you can run:
 
@@ -77,7 +77,7 @@ opam reinstall .
 
 ## Compiler Usage
 
-Run the Anvil compiler using `dune`. **Note**: For a global installation, replace `dune exec anvil --` with `anvil`.
+Run the AnvilHDL compiler using `dune`. **Note**: For a global installation, replace `dune exec anvil --` with `anvil`.
 
 ```bash
 dune exec anvil -- [OPTIONS] <anvil-source-file>
