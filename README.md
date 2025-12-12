@@ -2,7 +2,7 @@
 
 **AnvilHDL** is a hardware description language (HDL) that describes digital circuit designs at the register-transfer level (RTL). It introduces a novel type system to guarantee timing safety without abstracting away the low-level control required for efficient hardware design. Designs created in AnvilHDL interface easily with those in SystemVerilog.
 
-> **Note** The motivation and design are discussed and evaluated in depth in our research paper: [**Anvil: A General-Purpose Timing-Safe Hardware Description Language**](https://arxiv.org/abs/2503.19447) which will apear at ASPLOS 2026.
+> **Note** The motivation and design are discussed and evaluated in depth in our research paper: [**Anvil: A General-Purpose Timing-Safe Hardware Description Language**](https://arxiv.org/abs/2503.19447), which will appear at ASPLOS 2026.
 
 -----
 
@@ -167,3 +167,5 @@ or in BibTeX format:
 
 If you use AnvilHDL, we would love to hear your feedback!
 Please join https://anvilhdl.zulipchat.com/ for discussions.
+
+> **Acknowledgement**: We want to thank <img src="https://github.com/zulip/zulip/blob/main/static/images/logo/zulip-org-logo.svg" height="20" alt="Zulip" /> for sponsoring the community chat channel and allowing us to encourage discussions. Zulip is an organized team chat app designed for efficient communication.
