@@ -1182,6 +1182,9 @@ let build_proc (config : Config.compile_config) sched module_name param_values
       } in
         Hashtbl.add shared_vars_info sv.d.ident r
       ) body.shared_vars;
+      if body.threads = [] then
+        raise (Except.TypeError [Text (Printf.sprintf "Process %s must have at least one thread!" proc.name)]);
+
       let proc_threads = List.mapi (fun i ((e, reset_by) : expr_node * message_specifier option) ->
         let graph = {
           thread_id = i;
