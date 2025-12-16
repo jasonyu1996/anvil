@@ -11,7 +11,7 @@
 
 (maintainers "Jason Yu")
 
-(license LICENSE)
+(license MIT)
 
 ; (documentation https://url/to/documentation)
 
