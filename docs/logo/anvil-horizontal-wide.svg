@@ -46,8 +46,8 @@
    inkscape:pagecheckerboard="0"
    inkscape:deskcolor="#d1d1d1"
    inkscape:zoom="0.11498963"
-   inkscape:cx="2869.8241"
-   inkscape:cy="252.19666"
+   inkscape:cx="2869.824"
+   inkscape:cy="256.54487"
    inkscape:window-width="1786"
    inkscape:window-height="1053"
    inkscape:window-x="0"
@@ -57,9 +57,9 @@
 
 <g
    id="g5"
-   transform="translate(-16.127163)"><g
+   transform="translate(-1.1976534)"><g
      id="g4"
-     transform="matrix(0.48330876,0,0,0.48330876,221.89522,8.3810088e-7)"><g
+     transform="matrix(0.48330876,0,0,0.48330876,205.76806,8.3810088e-7)"><g
        style="fill:#c0504d;fill-opacity:1"
        id="g3"
        transform="matrix(-0.57763253,0.57763253,-0.57763253,-0.57763253,527.72739,231.73635)"><g
@@ -76,17 +76,28 @@
 </g></g><path
        d="m 374.10223,186.82203 v -28.9498 H 173.95546 v 9.5308 H 89.36961 c 0,0 12.74744,48.3688 80.17785,48.3688 36.0979,0 40.98244,15.13015 40.98244,22.75478 0,10.00734 -6.07589,26.09057 -43.72254,39.07628 v 27.99672 h 46.10524 c 8.10118,-6.19502 18.22765,-9.76907 29.18807,-9.76907 10.96042,0 21.08689,3.69319 29.18807,9.76907 h 46.82005 c 0,0 0,-17.98938 0,-27.28191 -27.87759,-9.17339 -46.10524,-24.30354 -46.10524,-41.45897 0,-27.04365 45.03302,-48.60708 102.09868,-50.0367 z m -200.14677,-5.1228 c -61.9502,0 -61.9502,-4.7654 -61.9502,-4.7654 h 61.9502 c 0,0 0,2.85924 0,4.7654 z m 9.5308,-9.5308 v -4.7654 h 181.08517 v 4.7654 z"
        id="path1"
-       style="fill:#fffef0;fill-opacity:1;stroke-width:1.19135" /></g><text
-     xml:space="preserve"
-     style="font-size:243.2px;font-family:FreeSans;-inkscape-font-specification:'FreeSans, Normal';text-align:start;letter-spacing:4.8px;writing-mode:lr-tb;direction:ltr;text-anchor:start;fill:#c0504d;fill-opacity:1;stroke-width:0.32"
-     x="582.72644"
-     y="190.94319"
-     id="text6"><tspan
-       sodipodi:role="line"
-       id="tspan6"
-       style="font-style:normal;font-variant:normal;font-weight:bold;font-stretch:normal;font-size:243.2px;font-family:'PT Serif';-inkscape-font-specification:'PT Serif Bold';letter-spacing:4.8px;fill:#c0504d;fill-opacity:1;stroke-width:0.32"
-       x="582.72644"
-       y="190.94319">Anvil<tspan
-   style="font-style:italic;font-variant:normal;font-weight:bold;font-stretch:normal;font-size:200.533px;font-family:Roboto;-inkscape-font-specification:'Roboto Bold';letter-spacing:4.8px;fill:#c0504d;fill-opacity:1"
-   id="tspan7"
-   dy="25">HDL</tspan></tspan></text></g></svg>
+       style="fill:#fffef0;fill-opacity:1;stroke-width:1.19135" /></g><g
+     id="g5-2"
+     transform="translate(147.13487,-33.557902)"><text
+       xml:space="preserve"
+       style="font-size:243.2px;font-family:FreeSans;-inkscape-font-specification:'FreeSans, Normal';text-align:start;letter-spacing:4.8px;writing-mode:lr-tb;direction:ltr;text-anchor:start;fill:#c0504d;fill-opacity:1;stroke-width:0.32"
+       x="401.18533"
+       y="235.5419"
+       id="text6-6"><tspan
+         sodipodi:role="line"
+         id="tspan6-1"
+         style="font-style:normal;font-variant:normal;font-weight:bold;font-stretch:normal;font-size:243.2px;font-family:'PT Serif';-inkscape-font-specification:'PT Serif Bold';letter-spacing:4.8px;fill:#c0504d;fill-opacity:1;stroke-width:0.32"
+         x="401.18533"
+         y="235.5419">Anvil<tspan
+   style="font-style:italic;font-variant:normal;font-weight:bold;font-stretch:normal;font-size:200.533px;font-family:Roboto;-inkscape-font-specification:'Roboto Bold';letter-spacing:6.4px;fill:#c0504d;fill-opacity:1"
+   id="tspan7-8" /></tspan></text><text
+       xml:space="preserve"
+       style="font-weight:bold;font-size:200.533px;font-family:Roboto;-inkscape-font-specification:'Roboto Bold';text-align:start;letter-spacing:6.4px;writing-mode:lr-tb;direction:ltr;text-anchor:start;fill:#c0504d;fill-opacity:1;stroke-width:0.32"
+       x="1069.1429"
+       y="238.4603"
+       id="text2"><tspan
+         sodipodi:role="line"
+         id="tspan2"
+         style="font-style:italic;fill:#c0504d;fill-opacity:1;stroke-width:0.32"
+         x="1069.1429"
+         y="238.4603">HDL</tspan></text></g></g></svg>
