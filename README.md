@@ -106,6 +106,10 @@ cd examples
 # Build a specific module (defaults to 'top' if unspecified)
 make MODULE_NAME=<name>
 
+# Build with tracing enabled
+# After simulation, you can find the waveform at logs/trace.vcd
+make MODULE_NAME=<name> TRACE_ON=1
+
 # Simulate the design
 make run MODULE_NAME=<name> TIMEOUT=1000
 

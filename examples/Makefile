@@ -1,6 +1,11 @@
 MODULE_NAME ?= top
 TOP_MODULE ?= $(MODULE_NAME)
-VERILATOR_FLAGS ?= --top $(MODULE_NAME) -j 1 --trace --trace-structs
+
+ifdef TRACE_ON
+	VERILATOR_FLAGS ?= --top $(MODULE_NAME) -j 1 --trace --trace-structs
+else
+	VERILATOR_FLAGS ?= --top $(MODULE_NAME) -j 1
+endif
 
 TEST_DRIVER = sim_main.cpp
 

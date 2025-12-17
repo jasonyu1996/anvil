@@ -11,8 +11,10 @@
 // Include common routines
 #include <verilated.h>
 
+#if VM_TRACE
 // Tracing
 #include <verilated_vcd_c.h>
+#endif
 
 // Include model header, generated from Verilating "top.v"
 #include "Vtop.h"
@@ -62,17 +64,21 @@ int main(int argc, char** argv) {
     // "TOP" will be the hierarchical name of the module.
     const std::unique_ptr<Vtop> top{new Vtop{contextp.get(), "TOP"}};
 
+#if VM_TRACE
     // Tracing
     std::unique_ptr<VerilatedVcdC> tfp{new VerilatedVcdC};
     top->trace(tfp.get(), 10);  // Trace 10 levels of hierarchy
     tfp->open("logs/trace.vcd");
+#endif
 
     top->clk_i = 0;
     top->rst_ni = !0;
 
     unsigned time_cnt = 0;
 
+#if VM_TRACE
     tfp->dump(contextp->time());
+#endif
 
     // Simulate until $finish
     while (!contextp->gotFinish() && time_cnt < timeout) {
@@ -105,14 +111,18 @@ int main(int argc, char** argv) {
         }
 
         top->eval();
+#if VM_TRACE
         tfp->dump(contextp->time());
+#endif
 
         ++ time_cnt;
     }
 
     // Final model cleanup
     top->final();
+#if VM_TRACE
     tfp->close();
+#endif
 
 
     // Final simulation summary
