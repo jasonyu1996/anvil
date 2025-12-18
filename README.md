@@ -1,4 +1,12 @@
-# AnvilHDL: A Timing-Safe Hardware Description Language
+<p align="center">
+  <a href="https://anvil.kisp-lab.org/" aria-label="AnvilHDL website">
+    <picture>
+      <img alt="AnvilHDL" src="docs/logo/anvil-horizontal.png" height="84">
+    </picture>
+  </a>
+</p>
+
+# A General-Purpose Timing-Safe Hardware Description Language
 
 **AnvilHDL** is a hardware description language (HDL) that describes digital circuit designs at the register-transfer level (RTL). It introduces a novel type system to guarantee timing safety without abstracting away the low-level control required for efficient hardware design. Designs created in AnvilHDL interface easily with those in SystemVerilog.
 
