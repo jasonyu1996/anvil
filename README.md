@@ -1,4 +1,12 @@
-# AnvilHDL: A Timing-Safe Hardware Description Language
+<p align="center">
+  <a href="https://anvil.kisp-lab.org/" aria-label="AnvilHDL website">
+    <picture>
+      <img alt="AnvilHDL" src="docs/logo/anvil-horizontal.png" height="84">
+    </picture>
+  </a>
+</p>
+
+# A General-Purpose Timing-Safe Hardware Description Language
 
 **AnvilHDL** is a hardware description language (HDL) that describes digital circuit designs at the register-transfer level (RTL). It introduces a novel type system to guarantee timing safety without abstracting away the low-level control required for efficient hardware design. Designs created in AnvilHDL interface easily with those in SystemVerilog.
 
@@ -105,6 +113,10 @@ cd examples
 
 # Build a specific module (defaults to 'top' if unspecified)
 make MODULE_NAME=<name>
+
+# Build with tracing enabled
+# After simulation, you can find the waveform at logs/trace.vcd
+make MODULE_NAME=<name> TRACE_ON=1
 
 # Simulate the design
 make run MODULE_NAME=<name> TIMEOUT=1000
