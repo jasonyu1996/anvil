@@ -332,7 +332,15 @@ let codegen_sustained_actions printer (graphs : EventGraph.event_graph_collectio
   let print_line = CodegenPrinter.print_line printer in
   let send_or_assigns = Hashtbl.create 8 in
   let recv_or_assigns = Hashtbl.create 8 in
+  let send_valid_only_assigns = Hashtbl.create 8 in
   let insert_to tbl w_name has_sync_port cond =
+    (
+      match Hashtbl.find_opt tbl w_name with
+      | None -> Hashtbl.add tbl w_name (has_sync_port, ref [cond])
+      | Some (_has_sync_port', li) -> li := cond::!li
+    )
+  in
+  let insert_valid_only tbl w_name has_sync_port cond =
     (
       match Hashtbl.find_opt tbl w_name with
       | None -> Hashtbl.add tbl w_name (has_sync_port, ref [cond])
@@ -352,17 +360,25 @@ let codegen_sustained_actions printer (graphs : EventGraph.event_graph_collectio
           activated
     in
     let print_send activated msg td =
-      let w = Option.get td.w in
       let msg_def = lookup_msg_def msg |> Option.get in
       let has_valid_port = CodegenPort.message_has_valid_port msg_def in
-      insert_to send_or_assigns
-        (CodegenFormat.format_msg_valid_signal_name (CodegenFormat.canonicalize_endpoint_name msg.endpoint g) msg.msg)
-        has_valid_port
-        (
-          activated,
-          CodegenFormat.format_msg_data_signal_name (CodegenFormat.canonicalize_endpoint_name msg.endpoint g) msg.msg 0,
-          CodegenFormat.format_wirename w.thread_id w.id
-        )
+      if Option.is_some td.w then
+        (* Non-void message: has data wire *)
+        let w = Option.get td.w in
+        insert_to send_or_assigns
+          (CodegenFormat.format_msg_valid_signal_name (CodegenFormat.canonicalize_endpoint_name msg.endpoint g) msg.msg)
+          has_valid_port
+          (
+            activated,
+            CodegenFormat.format_msg_data_signal_name (CodegenFormat.canonicalize_endpoint_name msg.endpoint g) msg.msg 0,
+            CodegenFormat.format_wirename w.thread_id w.id
+          )
+      else
+        (* Void message: no data wire, only valid signal *)
+        insert_valid_only send_valid_only_assigns
+          (CodegenFormat.format_msg_valid_signal_name (CodegenFormat.canonicalize_endpoint_name msg.endpoint g) msg.msg)
+          has_valid_port
+          activated
     in
 
     List.iter (fun (sa : EventGraph.sustained_action Lang.ast_node) ->
@@ -391,6 +407,14 @@ let codegen_sustained_actions printer (graphs : EventGraph.event_graph_collectio
       |> print_line
     )
   ) recv_or_assigns;
+
+  Hashtbl.iter (fun w_name (has_sync_port, conds) ->
+    if has_sync_port then (
+      String.concat " || " !conds
+      |> Printf.sprintf "assign %s = %s;" w_name
+      |> print_line
+    )
+  ) send_valid_only_assigns;
 
   let send_data_selectors = ref [] in
   Hashtbl.iter (fun w_name (has_sync_port, conds_dw) ->

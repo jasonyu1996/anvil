@@ -590,7 +590,12 @@ and string_of_data_type (dtype : data_type) : string =
       "Record (" ^ String.concat ", " (List.map (fun (field_name, field_type) ->
         field_name ^ ": " ^ string_of_data_type field_type) fields) ^ ")"
   | `Tuple dt_list ->
-      "Tuple (" ^ String.concat ", " (List.map string_of_data_type dt_list) ^ ")"
+    (
+      match dt_list with
+      | [] -> "Void"
+      | _ ->
+        "Tuple (" ^ String.concat ", " (List.map string_of_data_type dt_list) ^ ")"
+    )
   | `Opaque id -> "Opaque " ^ id
   | `Named (name, params) ->
       let params_str = String.concat ", " (List.map (function

@@ -9,16 +9,21 @@ type t = {
 let message_has_valid_port (msg : message_def) : bool = msg.send_sync = Dynamic
 let message_has_ack_port (msg : message_def) : bool = msg.recv_sync = Dynamic
 
+let message_has_data_port (msg : message_def) (idx : int) : bool = (List.nth msg.sig_types idx).dtype <> unit_dtype
 let gather_ports_from_endpoint (channel_classes : channel_class_def list) (endpoint : endpoint_def) : t list =
   let cc = Option.get (MessageCollection.lookup_channel_class channel_classes endpoint.channel_class) in
   let gen_endpoint_ports = fun (msg : message_def) ->
     let msg = ParamConcretise.concretise_message cc.params endpoint.channel_params msg in
     let folder_inner = fun fmt msg_dir (n, port_list) (stype : sig_type_chan_local) ->
-      let new_port : t = {
-        name = fmt endpoint.name msg.name n;
-        dir = msg_dir;
-        dtype = stype.dtype;
-      } in (n + 1, new_port::port_list)
+      if stype.dtype = Lang.unit_dtype then (n, port_list)
+      else
+        (
+        let new_port : t = {
+          name = fmt endpoint.name msg.name n;
+          dir = msg_dir;
+          dtype = stype.dtype;
+        } in (n + 1, new_port::port_list)
+      )
     in
     let msg_data_dir = get_message_direction msg.dir endpoint.dir in
     let (_, res) = List.fold_left (folder_inner CodegenFormat.format_msg_data_signal_name msg_data_dir) (0, []) msg.sig_types in
@@ -45,4 +50,4 @@ let format (typedefs : TypedefMap.t) (macro_defs: macro_def list) port =
   let inout = match port.dir with
     | Inp -> "input"
     | Out -> "output"
-  in Printf.sprintf "%s %s %s" inout (CodegenFormat.format_dtype typedefs macro_defs port.dtype) ep_name_formatted
+  in if port.dtype <> Lang.unit_dtype then Printf.sprintf "%s %s %s" inout (CodegenFormat.format_dtype typedefs macro_defs port.dtype) ep_name_formatted else ""

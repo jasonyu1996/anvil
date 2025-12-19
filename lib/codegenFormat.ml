@@ -29,7 +29,7 @@ let format_dtype (typedefs : TypedefMap.t) (macro_defs : Lang.macro_def list) (d
   | _ ->
     let size = (TypedefMap.data_type_size typedefs macro_defs dtype) in
     if size = 0 then
-      "int" (* TODO: hacky *)
+      raise (Failure "[Internal Error] Please report : Cannot format datatype with size 0")
     else
       Printf.sprintf "logic[%d:0]" @@ size - 1
 

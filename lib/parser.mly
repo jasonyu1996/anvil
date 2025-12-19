@@ -22,6 +22,7 @@
 %token DOUBLE_RIGHT_ABRACK  (* << *)
 %token KEYWORD_CONST        (* const *)
 %token KEYWORD_READY        (* ready *)
+%token KEYWORD_VOID         (* void *)
 %token KEYWORD_PROBE        (* probe *)
 %token DOUBLE_EQ            (* == *)
 %token EQ_GT                (* => *)
@@ -772,11 +773,19 @@ message_direction:
 // ;
 
 sig_type_chan_local:
-  dtype = data_type; AT; lifetime_opt = lifetime_spec_chan_local?
+|  dtype = data_type; AT; lifetime_opt = lifetime_spec_chan_local?
   {
     let lifetime = Option.value ~default:Lang.sig_lifetime_this_cycle_chan_local lifetime_opt in
     {
       dtype = dtype;
+      lifetime = lifetime;
+    } : Lang.sig_type_chan_local
+  }
+| KEYWORD_VOID; AT; lifetime_opt = lifetime_spec_chan_local?
+  {
+    let lifetime = Option.value ~default:Lang.sig_lifetime_this_cycle_chan_local lifetime_opt in
+    {
+      dtype = Lang.unit_dtype;
       lifetime = lifetime;
     } : Lang.sig_type_chan_local
   }

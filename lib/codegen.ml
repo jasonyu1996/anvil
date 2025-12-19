@@ -76,14 +76,17 @@ let codegen_spawns printer (graphs : event_graph_collection) (g : proc_graph) =
             (Format.format_msg_ack_signal_name endpoint_name_local msg.name)
         else ();
         let print_data_con = fun fmt idx _ ->
-          if(is_spawn_comb) then (  
-            gen_connect_post (fmt arg_endpoint.name msg.name idx)
-              (fmt endpoint_name_local msg.name idx)
-          )
-          else (
-            gen_connect (fmt arg_endpoint.name msg.name idx)
-              (fmt endpoint_name_local msg.name idx)
-          )
+          if CodegenPort.message_has_data_port msg idx then
+          (
+            if(is_spawn_comb) then (  
+              gen_connect_post (fmt arg_endpoint.name msg.name idx)
+                (fmt endpoint_name_local msg.name idx)
+            )
+            else (
+              gen_connect (fmt arg_endpoint.name msg.name idx)
+                (fmt endpoint_name_local msg.name idx)
+            )
+         )
         in begin
           List.iteri (print_data_con Format.format_msg_data_signal_name) msg.sig_types;
         end
@@ -100,6 +103,7 @@ let codegen_spawns printer (graphs : event_graph_collection) (g : proc_graph) =
         else ();
         let len = List.length msg.sig_types in
         let print_data_con_last = fun fmt idx _ ->
+          if CodegenPort.message_has_data_port msg idx then(
           if (is_spawn_comb) then (
             if (idx == len - 1) then (
               gen_connect_blank (fmt arg_endpoint.name msg.name idx)
@@ -112,6 +116,7 @@ let codegen_spawns printer (graphs : event_graph_collection) (g : proc_graph) =
           )
           else (gen_connect (fmt arg_endpoint.name msg.name idx)
             (fmt endpoint_name_local msg.name idx))
+          )
         in begin
           List.iteri (print_data_con_last Format.format_msg_data_signal_name) msg.sig_types;
         end
@@ -135,6 +140,7 @@ let codegen_spawns printer (graphs : event_graph_collection) (g : proc_graph) =
 
 let codegen_endpoints printer (graphs : event_graph_collection) (g : event_graph) =
   let print_port_signal_decl = fun (port : port_def) ->
+    if port.dtype <> Lang.unit_dtype then
     Printf.sprintf "%s %s;" (Format.format_dtype graphs.typedefs graphs.macro_defs port.dtype) (port.name) |>
       CodegenPrinter.print_line printer
   in
@@ -236,7 +242,7 @@ let codegen_wire_assignment printer (graphs : event_graph_collection) (g : event
     in
     CodegenPrinter.print_line printer
       @@
-      if w.is_const then
+      if w.is_const && w.size > 0 then
         Printf.sprintf "localparam %s %s = %s;"
           (Format.format_dtype graphs.typedefs graphs.macro_defs (`Array (`Logic, ParamEnv.Concrete w.size)))
           (Format.format_wirename w.thread_id w.id) expr
@@ -247,7 +253,7 @@ let codegen_wire_assignment printer (graphs : event_graph_collection) (g : event
 let codegen_post_declare printer (graphs : event_graph_collection) (g : event_graph) =
   (* wire declarations *)
   let codegen_wire_decl = fun (w: WireCollection.wire) ->
-    if not w.is_const then (* constants do not correspond to wires *)
+    if not w.is_const && w.size > 0 then (* constants do not correspond to wires *)
       Printf.sprintf "%s %s;" (Format.format_dtype graphs.typedefs graphs.macro_defs (`Array (`Logic, ParamEnv.Concrete w.size))) (Format.format_wirename w.thread_id w.id) |>
         CodegenPrinter.print_line printer
   in List.iter codegen_wire_decl g.wires.wire_li;
@@ -278,7 +284,8 @@ let codegen_regs printer (graphs : event_graph_collection) (g : event_graph) =
     (
       fun _ (r : reg_def) ->
         let open CodegenFormat in
-        Printf.sprintf "%s %s;" (format_dtype graphs.typedefs graphs.macro_defs r.d_type)
+        if r.d_type <> Lang.unit_dtype then
+          Printf.sprintf "%s %s;" (format_dtype graphs.typedefs graphs.macro_defs r.d_type)
           (format_regname_current r.name) |>
           CodegenPrinter.print_line printer
     )

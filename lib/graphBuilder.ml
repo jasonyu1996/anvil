@@ -710,7 +710,7 @@ and visit_expr (graph : event_graph) (ci : cunit_info)
     let stype = List.hd msg.sig_types in
     let d_recv = delay_pat_globalise recv_pack.recv_msg_spec.endpoint stype.lifetime.e in
     let td_recv = {
-      w = Some w_recv;
+      w = w_recv;
       lt = {live = ctx_true_no_binding.current; dead = [(ctx_true_no_binding.current, d_recv)]};
       reg_borrows = [];
       dtype = stype.dtype;
@@ -897,6 +897,14 @@ and visit_expr (graph : event_graph) (ci : cunit_info)
       match op with
       | DebugPrint (s, e_list) ->
         let timed_ws = List.map (visit_expr graph ci ctx) e_list in
+        let all_w = List.for_all(
+          fun td ->
+            match td.w with
+            | Some _ -> true
+            | None -> false
+        ) timed_ws in 
+        if not all_w then
+          raise (Except.TypeError [Text "Invalid value in debug print"; Except.codespan_local e.span]);
         ctx.current.actions <- (let open EventGraph in DebugPrint (s, timed_ws) |> tag_with_span e.span)::ctx.current.actions;
         {w = None; lt = EventGraphOps.lifetime_const ctx.current; reg_borrows = []; dtype = unit_dtype}
       | DebugFinish ->
@@ -937,7 +945,7 @@ and visit_expr (graph : event_graph) (ci : cunit_info)
     );
     let (wires', w) = WireCollection.add_msg_port graph.thread_id ci.typedefs ci.macro_defs recv_pack.recv_msg_spec 0 msg graph.wires in
     graph.wires <- wires';
-    let ntd = Typing.recv_msg_data graph (Some w) recv_pack.recv_msg_spec msg ctx.current in
+    let ntd = Typing.recv_msg_data graph w recv_pack.recv_msg_spec msg ctx.current in
     ctx.current.sustained_actions <-
       ({until = ntd.lt.live; ty = Recv recv_pack.recv_msg_spec} |> tag_with_span e.span)::ctx.current.sustained_actions;
     ntd

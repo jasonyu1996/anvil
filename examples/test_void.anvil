@@ -1,0 +1,36 @@
+chan ch{
+    left req : (void@#1),
+    right res : (void@#1)
+}
+proc Foo(ep : left ch){
+    reg counter : logic[8];
+    loop{
+        let x =  recv ep.req >>
+        dprint "[Cycle %d] Received request" (*counter) >>
+        cycle 1 >>
+        send ep.res (()) >>
+        cycle 1
+    }
+    loop{
+        set counter := *counter + 8'd1
+    }
+}
+
+proc test_void(){
+    chan ep_le -- ep_ri : ch;
+    spawn Foo(ep_le);
+    reg counter : logic[8];
+    loop{
+        send ep_ri.req (()) >>
+        let y = recv ep_ri.res >>
+        dprint "[Cycle %d] Received response" (*counter) >>
+        cycle 1
+    }
+    loop{
+        set counter := *counter + 8'd1
+    }
+    loop{
+        cycle 10 >>
+        dfinish
+    }
+}

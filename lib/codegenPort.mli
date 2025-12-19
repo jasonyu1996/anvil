@@ -13,6 +13,8 @@ val message_has_valid_port : Lang.message_def -> bool
 (** Check if a message has an [ack] port. *)
 val message_has_ack_port : Lang.message_def -> bool
 
+val message_has_data_port : Lang.message_def -> int -> bool
+
 (** Produce a list of all ports to be generated for a list of end points. *)
 val gather_ports :
   Lang.channel_class_def list -> Lang.endpoint_def list -> t list

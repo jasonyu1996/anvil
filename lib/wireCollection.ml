@@ -156,13 +156,15 @@ module Wire = struct
   let new_msg_port id thread_id typedefs (macro_defs: Lang.macro_def list) msg_spec idx msg_def =
     let open Lang in
     let t = List.nth msg_def.sig_types idx in
-    {
-      id;
-      thread_id;
-      source = MessagePort (msg_spec, idx);
-      size = TypedefMap.data_type_size typedefs macro_defs t.dtype;
-      is_const = false;
-    }
+    if t.dtype <> Lang.unit_dtype then
+      Some {
+        id;
+        thread_id;
+        source = MessagePort (msg_spec, idx);
+        size = TypedefMap.data_type_size typedefs macro_defs t.dtype;
+        is_const = false;
+      }
+    else None
 
   let new_slice id thread_id w base_i len =
     let is_const =
@@ -256,10 +258,10 @@ let add_concat thread_id (typedefs : TypedefMap.t) macro_defs (ws : wire list) (
   (add_wire wc w, w)
 
 let add_msg_port thread_id (typedefs : TypedefMap.t) (macro_defs: Lang.macro_def list)
-  (msg_spec : Lang.message_specifier) (idx : int) (msg_def : Lang.message_def) (wc : t) : t * wire =
+  (msg_spec : Lang.message_specifier) (idx : int) (msg_def : Lang.message_def) (wc : t) : (t * (wire option)) =
   let id = wc.wire_last_id + 1 in
   let w = Wire.new_msg_port id thread_id typedefs macro_defs msg_spec idx msg_def in
-  (add_wire wc w, w)
+  ((if Option.is_some w then (add_wire wc (Option.get w)) else wc), w)
 
 let add_slice thread_id  (w : wire) base_i len (wc : t) : t * wire =
   let id = wc.wire_last_id + 1 in
