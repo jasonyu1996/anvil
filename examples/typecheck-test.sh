@@ -18,7 +18,7 @@ done
 
 for t in should_fail/*.anvil; do
     should_fail_t=$(expr $should_fail_t + 1)
-    if ! dune exec anvil -- $@ $t > /dev/null; then
+    if ! dune exec anvil -- -just-check $@ $t > /dev/null; then
         should_fail_p=$(expr $should_fail_p + 1)
         echo "####### Test Passed: $t"
     else

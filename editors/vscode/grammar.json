@@ -278,7 +278,7 @@
 			"patterns": [
 				{
 					"name": "entity.name.type.numeric.anvil",
-					"match": "\\b(logic|int)\\b"
+					"match": "\\b(logic|int|void)\\b"
 				},
 				{
 					"name": "storage.modifier.anvil",

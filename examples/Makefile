@@ -19,6 +19,14 @@ ifdef LTOFF
     ANVIL_FLAGS += -disable-lt-checks
 endif
 
+ifdef CHECK
+	ANVIL_FLAGS += -just-check
+endif
+
+ifdef VERBOSE
+	ANVIL_FLAGS += -verbose
+endif
+
 $(MODULE_NAME).anvil.sv: $(MODULE_NAME).anvil
 	dune exec anvil $(ANVIL_FLAGS) $< > $@
 
@@ -33,3 +41,15 @@ run: obj_dir/V$(MODULE_NAME)
 
 clean:
 	rm -rf *obj_dir *.anvil.sv *_driver.cpp *.error
+
+help:
+	@echo "Makefile targets and options:"
+	@echo ""
+	@echo "  MODULE_NAME=foo   Specify the top module name (default: top)"
+	@echo "  clean             Clean generated files"
+	@echo "  run               Build and run the simulation for MODULE_NAME"
+	@echo ""
+	@echo "  VERBOSE=1         Enable verbose output during compilation"
+	@echo "  TRACE_ON=1        Enable waveform tracing in simulation"
+	@echo "  LTOFF=1           Disable lifetime checks during Anvil compilation"
+	@echo "  CHECK=1           Only type-check Anvil code (no SV generation)"

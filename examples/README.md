@@ -10,6 +10,9 @@ This directory contains AnvilHDL code examples that demonstrate core language fe
 # Run tests for all examples
 bash test-all.sh
 
+# Get info about make reciepes
+make help
+
 # Build a single example (AnvilHDL + Verilator)
 make MODULE_NAME=<example-name>
 
