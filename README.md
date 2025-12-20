@@ -180,4 +180,6 @@ or in BibTeX format:
 If you use AnvilHDL, we would love to hear your feedback!
 Please join https://anvilhdl.zulipchat.com/ for discussions.
 
-> **Acknowledgement**: We want to thank <img src="https://github.com/zulip/zulip/blob/main/static/images/logo/zulip-org-logo.svg" height="20" alt="Zulip" /> for sponsoring the community chat channel and allowing us to encourage discussions. Zulip is an organized team chat app designed for efficient communication.
+> **Acknowledgement**: We want to thank [**Zulip**](https://zulip.com/)
+> for sponsoring the community chat channel and enabling discussions.
+> Zulip is an organized team chat app designed for efficient communication.
