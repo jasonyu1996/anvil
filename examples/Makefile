@@ -32,4 +32,4 @@ run: obj_dir/V$(MODULE_NAME)
 	@ $< $(TIMEOUT)
 
 clean:
-	rm -rf *obj_dir *.anvil.sv *_driver.cpp
+	rm -rf *obj_dir *.anvil.sv *_driver.cpp *.error

@@ -531,7 +531,7 @@ expr:
   { e }
 | KEYWORD_MATCH; e = node(expr); LEFT_BRACE; match_arm_list = separated_list(COMMA, match_arm); RIGHT_BRACE
   { Lang.Match (e, match_arm_list) }
-| ASTERISK; reg_id = lvalue_base
+| ASTERISK; reg_id = lvalue
   { Lang.Read reg_id }
 | constructor_spec = constructor_spec; e = ioption(node(expr_in_parenthese))
   { Lang.Construct (constructor_spec, e) }
@@ -659,19 +659,14 @@ un_expr:
 | OR; e = node(expr)
   { Lang.Unop (Lang.OrAll, e) } %prec UOR
 ;
-lvalue_base:
+
+lvalue:
 | regname = IDENT
   { Lang.Reg regname }
-| lval = lvalue_base; LEFT_BRACKET; ind = index; RIGHT_BRACKET
-  { Lang.Indexed (lval, ind) }
-| LEFT_PAREN; lval = lvalue; RIGHT_PAREN
-  { lval }
-;
-lvalue:
-| lval = lvalue_base
-  { lval }
 | lval = lvalue; PERIOD; fieldname = IDENT
   { Lang.Indirected (lval, fieldname) }
+| lval = lvalue; LEFT_BRACKET; ind = index; RIGHT_BRACKET
+  { Lang.Indexed (lval, ind) }
 ;
 
 index:

@@ -858,35 +858,49 @@ and visit_expr (graph : event_graph) (ci : cunit_info)
     let (wires'', w'') = WireCollection.add_reg_read graph.thread_id ci.typedefs ci.macro_defs r graph.wires in
     graph.wires <- wires'';
     let td = {w = Some w''; lt = EventGraphOps.lifetime_const ctx.current; reg_borrows = []; dtype = r.d_type} in
-    let rec get_borrow_info in_off le dt w lval td' =
+    let get_borrow_info in_off le dt w lval td' =
       match lval with 
         | Reg _ -> (dt,in_off,le,w,td')
         | Indexed (lv, idx) ->
+          let inner_info = lvalue_info_of graph ci ctx e.span lv in
+          let inner_le = fst inner_info.lval_range.subreg_range_interval in
+          let inner_dtype = inner_info.lval_dtype in
           let (offset_le, len, dt') = TypedefMap.data_type_index ci.typedefs ci.macro_defs
-          (visit_expr graph ci ctx)
-          (binop_td_const e.span Mul)
-          dt idx |> unwrap_or_err (Printf.sprintf "Invalid indexing %s for datatype %s" (string_of_index idx) (Lang.string_of_data_type dt)) e.span in
-          let wire_of (td:timed_data) = unwrap_or_err (Printf.sprintf "Invalid indexing for %s in data type %s" (string_of_index idx) (Lang.string_of_data_type td.dtype)) e.span td.w in
-          let offset_le_w = MaybeConst.map wire_of offset_le in
-          let off_i = MaybeConst.map_off offset_le in
-          let (off, le' )= if off_i < 0 then (
+            (visit_expr graph ci ctx)
+            (binop_td_const e.span Mul)
+            inner_dtype idx |> unwrap_or_err (Printf.sprintf "Invalid indexing %s for datatype %s" (string_of_index idx) (Lang.string_of_data_type inner_dtype)) e.span in
+          let total_offset_le = MaybeConst.add (binop_td_const e.span Add) (_binop_td_td e.span Add) offset_le inner_le in
+          let off_i = MaybeConst.map_off total_offset_le in
+          let (off, le') = if off_i < 0 then (
             Printf.eprintf "[Warning] The offset is not a constant value for %s, borrowing full range\n" reg_ident;
-            (0, le)
+            (0, len)
           ) else (off_i, len) in
-          let (wire',w') = WireCollection.add_slice graph.thread_id w offset_le_w len graph.wires in
+          let (wire', w') = WireCollection.add_slice graph.thread_id w (MaybeConst.map (fun td -> unwrap_or_err "Invalid indexing in lvalue" e.span td.w) total_offset_le) le' graph.wires in
           graph.wires <- wire';
-          let new_td = match offset_le with          
-            | NonConst td_offset -> Typing.merged_data graph (Some w') dt' ctx.current [td';td_offset]
-            | Const _ -> {td' with w = Some w'; dtype = dt'}
+          let new_td = match total_offset_le with
+            | MaybeConst.NonConst td_offset -> Typing.merged_data graph (Some w') dt' ctx.current [td'; td_offset]
+            | MaybeConst.Const _ -> {td' with w = Some w'; dtype = dt'}
           in
-          (get_borrow_info off le' dt' w' lv new_td)
-        | Indirected (lval, field_id) -> 
-          let (offset_le, len, new_dtype) = TypedefMap.data_type_indirect ci.typedefs ci.macro_defs dt field_id
+          (dt', off, le', w', new_td)
+        | Indirected (lval_inner, field_id) -> 
+          let lval_info_inner = lvalue_info_of graph ci ctx e.span lval_inner in
+          let (inner_le, _inner_len) = lval_info_inner.lval_range.subreg_range_interval in
+          let (field_offset_le, len, new_dtype) = TypedefMap.data_type_indirect ci.typedefs ci.macro_defs lval_info_inner.lval_dtype field_id
             |> unwrap_or_err (Printf.sprintf "Invalid indirection %s" field_id) e.span in
-          let (wi',new_w) =  WireCollection.add_slice graph.thread_id w (Const offset_le) len graph.wires in
-          let new_td = {td' with w = Some new_w; dtype = new_dtype} in
+          (* total offset = inner offset + field offset *)
+          let total_offset_le = MaybeConst.add_const field_offset_le (binop_td_const e.span Add) inner_le in
+          let off_i = MaybeConst.map_off total_offset_le in
+          let (off, le') = if off_i < 0 then (
+            Printf.eprintf "[Warning] The offset is not a constant value for indirection %s, borrowing full range\n" field_id;
+            (0, len)
+          ) else (off_i, len) in
+          let (wi', new_w) = WireCollection.add_slice graph.thread_id w (MaybeConst.map (fun td -> unwrap_or_err "Invalid indexing in indirection" e.span td.w) total_offset_le) le' graph.wires in
           graph.wires <- wi';
-          (get_borrow_info offset_le len new_dtype new_w lval new_td)
+          let new_td = match total_offset_le with
+            | MaybeConst.Const _ -> {td' with w = Some new_w; dtype = new_dtype}
+            | MaybeConst.NonConst td_offset -> Typing.merged_data graph (Some new_w) new_dtype ctx.current [td'; td_offset]
+          in
+          (new_dtype, off, le', new_w, new_td)
     in
     let full_sz = TypedefMap.data_type_size ci.typedefs ci.macro_defs r.d_type in
     let (_dt,off,le,_w,td'') = get_borrow_info 0 full_sz r.d_type w'' rlval td in

@@ -1,9 +1,0 @@
-proc top() {
-    loop {
-        cycle 1 >>
-        let answer = 8'd42;
-        dprint "Hello Anvil* Answer = %d" (answer);
-        cycle 1 >>
-        dfinish
-    }
-}

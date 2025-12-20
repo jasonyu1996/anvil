@@ -1,4 +1,3 @@
-extern import "imported_example.anvil.sv"
 import "imported_example.anvil"
 
 proc import_example() {
