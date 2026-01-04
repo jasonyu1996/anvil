@@ -133,7 +133,7 @@ let codegen_spawns printer (graphs : event_graph_collection) (g : proc_graph) =
     in
     let param_count = List.fold_left (fun acc p -> match p with Lang.SingleEp _ -> acc + 1 | Lang.RangeEp (_,_ ,sz) -> acc + sz) 0 spawn.d.params in
     if List.length proc_other.messages.args <> param_count then
-      raise (Failure (Printf.sprintf "Invalid number of arguments for spawn of proc %s"  proc_other.name));
+      raise (Failure (Printf.sprintf "Invalid number of arguments for spawn of proc %s | Expected %d"  proc_other.name param_count));
     List.iter2 connect_endpoints proc_other.messages.args (Lang.preprocess_ep_spawn_args spawn.d.params);
     CodegenPrinter.print_line printer ~lvl_delta_pre:(-1) ");"
   in List.iteri gen_spawn g.spawns
