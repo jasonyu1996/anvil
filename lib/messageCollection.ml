@@ -97,25 +97,25 @@ let create (channels : channel_def ast_node list)
   in
   (* override the user-specified foreign in args *)
   (* if its array of channels create ep instances appended with ep[i] for the messages *)
-  let args_without_arrays = List.filter (fun ({d = ep; _} : endpoint_def ast_node) -> Option.is_none ep.num_instances) args in
-  let arg_with_arrays = List.filter (fun ({d = ep; _} : endpoint_def ast_node) -> Option.is_some ep.num_instances) args in
-  let args_without_arrays = List.map (fun ({d = ep; span} : endpoint_def ast_node) -> ({ep with foreign = get_foreign ep.name}, span)) args_without_arrays in
-  let args_with_arrays = List.concat_map (fun ({d = ep; span} : endpoint_def ast_node) ->
-    let num_instances = Option.get ep.num_instances in
-    if num_instances <= 0 then
-      raise (Except.TypeError [
-        Text (Printf.sprintf "Number of instances for endpoint array %s must be positive" ep.name);
-        Except.codespan_local span
-      ]);
-    List.init num_instances (fun i ->
-      let nm = Printf.sprintf "%s[%d]" ep.name i in
-      ({ep with name = nm; foreign = get_foreign nm}, span)
-    )
-  ) arg_with_arrays in
-  let local_messages = List.filter (fun ((p, _) : endpoint_def * code_span) -> not p.foreign) (args_without_arrays @ args_with_arrays @ endpoints) |>
+  let processed_args = List.concat_map (fun ({d = ep; span} : endpoint_def ast_node) ->
+    match ep.num_instances with
+    | None ->
+        [({ep with foreign = get_foreign ep.name}, span)]
+    | Some num_instances ->
+        if num_instances <= 0 then
+          raise (Except.TypeError [
+            Text (Printf.sprintf "Number of instances for endpoint array %s must be positive" ep.name);
+            Except.codespan_local span
+          ]);
+        List.init num_instances (fun i ->
+          let nm = Printf.sprintf "%s[%d]" ep.name i in
+          ({ep with name = nm; foreign = get_foreign nm}, span)
+        )
+  ) args in
+  let local_messages = List.filter (fun ((p, _) : endpoint_def * code_span) -> not p.foreign) (processed_args @ endpoints) |>
   List.concat_map gather_from_endpoint in
 
-  {endpoints = List.map fst endpoints; args = (List.map fst args_without_arrays) @ (List.map fst args_with_arrays); local_messages}
+  {endpoints = List.map fst endpoints; args = List.map fst processed_args; local_messages}
 
 
 
