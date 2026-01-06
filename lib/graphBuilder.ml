@@ -1137,15 +1137,20 @@ let build_proc (config : Config.compile_config) sched module_name param_values
       ParamConcretise.concretise_proc param_values proc
   in
   let macro_defs_extended =
-    List.fold_left2 (fun acc (p : Lang.param) (pval : param_value) ->
-      match p.param_ty, pval with
-      | IntParam, IntParamValue v ->
-        {
-          id = p.param_name;
-          value = v;
-        } :: acc
-      | _ -> acc
-    ) ci'.macro_defs proc.params param_values in
+    if List.length param_values <> List.length proc.params then
+      raise (Except.TypeError [Text (Printf.sprintf "Expected %d parameters but got %d in %s instantation"
+        (List.length proc.params) (List.length param_values) module_name)])
+    else
+      List.fold_left2 (fun acc (p : Lang.param) (pval : param_value) ->
+        match p.param_ty, pval with
+        | IntParam, IntParamValue v ->
+          {
+            id = p.param_name;
+            value = v;
+          } :: acc
+        | _ -> acc
+      ) ci'.macro_defs proc.params param_values 
+    in
 
   let ci = {
     file_name = ci'.file_name;
